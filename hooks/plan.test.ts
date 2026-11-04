@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { Plan, PlanInput, PlanResult } from './plan'
-import { addNodes, clearMarks, currentLeaf, emptyPlan, hasOpenWork, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
+import { MAX_NODES, addNodes, clearMarks, currentLeaf, emptyPlan, hasOpenWork, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
 
 const ok = (r: PlanResult): Plan => {
   if ('error' in r) throw new Error(`expected a plan, got: ${r.error}`)
@@ -62,12 +62,12 @@ test('a parallel group is not a level: stage, task, checkpoint fit under it, a f
   expect(fails(setPlan(emptyPlan(), 'T', tooDeep, 0))).toContain('3 levels')
 })
 
-test('set refuses an empty title, no steps, a childless parallel node and more than 60 nodes', () => {
+test('set refuses an empty title, no steps, a childless parallel node and more nodes than the cap', () => {
   expect(fails(setPlan(emptyPlan(), ' ', [{ title: 'a' }], 0))).toContain('title')
   expect(fails(setPlan(emptyPlan(), 'T', [], 0))).toContain('no steps')
   expect(fails(setPlan(emptyPlan(), 'T', [{ title: 'a', parallel: true }], 0))).toContain('parallel')
-  const many = Array.from({ length: 61 }, (_, i) => ({ title: `s${i}` }))
-  expect(fails(setPlan(emptyPlan(), 'T', many, 0))).toContain('60')
+  const many = Array.from({ length: MAX_NODES + 1 }, (_, i) => ({ title: `s${i}` }))
+  expect(fails(setPlan(emptyPlan(), 'T', many, 0))).toContain(`${MAX_NODES}`)
 })
 
 test('a parent takes its status from its children', () => {
@@ -254,4 +254,13 @@ test('a parent whose open work is only checks waits for them, and a plan left wi
   expect(hasOpenWork(p)).toBe(false)
   p = ok(updateNodes(p, [{ id: '1.1', status: 'completed' }], 2))
   expect(statusOf(p, '1')).toBe('completed')
+})
+
+test('steps under a finished stage do not count toward the cap, so a long session keeps room', () => {
+  const big = { title: '끝난 단계', children: Array.from({ length: MAX_NODES - 2 }, (_, i) => ({ title: `확인 ${i + 1}` })) }
+  let p = ok(setPlan(emptyPlan(), '긴 세션', [big, { title: '다음' }], 0))
+  p = ok(updateNodes(p, p.nodes.filter(n => n.parentId === '1').map(n => ({ id: n.id, status: 'completed' as const })), 1))
+  p = ok(addNodes(p, null, Array.from({ length: 20 }, (_, i) => ({ title: `더 ${i + 1}` })), 2))
+  expect(p.nodes.length).toBeGreaterThan(MAX_NODES)
+  expect(fails(setPlan(emptyPlan(), '처음부터 큰 계획', Array.from({ length: MAX_NODES + 1 }, (_, i) => ({ title: `${i}` })), 0))).toContain(`at most ${MAX_NODES}`)
 })

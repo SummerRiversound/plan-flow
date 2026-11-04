@@ -11,7 +11,8 @@ import { clean } from './sanitize'
 export type { Plan, PlanNode, PlanStatus }
 
 export const MAX_LEVELS = 3
-export const MAX_NODES = 60
+// Steps under a finished top-level stage do not count: a long session keeps room.
+export const MAX_NODES = 100
 export const MAX_TITLE = 120
 export const MAX_NOTE = 200
 export const MAX_DETAIL = 160
@@ -33,6 +34,13 @@ export const childrenOf = (nodes: readonly PlanNode[], id: string | null): PlanN
 export const hasChildren = (nodes: readonly PlanNode[], id: string): boolean => nodes.some(n => n.parentId === id)
 
 export const leavesOf = (plan: Plan): PlanNode[] => plan.nodes.filter(n => !hasChildren(plan.nodes, n.id))
+
+// The steps the cap counts: all but those under a top-level stage whose every leaf is finished.
+export const countedNodes = (nodes: readonly PlanNode[]): number => {
+  const doneStages = nodes.filter(n => n.parentId === null && hasChildren(nodes, n.id) && leavesUnder(nodes, n.id).every(l => isFinished(l.status)))
+
+  return nodes.filter(n => !doneStages.some(s => n.id.startsWith(`${s.id}.`))).length
+}
 
 // The leaves at or under `id`, in tree order.
 export const leavesUnder = (nodes: readonly PlanNode[], id: string): PlanNode[] =>
@@ -216,6 +224,7 @@ export const setPlan = (prev: Plan, rawTitle: string, input: readonly PlanInput[
     const lastChild: Record<string, number> = {}
     const made = build(input, null, 1, lastChild)
     if ('error' in made) return made
+    // shortcut: a whole plan sent at once counts every step, finished or not; count like addNodes if long sessions resend whole plans.
     if (made.nodes.length > MAX_NODES) return { error: `the plan has ${made.nodes.length} steps; at most ${MAX_NODES} fit` }
     const same = prev.nodes.length > 0 && prev.title.toLowerCase() === title.value.toLowerCase()
     if (same) {
@@ -249,7 +258,8 @@ export const addNodes = (prev: Plan, parentId: string | null, input: readonly Pl
     const made = build(input, parentId, levelUnder(prev.nodes, parentId), lastChild)
     if ('error' in made) return made
     const nodes = prev.nodes.map(n => ({ ...n }))
-    if (nodes.length + made.nodes.length > MAX_NODES) return { error: `the plan would have ${nodes.length + made.nodes.length} steps; at most ${MAX_NODES} fit` }
+    const counted = countedNodes(nodes) + made.nodes.length
+    if (counted > MAX_NODES) return { error: `the plan would have ${counted} open steps; at most ${MAX_NODES} fit (steps under finished stages do not count)` }
     const at = parentId === null ? nodes.length : lastUnder(nodes, parentId) + 1
     nodes.splice(at, 0, ...made.nodes)
     const parent = parentId === null ? undefined : nodes.find(n => n.id === parentId)

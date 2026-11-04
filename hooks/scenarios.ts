@@ -128,11 +128,11 @@ export const SCENARIOS: Scenario[] = [
   { id: 'restart', title: '취소 후 다시', frames: restart() },
   {
     id: 'blocked',
-    title: '막힘과 건너뜀',
+    title: '막힘·건너뜀·확인 대기',
     frames: [(() => {
       const b = login()
-      const p = plan(updateNodes(b.plan, [{ id: '4.2', status: 'skipped', note: '이번엔 안 함' }, { id: '2.3', status: 'blocked', note: '로그인 필요' }], 260_000))
-      return { label: '하은 님 차례인 단계와 건너뛴 단계', board: { ...b, plan: p }, activity: { phase: 'permission', running: [] }, now: 260_000 }
+      const p = plan(updateNodes(b.plan, [{ id: '4.2', status: 'skipped', note: '이번엔 안 함' }, { id: '2.3', status: 'blocked', note: '로그인 필요' }, { id: '2.1', status: 'needs_check', note: '폰에서 눌러 보기' }], 260_000))
+      return { label: '하은 님 차례인 단계, 건너뛴 단계, 확인 기다리는 단계', board: { ...b, plan: p }, activity: { phase: 'permission', running: [] }, now: 260_000 }
     })()],
   },
   {

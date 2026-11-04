@@ -8,7 +8,7 @@ import type { Plan, PlanNode } from './plan'
 import { childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { drawTree, duration, elapsed, fitLine, glyphColor, glyphSeg, lineText, markSeg, noteText } from './tree'
+import { checkLine, drawTree, duration, elapsed, fitLine, glyphColor, glyphSeg, lineText, markSeg, noteText } from './tree'
 import { cells, padRight, wrap } from './width'
 
 export type { DrawerState }
@@ -275,7 +275,8 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now }: FlowOp
   const head = spread([{ text: ` ${plan.title}`, bold: true, color: 'text' }], { text: r, color: 'inactive' }, width)
   // Too narrow for a box: the head alone.
   if (width < MIN_INNER + 4) return { lines: [head], buttons: [], cut: true }
-  const lines: Line[] = [head, []]
+  const checks = checkLine(plan, width, ' ')
+  const lines: Line[] = [head, ...(checks === null ? [] : [checks]), []]
   const axis = Math.floor((width - 1) / 2)
   const stages = childrenOf(plan.nodes, null)
   stages.forEach((n, i) => {

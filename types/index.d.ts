@@ -1,7 +1,8 @@
 // The state contract. `claude plugin validate` refuses a PluginState entry that
 // points at an alias, so the atoms below spell their shapes out; the named types
 // are what the code uses.
-export type PlanStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
+// `needs_check`: Claude did its part and the person has to look (a device, a taste call); it counts as done.
+export type PlanStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped' | 'needs_check'
 
 // One step. Ids are paths ("2", "2.1", "2.1.3"); a parent's status is derived from
 // its children. `parallel` marks a group whose children run at the same time.
@@ -60,7 +61,7 @@ declare module 'claude-code' {
           id: string
           parentId: string | null
           title: string
-          status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
+          status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped' | 'needs_check'
           note?: string
           detail?: string
           links?: string[]
@@ -85,7 +86,7 @@ declare module 'claude-code' {
             id: string
             parentId: string | null
             title: string
-            status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
+            status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped' | 'needs_check'
             note?: string
             detail?: string
             links?: string[]

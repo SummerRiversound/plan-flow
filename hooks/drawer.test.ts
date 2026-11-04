@@ -185,3 +185,8 @@ test('links show under a step whose row shows: inside an open box, and not under
   expect(text).toContain('↗ PR #42')
   expect(text).not.toContain('↗ PR #9')
 })
+
+test('the drawer names the steps waiting for the person to check under its head', () => {
+  const p = ok(updateNodes(sample(), [{ id: '1', status: 'needs_check', note: '문서 읽어 보기' }], 300_000))
+  expect(texts(p)[1]).toBe(' ◐ 확인할 것 1: 조사 (문서 읽어 보기)')
+})

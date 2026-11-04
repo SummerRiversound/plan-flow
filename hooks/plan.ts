@@ -22,11 +22,11 @@ export type PlanInput = { title: string; detail?: string; links?: readonly strin
 export type NodeUpdate = { id: string; status?: PlanStatus; title?: string; note?: string; detail?: string; links?: readonly string[]; parallel?: boolean }
 export type PlanResult = { plan: Plan } | { error: string }
 
-export const STATUSES: readonly PlanStatus[] = ['pending', 'in_progress', 'completed', 'blocked', 'skipped']
+export const STATUSES: readonly PlanStatus[] = ['pending', 'in_progress', 'completed', 'blocked', 'skipped', 'needs_check']
 
 export const emptyPlan = (): Plan => ({ title: '', nodes: [], lastChild: {}, startedAt: 0 })
 
-export const isFinished = (s: PlanStatus): boolean => s === 'completed' || s === 'skipped'
+export const isFinished = (s: PlanStatus): boolean => s === 'completed' || s === 'skipped' || s === 'needs_check'
 
 export const childrenOf = (nodes: readonly PlanNode[], id: string | null): PlanNode[] => nodes.filter(n => n.parentId === id)
 
@@ -122,7 +122,8 @@ const levelUnder = (nodes: readonly PlanNode[], parentId: string | null): number
 }
 
 // Parents follow their children: running if any child runs, blocked if any is blocked,
-// completed once all are finished, running once some are, else pending. A parent's
+// waiting for a check once all are finished and some wait for one, completed once all are
+// finished, running once some are, else pending. A parent's
 // times span its children's.
 export const rollup = (plan: Plan): Plan => {
   const nodes = plan.nodes.map(n => ({ ...n }))
@@ -135,7 +136,9 @@ export const rollup = (plan: Plan): Plan => {
       : s.includes('blocked')
         ? 'blocked'
         : s.every(isFinished)
-          ? 'completed'
+          ? s.includes('needs_check')
+            ? 'needs_check'
+            : 'completed'
           : s.some(isFinished)
             ? 'in_progress'
             : 'pending'
@@ -407,7 +410,7 @@ export const nextStep = (prev: Plan, id: string | undefined, now: number): PlanR
     return { plan: rollup(plan) }
   })
 
-// Leaves finished (completed or skipped) out of all leaves.
+// Leaves finished (completed, skipped or waiting for a check) out of all leaves.
 export const progress = (plan: Plan): { done: number; total: number } => {
   const all = leavesOf(plan)
 
@@ -422,6 +425,9 @@ export const currentLeaf = (plan: Plan): PlanNode | null => {
 }
 
 export const runningLeaves = running
+
+// Leaves waiting for the person to check, in tree order.
+export const checksOf = (plan: Plan): PlanNode[] => leavesOf(plan).filter(n => n.status === 'needs_check')
 
 // Open work: a leaf waiting, running or blocked.
 export const hasOpenWork = (plan: Plan): boolean => leavesOf(plan).some(n => !isFinished(n.status))

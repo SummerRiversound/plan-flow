@@ -146,3 +146,12 @@ test('the band folds to its title and progress lines, and its button says which 
   expect(lineText(folded[1] ?? [])).toMatch(/\d+\/\d+ · \d+%/)
   expect(folded[0]?.find(s => s.text === '펼치기 ▾')?.button).toBe(FOLD_BUTTON)
 })
+
+test('steps waiting for the person to check are gathered on one line under the progress bar, and fold away with the band', () => {
+  let p = ok(setPlan(emptyPlan(), '로그인', [{ title: '화면' }, { title: 'API' }, { title: '저장' }], 0))
+  p = ok(updateNodes(p, [{ id: '1', status: 'needs_check', note: '폰에서 눌러 보기' }, { id: '2', status: 'needs_check' }], 1))
+  const lines = drawTree(p, idleActivity(), { maxRows: 10, width: 60, now: 2 }).map(lineText)
+  expect(lines[2]).toBe('◐ 확인할 것 2: 화면 (폰에서 눌러 보기) · API')
+  expect(lines.some(l => l.includes('◐ 화면'))).toBe(true)
+  expect(drawTree(p, idleActivity(), { maxRows: 10, width: 60, now: 2, folded: true }).map(lineText).some(l => l.includes('확인할 것'))).toBe(false)
+})

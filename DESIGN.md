@@ -49,7 +49,7 @@ components:
 
 ## Overview
 
-A plan is drawn in two places: a live tree above the prompt, and a card flowchart in the `/flow` side drawer. It should read like a CI run graph: calm and dense. A row's mark shape is its status: `✓` done, `●` running, `○` waiting, `■` blocked, `–` skipped. The target drawings are in `docs/design-reference/terminal/`.
+A plan is drawn in two places: a live tree above the prompt, and a card flowchart in the `/flow` side drawer. It should read like a CI run graph: calm and dense. A row's mark shape is its status: `✓` done, `●` running, `○` waiting, `■` blocked, `–` skipped, `◐` waiting for the person to check. The target drawings are in `docs/design-reference/terminal/`.
 
 ## Colors
 
@@ -78,6 +78,7 @@ None. Hierarchy comes from nesting boxes, not shadows.
 - **Running stage box:** border and mark in text colour, name bold; the other boxes' borders are muted.
 - **Parallel group:** `╭ 동시에` header line inside a box, holding the tasks that run at the same time.
 - **Link row:** under a step whose row shows (a leaf, or an open box), one row of short names in text colour, each a hyperlink: `↗ PR #42  ↗ 아티팩트  ↗ LoginPage.tsx`, ending in muted `+N` for links that do not fit. The drawer only; the band above the prompt stays as it is.
+- **Check line:** under the progress bar (band) or the head (drawer), bold `◐ 확인할 것 N:` then each step waiting for the person's check with its note, joined by ` · `; absent when there are none, and folded away with the band.
 - **Connectors:** `┬`/`┴` on box edges, `▼` into the next box, `╭─┴─╮` for a split and `╰─┬─╯` for a join.
 - **Tree above the prompt:** title, a progress line with `done/total · %`, then one row per node: mark, title, `∥ parallel` on a parallel parent, `done/total` flush right on parents, `◂` on the current leaf.
 
@@ -88,4 +89,4 @@ None. Hierarchy comes from nesting boxes, not shadows.
 - Do animate only while something runs, and only the running item.
 - Don't use literal colors in code; use theme keys.
 - Don't draw icon tiles or subagent strips.
-- Don't let the tree above the prompt grow past the rows it is given; fold completed subtrees instead.
+- Don't let the tree above the prompt grow past the rows it is given; fold completed subtrees, then show a window around the current step, with no hint row.

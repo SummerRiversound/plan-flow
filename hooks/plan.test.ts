@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { Plan, PlanInput, PlanResult } from './plan'
-import { addNodes, clearMarks, currentLeaf, emptyPlan, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
+import { addNodes, clearMarks, currentLeaf, emptyPlan, hasOpenWork, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
 
 const ok = (r: PlanResult): Plan => {
   if ('error' in r) throw new Error(`expected a plan, got: ${r.error}`)
@@ -235,4 +235,23 @@ test('a step moves among its siblings with everything under it', () => {
   p = ok(moveNode(p, '2', undefined, 2))
   expect(p.nodes.map(n => n.title)).toEqual(['a', 'c', 'b', 'b1'])
   expect(fails(moveNode(p, '2', '2.1', 3))).toContain('sibling')
+})
+
+test('a step waiting for the person to check counts as done, and the work moves on past it', () => {
+  let p = ok(setPlan(emptyPlan(), '로그인', [{ title: '화면' }, { title: '저장' }], 0))
+  p = ok(nextStep(p, undefined, 1))
+  p = ok(updateNodes(p, [{ id: '1', status: 'needs_check', note: '폰에서 눌러 보기' }], 2))
+  expect(progress(p)).toEqual({ done: 1, total: 2 })
+  p = ok(nextStep(p, undefined, 3))
+  expect(running(p)).toEqual(['2'])
+  expect(currentLeaf(p)?.id).toBe('2')
+})
+
+test('a parent whose open work is only checks waits for them, and a plan left with only checks has no open work', () => {
+  let p = ok(setPlan(emptyPlan(), '로그인', [{ title: '구현', children: [{ title: '화면' }, { title: 'API' }] }], 0))
+  p = ok(updateNodes(p, [{ id: '1.1', status: 'needs_check' }, { id: '1.2', status: 'completed' }], 1))
+  expect(statusOf(p, '1')).toBe('needs_check')
+  expect(hasOpenWork(p)).toBe(false)
+  p = ok(updateNodes(p, [{ id: '1.1', status: 'completed' }], 2))
+  expect(statusOf(p, '1')).toBe('completed')
 })

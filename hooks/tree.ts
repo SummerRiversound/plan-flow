@@ -4,14 +4,14 @@ import type { Activity } from '../types'
 import { activityLabel } from './activity'
 import { fitRows, foldedParents } from './fit'
 import type { Plan, PlanNode, PlanStatus } from './plan'
-import { childrenOf, currentLeaf, finishedAt, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
+import { checksOf, childrenOf, currentLeaf, finishedAt, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link.
 export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string }
 export type Line = Seg[]
 
-export const GLYPH: Record<PlanStatus, string> = { completed: '✓', in_progress: '●', pending: '○', blocked: '■', skipped: '–' }
+export const GLYPH: Record<PlanStatus, string> = { completed: '✓', in_progress: '●', pending: '○', blocked: '■', skipped: '–', needs_check: '◐' }
 
 // Only two colours carry meaning: green for done, red for blocked. Everything else is plain text or muted.
 export const glyphColor = (n: PlanNode): string =>
@@ -109,7 +109,7 @@ const detailRows = (plan: Plan, n: PlanNode, width: number, marked: Set<string>)
 }
 
 const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, folded: ReadonlySet<string>): Line => {
-  const done = isFinished(n.status)
+  const done = isFinished(n.status) && n.status !== 'needs_check'
   const left: Line = [
     { text: prefixOf(plan, n), color: 'inactive' },
     glyphSeg(n),
@@ -144,6 +144,14 @@ const strip = (plan: Plan, bar: number): Line => {
   }
 
   return out
+}
+
+// The steps waiting for the person to check, on one line: `◐ 확인할 것 2: 화면 (폰에서 눌러 보기) · API`.
+export const checkLine = (plan: Plan, width: number, lead = ''): Line | null => {
+  const checks = checksOf(plan)
+  if (checks.length === 0) return null
+
+  return fitLine([{ text: `${lead}◐ 확인할 것 ${checks.length}: `, color: 'text', bold: true }, { text: checks.map(n => `${n.title}${noteText(n)}`).join(' · '), color: 'text' }], width)
 }
 
 const head = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean): Line[] => {
@@ -181,6 +189,8 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, no
   const words = activityLabel(activity)
   const run = runningLeaves(plan)[0]
   const dot = activity.phase === 'error' ? 'error' : run === undefined ? 'text' : glyphColor(run)
+  const checks = checkLine(plan, width)
+  if (checks !== null) lines.push(checks)
   if (words !== undefined) lines.push(fitLine([{ text: '● ', color: dot }, { text: words, color: 'text' }], width))
   lines.push([])
 

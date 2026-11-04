@@ -66,7 +66,7 @@ The terminal's own monospace font; only weight varies. Bold marks the running it
 
 ## Layout
 
-All sizes are terminal cells. The tree above the prompt fits the rows the engine gives it, folding completed subtrees first. The drawer is 53 columns when docked at 45% of a 120-column terminal; boxes are centred on one axis and side-by-side branches sit 5 cells apart.
+All sizes are terminal cells. The tree above the prompt fits the rows the engine gives it, folding completed subtrees first. The drawer is 53 columns when docked at 45% of a 120-column terminal; boxes are centred on one axis. Every box on the axis has one width, open or folded: the drawer less 8 cells, or wider if the longest stage title needs it. Side-by-side branches share that width evenly, at least 5 cells apart, so their outer edges line up with the boxes above and below; when a title would not fit, fewer go to a row.
 
 ## Elevation & Depth
 

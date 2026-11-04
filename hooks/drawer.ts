@@ -211,13 +211,17 @@ const oddFit = (n: number, max: number): number => {
   return w % 2 === 1 ? w : w + 1 <= max ? w + 1 : w - 1
 }
 
-// One stage as a box; `tail` puts `┬` under its middle for what comes next.
-const box = (ctx: Ctx, n: PlanNode, max: number, tail: boolean): Block => {
+// The cells a box needs for its whole title row.
+const natural = (ctx: Ctx, n: PlanNode): number => {
+  const r = right(ctx, n)
+
+  return cells(lineText(titleSegs(ctx, n))) + (r === null ? 0 : cells(r.text) + 1) + 4
+}
+
+// One stage as a box `width` cells wide (odd); `tail` puts `┬` under its middle for what comes next.
+const box = (ctx: Ctx, n: PlanNode, width: number, tail: boolean): Block => {
   const open = hasChildren(ctx.plan.nodes, n.id) && isOpen(ctx.plan, ctx.drawer, n.id)
   const r = right(ctx, n)
-  const natural = cells(lineText(titleSegs(ctx, n))) + (r === null ? 0 : cells(r.text) + 1) + 4
-  const wide = open || detailLines(ctx, n, max).length > 0 || ctx.drawer.pick === n.id
-  const width = oddFit(wide ? Math.max(MIN_BOX, max - 8) : Math.max(MIN_BOX, natural), max)
   const inner = width - 4
   const edge = { color: n.status === 'in_progress' ? glyphColor(n) : 'inactive' }
   const wall = (row: Line): Line => [{ text: '│ ', ...edge }, ...pad(row, inner), { text: ' │', ...edge }]
@@ -269,23 +273,30 @@ const connector = (trunk: number | null, branches: readonly number[], kind: 'spl
 
 const arrows = (xs: readonly number[]): Line => place(xs.map(x => ({ x, line: [{ text: '▼', color: 'inactive' }] })))
 
-// Boxes side by side under a parallel stage, as many to a row as fit.
-const branches = (ctx: Ctx, group: PlanNode, width: number, axis: number, first: boolean, last: boolean): Line[] => {
-  const blocks = childrenOf(ctx.plan.nodes, group.id).map(n => box(ctx, n, width, true))
-  const rows: Block[][] = []
-  for (const b of blocks) {
-    const row = rows[rows.length - 1]
-    const used = row === undefined ? 0 : row.reduce((s, x) => s + x.width + GAP, 0)
-    if (row !== undefined && used + b.width <= width) row.push(b)
-    else rows.push([b])
+// Boxes side by side under a parallel stage, all one width: as many to a row as fit with
+// every title whole, sharing the axis boxes' width evenly so the outer edges line up.
+const branches = (ctx: Ctx, group: PlanNode, span: number, axis: number, first: boolean, last: boolean): Line[] => {
+  const kids = childrenOf(ctx.plan.nodes, group.id)
+  const need = Math.max(MIN_INNER + 4, ...kids.map(n => natural(ctx, n)))
+  // Odd for the middle `┬`, rounded down so the row still fits.
+  const share = (k: number): number => {
+    const w = Math.floor((span - GAP * (k - 1)) / k)
+    return k === 1 ? span : w % 2 === 1 ? w : w - 1
   }
+  const per = [...Array(kids.length).keys()].map(i => kids.length - i).find(k => k === 1 || share(k) >= need) ?? 1
+  const w = share(per)
+  const blocks = kids.map(n => box(ctx, n, w, true))
+  // What rounding to odd left over widens the gaps, so the row ends where the axis boxes do.
+  const gap = per === 1 ? GAP : Math.floor((span - per * w) / (per - 1))
+  const rows: Block[][] = []
+  for (let i = 0; i < blocks.length; i += per) rows.push(blocks.slice(i, i + per))
   const out: Line[] = []
   rows.forEach((row, i) => {
-    const total = row.reduce((s, b) => s + b.width, 0) + GAP * (row.length - 1)
+    const total = row.reduce((s, b) => s + b.width, 0) + gap * (row.length - 1)
     let x = Math.max(0, axis - Math.floor((total - 1) / 2))
     const starts = row.map(b => {
       const at = x
-      x += b.width + GAP
+      x += b.width + gap
       return at
     })
     const mids = row.map((b, j) => (starts[j] ?? 0) + (b.width - 1) / 2)
@@ -310,15 +321,18 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = f
   const lines: Line[] = []
   const axis = Math.floor((width - 1) / 2)
   const stages = childrenOf(plan.nodes, null)
+  // Every box on the axis is as wide, open or folded, so the stages line up: the drawer less a
+  // margin, or wider to keep the longest title whole.
+  const span = oddFit(Math.max(MIN_BOX, width - 8, ...stages.filter(n => n.parallel !== true).map(n => natural(ctx, n))), width)
   stages.forEach((n, i) => {
     const last = i === stages.length - 1
     if (n.parallel === true) {
-      lines.push(...branches(ctx, n, width, axis, i === 0, last))
+      lines.push(...branches(ctx, n, span, axis, i === 0, last))
       if (!last && stages[i + 1]?.parallel !== true) lines.push(arrows([axis]))
       return
     }
     if (i > 0 && stages[i - 1]?.parallel !== true) lines.push(arrows([axis]))
-    const b = box(ctx, n, width, !last)
+    const b = box(ctx, n, span, !last)
     for (const l of b.lines) lines.push(place([{ x: axis - (b.width - 1) / 2, line: l }]))
   })
 

@@ -75,9 +75,9 @@ export const pickStep = (drawer: DrawerState, id: string): DrawerState => ({ ...
 const buttonRow = (bs: ReadonlyArray<[string, string]>, w: number, lead = ' ', chrome = 4): Line =>
   bs.reduce<Line>((l, [id, text]) => (cells(lineText(l)) + (l.length === 0 ? cells(lead) : 2) + chrome + cells(text) > w ? l : [...l, { text: l.length === 0 ? lead : '  ' }, { text, color: 'text', bold: true, button: id }]), [])
 
-// The buttons under the picked step: "확인했어요" only while it waits for the person's check.
+// The buttons under the picked step: "확인 완료" only while it waits for the person's check.
 const actionLines = (drawer: DrawerState, n: PlanNode, w: number, lead: string): Line[] =>
-  drawer.pick !== n.id ? [] : [buttonRow([...(n.status === 'needs_check' ? [[CONFIRM, '[ 확인했어요 ]'] as [string, string]] : []), [ASK, '[ 질문 ]']], w, lead, 0)]
+  drawer.pick !== n.id ? [] : [buttonRow([...(n.status === 'needs_check' ? [[CONFIRM, '[ 확인 완료 ]'] as [string, string]] : []), [ASK, '[ 논의 ]']], w, lead, 0)]
 
 type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 

@@ -154,15 +154,15 @@ test('every row that shows is a button, in the order the rows are drawn', () => 
   expect(draw(sample(), toggleFold(sample(), closed, '2.2.2')).buttons).toContain('2.2.2.1')
 })
 
-// Buttons under a step, as the rows read them: `확인했어요` and `질문`.
+// Buttons under a step, as the rows read them: `확인 완료` and `논의`.
 const actions = (lines: readonly (readonly { text: string; button?: string }[])[]): string[][] =>
   lines.map(l => l.flatMap(s => (s.button === CONFIRM || s.button === ASK ? [s.button] : []))).filter(b => b.length > 0)
 
-test('pressing a step picks it: a step waiting for a check offers 확인했어요 and 질문, others only 질문; again lets it go', () => {
+test('pressing a step picks it: a step waiting for a check offers 확인 완료 and 논의, others only 논의; again lets it go', () => {
   const p = ok(updateNodes(sample(), [{ id: '2.2.1.1', status: 'needs_check', note: '응답 보기' }], 210_000))
   const waiting = pickStep(closed, '2.2.1.1')
   expect(actions(draw(p, waiting).lines)).toEqual([[CONFIRM, ASK]])
-  expect(texts(p, waiting).join('\n')).toContain('[ 확인했어요 ]  [ 질문 ]')
+  expect(texts(p, waiting).join('\n')).toContain('[ 확인 완료 ]  [ 논의 ]')
   expect(actions(draw(p, pickStep(closed, '2.2.1.2')).lines)).toEqual([[ASK]])
   expect(pickStep(waiting, '2.2.1.1').pick).toBeUndefined()
   // A box keeps folding when pressed; the drawer still holds its width.

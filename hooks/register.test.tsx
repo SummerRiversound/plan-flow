@@ -196,7 +196,7 @@ test('a resumed session gets its plan back', async ($, on) => {
   expect(String((await $.tool.call({ tool: TOOL, op: 'show' })).result)).toContain('Plan: 로그인 기능 추가')
 })
 
-test('in the drawer, 확인했어요 under a step waiting for a check finishes it and tells Claude; 질문 starts a draft', async ($, on) => {
+test('in the drawer, 확인 완료 under a step waiting for a check finishes it and tells Claude; 논의 starts a draft', async ($, on) => {
   engine(on)
   let context: readonly string[] = []
   on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))

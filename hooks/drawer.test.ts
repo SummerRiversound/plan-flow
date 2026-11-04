@@ -140,3 +140,17 @@ test('parked plans are listed under the flowchart', () => {
   expect(lines[2]).toMatch(/^ ▸ 로그인 기능 추가 +\d+\/\d+$/)
   expect(shelfLines([], 40)).toEqual([])
 })
+
+test('an open box and the running step show their details; folded and finished ones do not', () => {
+  const p = ok(setPlan(emptyPlan(), 'T', [
+    { title: '조사', detail: '끝난 단계 설명' },
+    { title: '구현', detail: '로그인을 실제로 동작하게 만드는 단계', children: [{ title: '화면', detail: '아이디와 비밀번호 입력칸을 그린다' }, { title: 'API', detail: '접힌 단계 설명' }] },
+  ], 0))
+  const lines = texts(ok(nextStep(ok(nextStep(p, undefined, 1)), undefined, 2)))
+  const head = lines.findIndex(l => l.includes('● 구현'))
+  expect(lines[head + 1]).toContain('로그인을 실제로 동작하게 만드는 단계')
+  const run = lines.findIndex(l => l.includes('● 화면'))
+  expect(lines[run + 1]).toContain('아이디와 비밀번호 입력칸을 그린다')
+  expect(lines.some(l => l.includes('끝난 단계 설명') || l.includes('접힌 단계 설명'))).toBe(false)
+  expect(lines.every(l => cells(l) <= 53)).toBe(true)
+})

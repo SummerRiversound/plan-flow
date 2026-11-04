@@ -20,3 +20,4 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — Unrelated work: Claude suggests a fresh session first and parks only if the person stays.
 - 2026-11-04 — Park or cancel without asking when the request is clear; ask only when the case is ambiguous.
 - 2026-11-04 — Changes show as marks on steps (new, redo) and a parked list; a change log waits until it proves needed.
+- 2026-11-04 — Each step has a short title plus a one-sentence detail on what it does and why ("각 항목이 너무 축약되어있어서 뭘하고있는지 이해가잘안되는데.."). Above the prompt the detail shows under the running step; in the drawer, under open boxes and running steps.

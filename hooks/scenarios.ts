@@ -31,17 +31,30 @@ const working: Activity = { phase: 'tool', tool: 'Edit', running: [] }
 const idle: Activity = { phase: 'idle', running: [] }
 
 const LOGIN: PlanInput[] = [
-  { title: '조사' },
+  { title: '조사', detail: '지금 회원 정보가 어디에 어떻게 저장되는지 읽어 보기' },
   {
     title: '구현',
+    detail: '아이디와 비밀번호로 실제 로그인이 되게 만드는 단계',
     children: [
-      { title: '로그인 화면' },
+      { title: '로그인 화면', detail: '아이디·비밀번호 입력칸과 로그인 버튼을 그리기' },
       {
         title: 'API와 디자인',
         parallel: true,
         children: [
-          { title: 'API', children: [{ title: '주소 만들기' }, { title: '비밀번호 확인' }, { title: '에러 처리' }] },
-          { title: '디자인 다듬기', children: [{ title: '색 맞추기' }, { title: '간격 정리' }] },
+          {
+            title: 'API',
+            detail: '화면이 보낸 아이디·비밀번호를 받아 로그인 여부를 돌려주는 서버 쪽',
+            children: [
+              { title: '주소 만들기', detail: 'POST /login 주소를 열어 요청을 받기' },
+              { title: '비밀번호 확인', detail: '입력한 비밀번호를 저장된 해시와 비교해 맞으면 세션을 만들기' },
+              { title: '에러 처리', detail: '틀렸을 때 보여줄 문구와 5번 실패 시 잠금' },
+            ],
+          },
+          {
+            title: '디자인 다듬기',
+            detail: '로그인 화면을 앱의 다른 화면과 같은 모양으로 맞추기',
+            children: [{ title: '색 맞추기', detail: '버튼과 입력칸 색을 디자인 토큰 값으로 바꾸기' }, { title: '간격 정리' }],
+          },
         ],
       },
       { title: '세션 저장' },
@@ -55,7 +68,7 @@ const LOGIN: PlanInput[] = [
 const login = (): Board => steps(ok(setBoard(emptyBoard(), '로그인 기능 추가', LOGIN, undefined, 0)), 4, 1_000)
 
 const long = (): Board => {
-  const many = Array.from({ length: 14 }, (_, i) => ({ title: `${i + 1}단계 작업` }))
+  const many = Array.from({ length: 14 }, (_, i) => ({ title: `${i + 1}단계 작업`, detail: `${i + 1}번째 파일을 새 형식으로 옮기고 테스트를 돌리기` }))
 
   return steps(ok(setBoard(emptyBoard(), '긴 계획', many, undefined, 0)), 8, 1_000)
 }

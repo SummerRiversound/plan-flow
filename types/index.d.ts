@@ -11,6 +11,8 @@ export type PlanNode = {
   title: string
   status: PlanStatus
   note?: string
+  // One plain sentence on what the step does and why, shown while it runs or is open.
+  detail?: string
   parallel?: boolean
   startedAt?: number
   doneAt?: number
@@ -58,6 +60,7 @@ declare module 'claude-code' {
           title: string
           status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
           note?: string
+          detail?: string
           parallel?: boolean
           startedAt?: number
           doneAt?: number
@@ -81,6 +84,7 @@ declare module 'claude-code' {
             title: string
             status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
             note?: string
+            detail?: string
             parallel?: boolean
             startedAt?: number
             doneAt?: number

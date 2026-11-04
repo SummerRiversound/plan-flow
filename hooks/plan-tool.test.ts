@@ -127,3 +127,13 @@ test('each request carries a note while a plan is on the board, with the cases t
   const parked = run(board, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' }).board
   expect(boardNote(parked)).toContain('Parked: "로그인 기능 추가" (0/3)')
 })
+
+test('steps carry a one-line detail, set with the step or by update, and an empty one clears it', () => {
+  const { plan } = apply(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: '조사', detail: '기존 로그인 코드를 읽고 바꿀 곳을 찾기' }] })
+  expect(plan.nodes[0]?.detail).toBe('기존 로그인 코드를 읽고 바꿀 곳을 찾기')
+  const changed = apply(plan, { op: 'update', updates: [{ id: '1', detail: '다른 설명' }] }).plan
+  expect(changed.nodes[0]?.detail).toBe('다른 설명')
+  expect(apply(changed, { op: 'update', updates: [{ id: '1', detail: '' }] }).plan.nodes[0]?.detail).toBeUndefined()
+  expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', detail: 3 }] })).toMatch(/^Error: .*detail must be text/)
+  expect(instruction('t')).toContain('detail')
+})

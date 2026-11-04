@@ -132,3 +132,26 @@ export const padLeft = (text: string, width: number): string => {
 
   return ' '.repeat(Math.max(0, width - cells(cut))) + cut
 }
+
+// The text broken at spaces into at most `rows` lines of `max` cells; a word longer
+// than a line is cut, and the last line ends in an ellipsis when text is left over.
+export const wrap = (text: string, max: number, rows: number): string[] => {
+  if (max <= 0 || rows <= 0) return []
+  const out: string[] = []
+  let line = ''
+  const words = text.split(/\s+/).filter(w => w !== '')
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? ''
+    const next = line === '' ? word : `${line} ${word}`
+    if (cells(next) <= max) {
+      line = next
+      continue
+    }
+    if (out.length === rows - 1) return [...out, fit([next, ...words.slice(i + 1)].join(' '), max)]
+    if (line !== '') out.push(line)
+    line = cells(word) <= max ? word : fit(word, max)
+  }
+  if (line !== '') out.push(line)
+
+  return out.slice(0, rows)
+}

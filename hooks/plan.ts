@@ -14,9 +14,10 @@ export const MAX_LEVELS = 3
 export const MAX_NODES = 60
 export const MAX_TITLE = 120
 export const MAX_NOTE = 200
+export const MAX_DETAIL = 160
 
-export type PlanInput = { title: string; parallel?: boolean; children?: PlanInput[] }
-export type NodeUpdate = { id: string; status?: PlanStatus; title?: string; note?: string; parallel?: boolean }
+export type PlanInput = { title: string; detail?: string; parallel?: boolean; children?: PlanInput[] }
+export type NodeUpdate = { id: string; status?: PlanStatus; title?: string; note?: string; detail?: string; parallel?: boolean }
 export type PlanResult = { plan: Plan } | { error: string }
 
 export const STATUSES: readonly PlanStatus[] = ['pending', 'in_progress', 'completed', 'blocked', 'skipped']
@@ -70,6 +71,11 @@ const build = (
     lastChild[key] = n
     const id = parentId === null ? `${n}` : `${parentId}.${n}`
     const node: PlanNode = { id, parentId, title: title.value, status: 'pending' }
+    if (item.detail !== undefined) {
+      const detail = text('a step detail', item.detail, MAX_DETAIL, true)
+      if ('error' in detail) return detail
+      if (detail.value !== '') node.detail = detail.value
+    }
     const kids = item.children ?? []
     if (item.parallel === true) {
       if (kids.length === 0) return { error: `"${title.value}" is parallel but has no children; parallel marks a group of steps` }
@@ -300,6 +306,12 @@ export const updateNodes = (prev: Plan, updates: readonly NodeUpdate[], now: num
         if ('error' in t) return t
         if (t.value === '') delete node.note
         else node.note = t.value
+      }
+      if (u.detail !== undefined) {
+        const t = text('a step detail', u.detail, MAX_DETAIL, true)
+        if ('error' in t) return t
+        if (t.value === '') delete node.detail
+        else node.detail = t.value
       }
       if (u.parallel === true) {
         if (!isParent) return { error: `"${node.id}" has no children, so it cannot be a parallel group` }

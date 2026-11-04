@@ -9,7 +9,7 @@ import { childrenOf, currentLeaf, hasChildren, isFinished, progress } from './pl
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
 import { GLYPH, drawTree, duration, elapsed, fitLine, lineText, markSeg, noteText, statusColor } from './tree'
-import { cells, padRight } from './width'
+import { cells, padRight, wrap } from './width'
 
 export type { DrawerState }
 
@@ -92,6 +92,14 @@ const pad = (line: Line, w: number): Line => {
 
 const press = (line: Line, id: string): Line => line.map(s => ({ ...s, button: id }))
 
+// A step's detail, `w` cells wide, while its box is open or it runs.
+const detailLines = (ctx: Ctx, n: PlanNode, w: number): Line[] => {
+  const open = hasChildren(ctx.plan.nodes, n.id) && isOpen(ctx.plan, ctx.drawer, n.id)
+  if (n.detail === undefined || !(open || n.status === 'in_progress')) return []
+
+  return wrap(n.detail, w - 2, 2).map(t => [{ text: `  ${t}`, color: 'inactive' }])
+}
+
 // The rows inside an open box, `w` cells wide.
 const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] => {
   const rows: Line[] = []
@@ -108,6 +116,7 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
     const content = spread(titleSegs(ctx, n), right(ctx, n), w - cells(indent), ctx)
     if (parent) ctx.buttons.push(n.id)
     rows.push([{ text: indent }, ...(parent ? press(content, n.id) : content)])
+    for (const d of detailLines(ctx, n, w - cells(indent))) rows.push([{ text: indent }, ...d])
     if (parent && isOpen(ctx.plan, ctx.drawer, n.id)) rows.push(...inside(ctx, n.id, w, `${indent}    `))
   }
 
@@ -128,7 +137,8 @@ const box = (ctx: Ctx, n: PlanNode, max: number, tail: boolean): Block => {
   const open = hasChildren(ctx.plan.nodes, n.id) && isOpen(ctx.plan, ctx.drawer, n.id)
   const r = right(ctx, n)
   const natural = cells(lineText(titleSegs(ctx, n))) + (r === null ? 0 : cells(r.text) + 1) + 4
-  const width = oddFit(open ? Math.max(MIN_BOX, max - 8) : Math.max(MIN_BOX, natural), max)
+  const wide = open || detailLines(ctx, n, max).length > 0
+  const width = oddFit(wide ? Math.max(MIN_BOX, max - 8) : Math.max(MIN_BOX, natural), max)
   const inner = width - 4
   const edge = { color: n.status === 'in_progress' ? ctx.accent : 'inactive' }
   const wall = (row: Line): Line => [{ text: '│ ', ...edge }, ...pad(row, inner), { text: ' │', ...edge }]
@@ -137,7 +147,7 @@ const box = (ctx: Ctx, n: PlanNode, max: number, tail: boolean): Block => {
     ctx.buttons.push(n.id)
     head = press(head, n.id)
   }
-  const lines: Line[] = [[{ text: `╭${'─'.repeat(width - 2)}╮`, ...edge }], wall(head)]
+  const lines: Line[] = [[{ text: `╭${'─'.repeat(width - 2)}╮`, ...edge }], wall(head), ...detailLines(ctx, n, inner).map(wall)]
   if (open) {
     lines.push(wall([{ text: '┄'.repeat(inner), color: 'inactive' }]))
     for (const row of inside(ctx, n.id, inner, '')) lines.push(wall(row))

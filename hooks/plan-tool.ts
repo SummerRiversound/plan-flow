@@ -3,7 +3,7 @@
 import type { Board, Previous } from './board'
 import { cancelBoard, resumeBoard, setBoard, settle } from './board'
 import type { NodeUpdate, Plan, PlanInput } from './plan'
-import { addNodes, currentLeaf, hasOpenWork, MAX_NOTE, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
+import { addNodes, currentLeaf, hasOpenWork, MAX_DETAIL, MAX_NOTE, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
 import { clean } from './sanitize'
 
 export const TOOL_NAME = 'plan'
@@ -26,9 +26,10 @@ export const ANSWER_LIMIT = 4000
 export const TOOL_DESCRIPTION = [
   'The plan board for the current task; the person watches it on screen while you work.',
   'op "set" starts it: a title and the steps, nested as stages, tasks and checkpoints (3 levels at most).',
+  'Each step has a short title and a "detail": one plain sentence on what it does and why, shown under the step while it runs.',
   'Steps that do not depend on each other go under one node with "parallel": true and are worked on together; the step after the group waits for all of them.',
   'op "next" says the running step is done and starts the one after it (give "id" when several run and a particular one finished).',
-  'op "update" changes steps by id: status, title, or a note (say why a step is blocked or skipped).',
+  'op "update" changes steps by id: status, title, detail, or a note (say why a step is blocked or skipped).',
   'op "add" puts new steps under "parent" (or at the top; a leaf may get children when a step turns out bigger), op "remove" drops a step with everything under it, op "move" puts a step before its sibling "before" (or last), op "show" answers the plan with its ids.',
   'A step with children takes its status from them, so only leaves get a status; status "pending" on a finished step or parent reopens it to redo.',
   'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
@@ -41,6 +42,7 @@ type Schema = Record<string, unknown>
 const stepSchema = (depth: number): Schema => {
   const properties: Record<string, Schema> = {
     title: { type: 'string', description: `At most 4 words, in the user's language (${MAX_TITLE} characters at most)` },
+    detail: { type: 'string', description: `One plain sentence: what this step does and why, in words the person already uses (${MAX_DETAIL} characters at most)` },
     parallel: { type: 'boolean', description: 'This node groups steps that run at the same time' },
   }
   if (depth > 1) properties.children = { type: 'array', items: stepSchema(depth - 1) }
@@ -68,6 +70,7 @@ export const TOOL_SCHEMA: Schema = {
           status: { type: 'string', enum: [...STATUSES] },
           title: { type: 'string' },
           note: { type: 'string', description: `Why, for blocked or skipped (${MAX_NOTE} characters at most); empty clears it` },
+          detail: { type: 'string', description: 'The step\'s one-sentence detail; empty clears it' },
           parallel: { type: 'boolean' },
         },
         required: ['id'],
@@ -82,6 +85,7 @@ export const instruction = (tool: string): string =>
   [
     `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title and its steps.`,
     "Every title is at most 4 words, in the user's language.",
+    'Give every step a detail: one plain sentence saying what it does and why, so the person follows without asking; use words the person already uses, never labels coined in this session.',
     'Put steps that do not depend on each other under one node with "parallel": true and work on them together (several tool calls or agents in one message).',
     'When a step is done call op "next"; it finishes that step and starts the following one. Use op "update" for blocked or skipped steps, with a note saying why.',
     'While a plan is on the board, each request carries a plan-flow note: follow it to decide what the request does to the board before acting.',
@@ -150,6 +154,9 @@ const readSteps = (raw: unknown, at: string): Parsed<PlanInput[]> => {
     if (!isObject(item)) return bad(`${here} must be an object with a title`)
     if (typeof item.title !== 'string') return bad(`${here}.title must be text, not ${kind(item.title)}`)
     const step: PlanInput = { title: item.title }
+    const detail = optionalText(item, 'detail', `${here}.`)
+    if ('error' in detail) return detail
+    if (detail.value !== undefined) step.detail = detail.value
     const parallel = optionalFlag(item, 'parallel', `${here}.`)
     if ('error' in parallel) return parallel
     if (parallel.value !== undefined) step.parallel = parallel.value
@@ -184,6 +191,9 @@ const readUpdates = (raw: unknown): Parsed<NodeUpdate[]> => {
     const note = optionalText(item, 'note', here)
     if ('error' in note) return note
     if (note.value !== undefined) u.note = note.value
+    const detail = optionalText(item, 'detail', here)
+    if ('error' in detail) return detail
+    if (detail.value !== undefined) u.detail = detail.value
     const parallel = optionalFlag(item, 'parallel', here)
     if ('error' in parallel) return parallel
     if (parallel.value !== undefined) u.parallel = parallel.value

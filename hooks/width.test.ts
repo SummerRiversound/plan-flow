@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cells, fit, padLeft, padRight } from './width'
+import { cells, fit, padLeft, padRight, wrap } from './width'
 
 test('a Hangul syllable takes two cells, ASCII one', () => {
   expect(cells('abc')).toBe(3)
@@ -39,4 +39,11 @@ test('padding fills to an exact cell count', () => {
   expect(cells(padRight('비밀번호 확인', 20))).toBe(20)
   // Too long text is cut to fit first.
   expect(cells(padRight('비밀번호 확인', 6))).toBe(6)
+})
+
+test('wrap breaks at spaces by cells and ends the last row in an ellipsis', () => {
+  expect(wrap('하나 둘 셋', 20, 2)).toEqual(['하나 둘 셋'])
+  expect(wrap('비밀번호를 해시와 비교한다', 12, 2)).toEqual(['비밀번호를', '해시와 비교…'])
+  expect(wrap('aaaa bbbb cccc', 9, 3)).toEqual(['aaaa bbbb', 'cccc'])
+  expect(wrap('', 10, 2)).toEqual([])
 })

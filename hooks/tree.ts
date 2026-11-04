@@ -5,7 +5,7 @@ import { activityLabel } from './activity'
 import { fitRows, foldedParents } from './fit'
 import type { Plan, PlanNode, PlanStatus } from './plan'
 import { childrenOf, currentLeaf, finishedAt, hasChildren, leavesUnder, isFinished, progress, runningLeaves } from './plan'
-import { cells, fit, padRight } from './width'
+import { cells, fit, padRight, wrap } from './width'
 
 // `color` is a theme key or the accent setting; `button` is the node a press on the piece folds.
 export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string }
@@ -79,7 +79,8 @@ const isLastSibling = (plan: Plan, n: PlanNode): boolean => {
   return sibs[sibs.length - 1]?.id === n.id
 }
 
-const prefixOf = (plan: Plan, n: PlanNode): string => {
+// The guide lines a node's own row and everything under it start with.
+const guidesOf = (plan: Plan, n: PlanNode): string => {
   let out = ''
   let up = n.parentId === null ? undefined : plan.nodes.find(p => p.id === n.parentId)
   while (up !== undefined) {
@@ -87,7 +88,20 @@ const prefixOf = (plan: Plan, n: PlanNode): string => {
     up = up.parentId === null ? undefined : plan.nodes.find(p => p.id === up?.parentId)
   }
 
-  return out + (isLastSibling(plan, n) ? '└─ ' : '├─ ')
+  return out
+}
+
+const prefixOf = (plan: Plan, n: PlanNode): string => guidesOf(plan, n) + (isLastSibling(plan, n) ? '└─ ' : '├─ ')
+
+// A running step's detail, under its title: two rows when it runs alone, one when others run too.
+const detailRows = (plan: Plan, n: PlanNode, width: number, marked: Set<string>): Line[] => {
+  if (n.detail === undefined || !marked.has(n.id) || n.status !== 'in_progress') return []
+  const guide = `${guidesOf(plan, n)}${isLastSibling(plan, n) ? '   ' : '│  '}  `
+
+  return wrap(n.detail, width - cells(guide), marked.size > 1 ? 1 : 2).map(t => [
+    { text: guide, color: 'inactive' },
+    { text: t, color: 'inactive' },
+  ])
 }
 
 const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked: Set<string>, folded: ReadonlySet<string>): Line => {
@@ -166,7 +180,7 @@ export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, acc
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
       .filter(n => ![...folded].some(id => n.id.startsWith(`${id}.`)))
-      .map(node => ({ node, line: nodeRow(plan, node, width, accent, marked, folded) }))
+      .flatMap(node => [nodeRow(plan, node, width, accent, marked, folded), ...detailRows(plan, node, width, marked)].map(line => ({ node, line })))
   const overflow = (hidden: readonly PlanNode[]): Line => {
     const fin = hidden.filter(n => n.status === 'completed').length
     const wait = hidden.filter(n => n.status === 'pending').length

@@ -125,3 +125,20 @@ test('steps the latest request added or reopened carry a mark, and the head coun
   expect(lines.find(l => l.includes('조사'))).toContain('조사 ↺')
   expect(lines[1]).toContain('· 보관 2')
 })
+
+test('the running step shows its detail under it, wrapped to two rows; other steps keep theirs hidden', () => {
+  const withDetail: PlanInput[] = [
+    { title: '조사', detail: '이건 끝난 단계라 안 보여요' },
+    { title: '구현', detail: '단계 묶음 설명도 안 보여요', children: [{ title: '로그인 화면', detail: '입력한 비밀번호를 저장된 해시와 비교해서 로그인을 통과시킬지 정하고 실패하면 횟수를 센다' }] },
+  ]
+  let p = ok(setPlan(emptyPlan(), 'T', withDetail, 0))
+  p = ok(nextStep(ok(nextStep(p, undefined, 1)), undefined, 2))
+  const lines = texts(p, idleActivity(), 20, 40)
+  const at = lines.findIndex(l => l.includes('● 로그인 화면'))
+  expect(lines[at + 1]).toMatch(/^ {8}입력한 비밀번호를/)
+  expect(lines[at + 2]?.trim().length).toBeGreaterThan(0)
+  expect(lines[at + 2]?.endsWith('…')).toBe(true)
+  expect(lines.some(l => l.includes('끝난 단계'))).toBe(false)
+  expect(lines.some(l => l.includes('묶음 설명'))).toBe(false)
+  expect(lines.every(l => cells(l) <= 40)).toBe(true)
+})

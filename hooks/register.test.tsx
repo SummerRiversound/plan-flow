@@ -1,6 +1,11 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
+const KO = { options: { language: 'ko' } }
 
 const TOOL = 'mcp__plan-flow__plan'
 const PLAN = {
@@ -59,7 +64,7 @@ const personMoves = ($: Engine, element: string) =>
   $.ui.focus({ component: 'Pane', requestId: 'plan-flow', plugin: 'plan-flow', element, origin: { kind: 'person' } } as never)
 const start = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
-test('the plan tool sets the plan and answers with it', async ($, on) => {
+test('the plan tool sets the plan and answers with it', KO, async ($, on) => {
   engine(on)
   await start($)
   const out = await $.tool.call({ tool: TOOL, ...PLAN })
@@ -68,28 +73,28 @@ test('the plan tool sets the plan and answers with it', async ($, on) => {
   expect(String(next.result)).toContain('1 조사 - in_progress')
 })
 
-test('a subagent cannot change the plan', async ($, on) => {
+test('a subagent cannot change the plan', KO, async ($, on) => {
   engine(on)
   await start($)
   const out = await $.tool.call({ tool: TOOL, ...PLAN, agentId: 'a1' })
   expect(out.deny).toContain('main conversation')
 })
 
-test('with enforce off, edits run without a plan', async ($, on) => {
+test('with enforce off, edits run without a plan', KO, async ($, on) => {
   engine(on)
   await start($)
   const out = await $.tool.call({ tool: 'Bash', command: 'ls' })
   expect(out.deny).toBeUndefined()
 })
 
-test('with enforce on, edits wait for a plan, three times at most per turn', { options: { enforce: true } }, async ($, on) => {
+test('with enforce on, edits wait for a plan, three times at most per turn', { options: { enforce: true, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)
   for (let i = 0; i < 3; i++) expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).deny).toContain('"op":"set"')
   expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).deny).toBeUndefined()
 })
 
-test('with enforce on, a plan lets edits through', { options: { enforce: true } }, async ($, on) => {
+test('with enforce on, a plan lets edits through', { options: { enforce: true, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)
   expect((await $.tool.call({ tool: 'Write', file_path: '/a', content: '' })).deny).toBeDefined()
@@ -99,7 +104,7 @@ test('with enforce on, a plan lets edits through', { options: { enforce: true } 
   expect((await $.tool.call({ tool: 'Read', file_path: '/a' })).deny).toBeUndefined()
 })
 
-test('the tree shows above the prompt once a plan exists', async ($, on) => {
+test('the tree shows above the prompt once a plan exists', KO, async ($, on) => {
   engine(on)
   await start($)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -114,7 +119,7 @@ test('the tree shows above the prompt once a plan exists', async ($, on) => {
   await band.unmount()
 })
 
-test('with autoShow off, nothing shows above the prompt until /flow', { options: { autoShow: false } }, async ($, on) => {
+test('with autoShow off, nothing shows above the prompt until /flow', { options: { autoShow: false, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, ...PLAN })
@@ -130,14 +135,14 @@ test('with autoShow off, nothing shows above the prompt until /flow', { options:
   await band.unmount()
 })
 
-test('/flow opens the drawer and closes it again', async ($, on) => {
+test('/flow opens the drawer and closes it again', KO, async ($, on) => {
   engine(on)
   await start($)
   expect((await $.command.run(FLOW)).text).toBe('흐름도를 열었어요')
   expect((await $.command.run(FLOW)).text).toBe('흐름도를 닫았어요')
 })
 
-test('the tree hides five seconds after everything is done', async ($, on) => {
+test('the tree hides five seconds after everything is done', KO, async ($, on) => {
   const clock = engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, op: 'set', title: '짧은 일', nodes: [{ title: '하나' }] })
@@ -151,7 +156,7 @@ test('the tree hides five seconds after everything is done', async ($, on) => {
   await band.unmount()
 })
 
-test('in the drawer, Enter on a folded box unfolds it and the focus is kept', async ($, on) => {
+test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, ...PLAN })
@@ -188,7 +193,7 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', as
   }
 })
 
-test('a resumed session gets its plan back', async ($, on) => {
+test('a resumed session gets its plan back', KO, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, ...PLAN })
@@ -196,7 +201,7 @@ test('a resumed session gets its plan back', async ($, on) => {
   expect(String((await $.tool.call({ tool: TOOL, op: 'show' })).result)).toContain('Plan: 로그인 기능 추가')
 })
 
-test('in the drawer, 확인 완료 under a step waiting for a check finishes it and tells Claude; 논의 starts a draft', async ($, on) => {
+test('in the drawer, 확인 완료 under a step waiting for a check finishes it and tells Claude; 논의 starts a draft', KO, async ($, on) => {
   engine(on)
   let context: readonly string[] = []
   on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))
@@ -222,7 +227,7 @@ test('in the drawer, 확인 완료 under a step waiting for a check finishes it 
   expect(context[0]).not.toContain('marked completed')
 })
 
-test('each request carries the board to the model, and a detour parks the plan with a toast', async ($, on) => {
+test('each request carries the board to the model, and a detour parks the plan with a toast', KO, async ($, on) => {
   engine(on)
   let context: readonly string[] = []
   on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))
@@ -242,7 +247,7 @@ test('each request carries the board to the model, and a detour parks the plan w
   expect(context[0]).toContain('Parked: "로그인 기능 추가" (0/5)')
 })
 
-test('/flow demo shows canned boards above the prompt and leaves the real plan alone', async ($, on) => {
+test('/flow demo shows canned boards above the prompt and leaves the real plan alone', KO, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, op: 'set', title: '진짜 계획', nodes: [{ title: '첫 단계' }] })
@@ -263,7 +268,7 @@ test('/flow demo shows canned boards above the prompt and leaves the real plan a
   await band.unmount()
 })
 
-test('the band keeps what another plugin draws above the prompt, under the tree', async ($, on) => {
+test('the band keeps what another plugin draws above the prompt, under the tree', KO, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, ...PLAN })

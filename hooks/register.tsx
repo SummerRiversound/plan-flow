@@ -5,17 +5,18 @@ import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
 import { ASK, BOXED, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, pickStep, toggleFold } from './drawer'
-import { PAUSE_NOTICE, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
+import { decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, runningLeaves } from './plan'
 import type { PlanOp } from './plan-tool'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
 import type { DemoAt } from './scenarios'
-import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
+import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import { liveSvg } from './gui'
 import type { Line } from './tree'
 import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, fitLine, statusLine } from './tree'
 import { cells } from './width'
+import { pickLanguage, setLanguage, t } from './i18n'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -135,7 +136,7 @@ async function save($: $, plan: Plan, shelf: Shelved[]): Promise<void> {
 // Opens the drawer; the band steps aside while it is on screen.
 async function openDrawer($: $): Promise<boolean> {
   await update($, askedAtom, () => true)
-  const opened = await $.ui.open({ id: PANE, title: '흐름도', focus: true, closeOnEscape: true })
+  const opened = await $.ui.open({ id: PANE, title: t().pane, focus: true, closeOnEscape: true })
   await update($, paneAtom, () => true)
 
   return opened.isPlaced
@@ -155,13 +156,13 @@ async function demo($: $, arg: string | undefined): Promise<string> {
               const i = demoFind(arg)
               return i === undefined ? at : { scenario: i, frame: 0 }
             })()
-  if (arg !== undefined && !['stop', 'next', 'prev'].includes(arg) && demoFind(arg) === undefined) return `그런 시연이 없어요. 고를 수 있는 것:\n${demoList()}`
+  if (arg !== undefined && !['stop', 'next', 'prev'].includes(arg) && demoFind(arg) === undefined) return t().demo.unknown(demoList())
   await update($, demoAtom, () => to)
   await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
-  if (to === null) return '시연을 끝냈어요'
-  const s = SCENARIOS[to.scenario]
+  if (to === null) return t().demo.ended
+  const s = scenarios()[to.scenario]
 
-  return `시연 ${to.scenario + 1}/${SCENARIOS.length}: ${s?.title ?? ''} — ${demoFrame(to)?.label ?? ''}\n/flow demo next 로 다음, /flow demo stop 으로 끝내요.\n${demoList()}`
+  return t().demo.at(to.scenario + 1, scenarios().length, s?.title ?? '', demoFrame(to)?.label ?? '', demoList())
 }
 
 // What the person changed on the board from the drawer, told to Claude with the next request.
@@ -195,15 +196,25 @@ async function apply($: $, op: PlanOp, autoShow: boolean): Promise<{ text: strin
   return { text: ran.text }
 }
 
+// The language the mod speaks: its option, else Claude Code's language setting, else the locale.
+async function resolveLanguage($: $, option: unknown): Promise<void> {
+  // A policy can refuse a read; the language then falls through to the next source.
+  const safe = async <T,>(get: () => Promise<T>): Promise<T | undefined> => get().catch(() => undefined)
+  const setting = await safe(() => $.settings.read({ key: 'language' }))
+  const locale = await safe(async () => (await $.env.get('LC_ALL')) || (await $.env.get('LC_MESSAGES')) || (await $.env.get('LANG')))
+  setLanguage(pickLanguage(option, setting, locale))
+}
+
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const enforce = options.enforce === true
   let offered = false
 
   on('session.start', async ($, e, next) => {
+    await resolveLanguage($, options.language)
     await $.tool.register({ name: TOOL_NAME, description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false })
     offered = true
-    await $.command.register({ name: 'flow', description: '계획 흐름도를 열거나 닫아요', immediate: true })
+    await $.command.register({ name: 'flow', description: t().command, immediate: true })
     const saved = ((await $.store.get('plans')) ?? {}) as Saved
     const mine = saved[await $.session.id()]
     const plan = mine?.plan ?? emptyPlan()
@@ -251,7 +262,7 @@ export const register: Register = (on, options) => {
     const verdict = decide({ tool: e.tool, agentId: e.agentId, enforce, toolOffered: offered, gate: await read($, gateAtom) })
     if (verdict.verdict !== 'allow') await update($, gateAtom, () => verdict.gate)
     if (verdict.verdict === 'deny') return { deny: denyReason(TOOL) }
-    if (verdict.verdict === 'pause') $.ui.toast(PAUSE_NOTICE)
+    if (verdict.verdict === 'pause') $.ui.toast(t().pause)
     if (e.agentId !== undefined) return next(e)
     const question = e.tool === 'AskUserQuestion'
     await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool }, autoShow)
@@ -297,12 +308,12 @@ export const register: Register = (on, options) => {
     if ((await $.ui.panes()).some(p => p.id === PANE)) {
       await $.ui.close({ id: PANE })
 
-      return { text: '흐름도를 닫았어요' }
+      return { text: t().closed }
     }
     const placed = await openDrawer($)
     await refresh($, autoShow)
 
-    return { text: placed ? '흐름도를 열었어요' : '흐름도를 열었어요. 화면이 넓어지면 보여요' }
+    return { text: placed ? t().opened : t().openedLater }
   })
 
   // The tree above the prompt.
@@ -325,12 +336,12 @@ export const register: Register = (on, options) => {
         : [
             fitLine(
               [
-                { text: `▶ 시연 ${at.scenario + 1}/${SCENARIOS.length} · ${SCENARIOS[at.scenario]?.title ?? ''}  `, color: 'text', bold: true },
-                { text: '◂ 이전', color: 'inactive', button: DEMO_PREV },
+                { text: t().demo.bar(at.scenario + 1, scenarios().length, scenarios()[at.scenario]?.title ?? ''), color: 'text', bold: true },
+                { text: t().demo.prev, color: 'inactive', button: DEMO_PREV },
                 { text: '  ' },
-                { text: '다음 ▸', color: 'text', bold: true, button: DEMO_NEXT },
+                { text: t().demo.next, color: 'text', bold: true, button: DEMO_NEXT },
                 { text: '  ' },
-                { text: '끝 ✕', color: 'inactive', button: DEMO_STOP },
+                { text: t().demo.stop, color: 'inactive', button: DEMO_STOP },
               ],
               width,
             ),
@@ -340,7 +351,7 @@ export const register: Register = (on, options) => {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
       width,
       now,
-      open: '흐름도 보기 ▸',
+      open: t().bandOpen,
       folded: frame?.folded ?? (await read($, foldAtom)),
       parked: (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length,
     })
@@ -382,14 +393,14 @@ export const register: Register = (on, options) => {
     const picked = plan.nodes.find(n => n.id === drawer.pick)
     const press = (id: string) => {
       if (id === CONFIRM && picked !== undefined) {
-        if (frame !== undefined) return $.ui.toast('시연 화면이라 계획판은 그대로예요')
+        if (frame !== undefined) return $.ui.toast(t().demo.untouched)
         byPerson.push(`"${picked.title}" (id ${picked.id}) marked completed: the person checked it.`)
         void apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] }, autoShow).then(() => update($, drawerAtom, d => ({ ...d, pick: undefined })))
         return
       }
       // A draft, not a send: the person writes the rest and sends it themselves.
       if (id === ASK && picked !== undefined) {
-        void $.prompt.fill({ text: `[${picked.title}] `, mode: 'insert' }).then(r => $.ui.toast(r.isFilled ? '입력창에 단계 이름을 넣었어요' : '지금은 입력창에 넣을 수 없어요'))
+        void $.prompt.fill({ text: `[${picked.title}] `, mode: 'insert' }).then(r => $.ui.toast(r.isFilled ? t().filled : t().notFilled))
         return
       }
       void update($, drawerAtom, (d): DrawerState =>

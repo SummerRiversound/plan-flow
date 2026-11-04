@@ -1,7 +1,7 @@
 // The preview page: every scenario frame at every snapshot size, coloured as the
 // terminal draws it. Run: bun scripts/preview.ts > <path>.html, then open it.
 declare const console: { log: (text: string) => void }
-import { SCENARIOS } from '../hooks/scenarios'
+import { scenarios } from '../hooks/scenarios'
 import type { Shot } from '../hooks/snapshot'
 import { shots } from '../hooks/snapshot'
 import { cells } from '../hooks/width'
@@ -60,5 +60,5 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:32px 0 2px}p{color:#9a
 figure{margin:0}figcaption{color:#9a968f;font-size:12px;margin-bottom:4px}
 pre{font:14px/1.35 Menlo,ui-monospace,"Nanum Gothic Coding",monospace;background:#1a1816;border:1px solid #2c2926;border-radius:6px;padding:8px 10px;margin:0;overflow:hidden;box-sizing:content-box;white-space:pre}
 .w2{display:inline-block;width:2ch;text-align:center}.w1{display:inline-block;width:1ch;text-align:center}
-</style></head><body><h1>plan-flow 미리보기</h1><p>상황 ${SCENARIOS.length}개 · 입력창 위와 서랍을 크기별로 그린 결과예요. 점선 밑줄은 누를 수 있는 곳이에요.</p>
+</style></head><body><h1>plan-flow 미리보기</h1><p>상황 ${scenarios().length}개 · 입력창 위와 서랍을 크기별로 그린 결과예요. 점선 밑줄은 누를 수 있는 곳이에요.</p>
 ${sections}</body></html>`)

@@ -5,6 +5,10 @@ import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { FOLD_BUTTON, FRAME_MS, drawTree, lineText, statusLine } from './tree'
 import { cells } from './width'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 const ok = (r: PlanResult): Plan => {
   if ('error' in r) throw new Error(r.error)

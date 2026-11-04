@@ -3,6 +3,10 @@ import { idleActivity } from './activity'
 import type { Plan, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan } from './plan'
 import { drawTree, lineText } from './tree'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 const ok = (r: PlanResult): Plan => {
   if ('error' in r) throw new Error(r.error)

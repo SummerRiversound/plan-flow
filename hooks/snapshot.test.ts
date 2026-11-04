@@ -2,6 +2,10 @@ import { expect, test } from 'claude-code/testing'
 import { shots, shotText } from './snapshot'
 import { SNAPSHOTS } from './snapshots.data'
 import { cells } from './width'
+import { setLanguage } from './i18n'
+
+// The snapshots are drawn in Korean.
+setLanguage('ko')
 
 // A failure here means a view changed: look at it on the preview page
 // (bun scripts/preview.ts), and if it is right, rewrite the file (bun scripts/snapshots.ts).

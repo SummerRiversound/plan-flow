@@ -1,5 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import { CELL_PX, liveSvg } from './gui'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 test('the running step as a picture: a turning mark and a moving band, sized to the title cells, escaped', () => {
   const svg = liveSvg('A<B & "C"', 9, 0)

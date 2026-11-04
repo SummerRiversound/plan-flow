@@ -3,6 +3,10 @@ import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
 import { boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 const run = (board: Board, raw: unknown, now = 0): { board: Board; text: string; notice?: string } => {
   const parsed = parseOp(raw)

@@ -35,4 +35,3 @@ export const denyReason = (tool: string): string =>
   `plan-flow wants a plan before edits and commands. Send one first: ${tool} {"op":"set","title":"<what you are doing>","nodes":[{"title":"<first stage>"}]}. ` +
   `(${tool} may need loading through ToolSearch: "select:${tool}".)`
 
-export const PAUSE_NOTICE = '세 번 막았지만 계획이 없어서, 이번 턴은 계획 없이 진행해요'

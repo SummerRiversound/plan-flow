@@ -1,6 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { MAX_NODES, addNodes, clearMarks, currentLeaf, emptyPlan, hasOpenWork, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 const ok = (r: PlanResult): Plan => {
   if ('error' in r) throw new Error(`expected a plan, got: ${r.error}`)

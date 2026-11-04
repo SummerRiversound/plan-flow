@@ -2,9 +2,10 @@
 // the prompt (capped as the band caps it) and the drawer. Snapshots and the preview page
 // read these; the test compares their text with `snapshots.data.ts`.
 import { drawerView } from './drawer'
-import { SCENARIOS } from './scenarios'
+import { scenarios } from './scenarios'
 import type { Line } from './tree'
 import { BAND_ROWS, drawTree, lineText } from './tree'
+import { t } from './i18n'
 
 export type Shot = { key: string; scenario: string; label: string; view: 'band' | 'drawer'; width: number; rows?: number; lines: Line[] }
 
@@ -16,7 +17,7 @@ export const BAND_SIZES: ReadonlyArray<{ width: number; rows: number }> = [
 export const DRAWER_WIDTHS: readonly number[] = [30, 53, 90]
 
 export const shots = (): Shot[] =>
-  SCENARIOS.flatMap(s =>
+  scenarios().flatMap(s =>
     s.frames.flatMap((f, i) => {
       const name = `${s.id}${s.frames.length > 1 ? `#${i + 1}` : ''}`
       const scenario = `${s.title}${s.frames.length > 1 ? ` ${i + 1}/${s.frames.length}` : ''}`
@@ -28,7 +29,7 @@ export const shots = (): Shot[] =>
         view: 'band' as const,
         width,
         rows,
-        lines: drawTree(f.board.plan, f.activity, { maxRows: rows, width, now: f.now, open: '흐름도 보기 ▸', parked, folded: f.folded ?? false }),
+        lines: drawTree(f.board.plan, f.activity, { maxRows: rows, width, now: f.now, open: t().bandOpen, parked, folded: f.folded ?? false }),
       }))
       const drawer = DRAWER_WIDTHS.map(width => ({
         key: `${name} drawer ${width}`,

@@ -5,6 +5,7 @@ import type { Board, Shelved } from '../types'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { clearMarks, emptyPlan, finishedAt, hasOpenWork, progress, setPlan } from './plan'
 import { clean } from './sanitize'
+import { t } from './i18n'
 
 export type { Board, Shelved }
 export type Previous = 'park' | 'cancel'
@@ -57,9 +58,9 @@ export const setBoard = (board: Board, title: string, nodes: readonly PlanInput[
   if (revised || board.plan.nodes.length === 0) return { board: { ...board, plan: made.plan } }
   const out = outgoing(board.plan, previous, 'start a different plan')
   if ('error' in out) return out
-  const verb = out.state === 'parked' ? '보관' : out.state === 'cancelled' ? '취소' : '완료'
+  const verb = t().board[out.state]
 
-  return { board: { plan: made.plan, shelf: shelve(board.shelf, board.plan, out.state, now) }, notice: `"${board.plan.title}" ${verb} · "${made.plan.title}" 시작` }
+  return { board: { plan: made.plan, shelf: shelve(board.shelf, board.plan, out.state, now) }, notice: t().board.switched(board.plan.title, verb, made.plan.title) }
 }
 
 // A shelved plan back in hand: the one titled `title`, else the newest parked one.
@@ -74,7 +75,7 @@ export const resumeBoard = (board: Board, title: string | undefined, previous: P
   if ('error' in out) return out
   const shelf = board.shelf.filter((_, i) => i !== at)
 
-  return { board: { plan: pick.plan, shelf: shelve(shelf, board.plan, out.state, now) }, notice: `"${pick.plan.title}" 다시 시작` }
+  return { board: { plan: pick.plan, shelf: shelve(shelf, board.plan, out.state, now) }, notice: t().board.resumed(pick.plan.title) }
 }
 
 // Drops the plan in hand; the newest parked plan, if any, comes back.
@@ -83,9 +84,9 @@ export const cancelBoard = (board: Board, now: number): BoardResult => {
   const shelf = shelve(board.shelf, board.plan, 'cancelled', now)
   const back = shelf.findIndex(s => s.state === 'parked')
   const pick = shelf[back]
-  if (pick === undefined) return { board: { plan: emptyPlan(), shelf }, notice: `"${board.plan.title}" 취소` }
+  if (pick === undefined) return { board: { plan: emptyPlan(), shelf }, notice: t().board.cancelledOnly(board.plan.title) }
 
-  return { board: { plan: pick.plan, shelf: shelf.filter((_, i) => i !== back) }, notice: `"${board.plan.title}" 취소 · "${pick.plan.title}"(으)로 돌아왔어요` }
+  return { board: { plan: pick.plan, shelf: shelf.filter((_, i) => i !== back) }, notice: t().board.back(board.plan.title, t().board.cancelled, pick.plan.title) }
 }
 
 // After a change to the plan in hand: once it is finished, the newest parked plan comes back.
@@ -102,5 +103,5 @@ export const settle = (board: Board, plan: PlanResult, now: number): BoardResult
     now,
   )
 
-  return { board: { plan: pick.plan, shelf }, notice: `"${next.plan.title}" 완료 · "${pick.plan.title}"(으)로 돌아왔어요` }
+  return { board: { plan: pick.plan, shelf }, notice: t().board.back(next.plan.title, t().board.done, pick.plan.title) }
 }

@@ -6,6 +6,7 @@ import { fitRows, foldedParents } from './fit'
 import type { Plan, PlanNode, PlanStatus } from './plan'
 import { checksOf, childrenOf, currentLeaf, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
+import { t } from './i18n'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
 // `live` marks the running step's turning mark and swept title, which a surface that draws pictures animates itself.
@@ -127,7 +128,7 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, fo
       : [glyphSeg(n), { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) }]),
     ...markSeg(plan, n.id),
   ]
-  if (n.parallel === true) left.push({ text: ' ∥ 동시에', color: 'inactive' })
+  if (n.parallel === true) left.push({ text: ` ∥ ${t().parallel}`, color: 'inactive' })
   const note = noteText(n)
   if (note !== '') left.push({ text: note, color: n.status === 'blocked' ? 'warning' : 'inactive' })
   if (running) return fitLine(left, width)
@@ -176,7 +177,7 @@ export const checkLine = (plan: Plan, width: number, lead = ''): Line | null => 
   const checks = checksOf(plan)
   if (checks.length === 0) return null
 
-  return fitLine([{ text: `${lead}◐ 확인할 것 ${checks.length}: `, color: 'text', bold: true }, { text: checks.map(n => `${n.title}${noteText(n)}`).join(' · '), color: 'text' }], width)
+  return fitLine([{ text: `${lead}${t().checks(checks.length)}`, color: 'text', bold: true }, { text: checks.map(n => `${n.title}${noteText(n)}`).join(' · '), color: 'text' }], width)
 }
 
 // The title, progress bar, steps to check and what Claude is doing; the band's top and the drawer's pinned head.
@@ -190,12 +191,12 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
   }
   const pct = total === 0 ? 0 : Math.round((done / total) * 100)
   let label = `  ${done}/${total} · ${pct}%`
-  if (parked > 0 && cells(label) + 8 + 4 <= width) label += ` · 보관 ${parked}`
+  if (parked > 0 && cells(label) + 8 + 4 <= width) label += t().parked(parked)
   const bar = Math.max(0, Math.min(24, width - cells(label)))
   const title: Line = [{ text: plan.title, bold: true, color: 'text' }]
   // Buttons flush right on the title line: fold, then open the drawer; the open button goes first when room runs short.
   const all = [
-    ...(folded === undefined ? [] : [{ text: folded ? '펼치기 ▾' : '접기 ▴', id: FOLD_BUTTON }]),
+    ...(folded === undefined ? [] : [{ text: folded ? t().unfold : t().fold, id: FOLD_BUTTON }]),
     ...(open === undefined ? [] : [{ text: open, id: OPEN_BUTTON }]),
   ]
   const room = (bs: typeof all) => bs.reduce((n, b) => n + cells(b.text) + 2, 0) + 10 <= width
@@ -245,7 +246,7 @@ export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, 
     const fin = hidden.filter(n => n.status === 'completed').length
     const wait = hidden.filter(n => n.status === 'pending').length
 
-    return fitLine([{ text: `+${hidden.length}개 더 · 완료 ${fin} · 대기 ${wait}`, color: 'inactive' }], width)
+    return fitLine([{ text: t().more(hidden.length, fin, wait), color: 'inactive' }], width)
   }
   const budget = maxRows - top.length
   const body = rowsFor(foldedParents(plan))
@@ -263,10 +264,10 @@ export const statusLine = (plan: Plan, activity: Activity): string | undefined =
   const words = activityLabel(activity)
   if (plan.nodes.length === 0) return words
   const { done, total } = progress(plan)
-  const parts = [`계획 ${done}/${total}`]
+  const parts = [t().status.plan(done, total)]
   const run = runningLeaves(plan)
   const first = run[0]
-  if (first !== undefined) parts.push(`${first.title}${run.length > 1 ? ` 외 ${run.length - 1}개` : ''} 진행 중`)
+  if (first !== undefined) parts.push(t().status.running(first.title, run.length - 1))
   if (words !== undefined) parts.push(words)
 
   return parts.join(' · ')

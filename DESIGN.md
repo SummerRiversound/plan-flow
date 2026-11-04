@@ -62,7 +62,7 @@ Two colours, each with one meaning; everything else is plain text or muted. More
 
 ## Typography
 
-The terminal's own monospace font; only weight varies. Bold marks the running item and the plan title. Hangul takes two cells, everything else one.
+The terminal's own monospace font; only weight varies. Every label comes in English and Korean; the Korean ones are quoted here. Bold marks the running item and the plan title. Hangul takes two cells, everything else one.
 
 ## Layout
 

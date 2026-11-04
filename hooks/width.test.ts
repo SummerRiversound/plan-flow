@@ -1,5 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import { cells, fit, padLeft, padRight, wrap } from './width'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 test('a Hangul syllable takes two cells, ASCII one', () => {
   expect(cells('abc')).toBe(3)

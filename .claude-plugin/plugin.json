@@ -6,6 +6,13 @@
   "keywords": ["plan", "flowchart", "progress", "pane"],
   "types": "./types/index.d.ts",
   "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language of the band, drawer and toasts; auto follows Claude Code's language setting, then the system locale, then English",
+      "options": ["auto", "en", "ko"],
+      "default": "auto"
+    },
     "autoShow": {
       "type": "boolean",
       "title": "Show the plan on its own",

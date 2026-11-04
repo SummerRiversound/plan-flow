@@ -2,6 +2,10 @@ import { expect, test } from 'claude-code/testing'
 import type { Board, BoardResult } from './board'
 import { cancelBoard, emptyBoard, MAX_SHELF, resumeBoard, setBoard, settle } from './board'
 import { nextStep, updateNodes } from './plan'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 const ok = (r: BoardResult): Board => {
   if ('error' in r) throw new Error(r.error)

@@ -10,6 +10,7 @@ import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
 import { drawTree, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
+import { t } from './i18n'
 
 export type { DrawerState }
 
@@ -88,13 +89,13 @@ const noteLines = (n: PlanNode, w: number, lead: string): Line[] => {
 
 // The buttons under the picked step: "확인 완료" only while it waits for the person's check.
 const actionLines = (drawer: DrawerState, n: PlanNode, w: number, lead: string): Line[] =>
-  drawer.pick !== n.id ? [] : [buttonRow([...(n.status === 'needs_check' ? [[CONFIRM, '[ 확인 완료 ]'] as [string, string]] : []), [ASK, '[ 논의 ]']], w, lead, 0)]
+  drawer.pick !== n.id ? [] : [buttonRow([...(n.status === 'needs_check' ? [[CONFIRM, t().confirm] as [string, string]] : []), [ASK, t().discuss]], w, lead, 0)]
 
 type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 
 const right = (ctx: Ctx, n: PlanNode): Seg | null => {
   if (hasChildren(ctx.plan.nodes, n.id)) return { text: `${count(ctx.plan, n.id)} ${isOpen(ctx.plan, ctx.drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
-  if (n.status === 'in_progress') return { text: '진행 중', color: glyphColor(n) }
+  if (n.status === 'in_progress') return { text: t().running, color: glyphColor(n) }
 
   return null
 }
@@ -144,8 +145,8 @@ const press = (line: Line, id: string): Line => line.map(s => ({ ...s, button: i
 // another URL by its host, a file by its name.
 export const linkLabel = (link: string): string => {
   const gh = /^https?:\/\/github\.com\/[^/]+\/[^/]+\/(pull|issues|commit)\/([^/?#]+)/.exec(link)
-  if (gh !== null) return gh[1] === 'pull' ? `PR #${gh[2]}` : gh[1] === 'issues' ? `이슈 #${gh[2]}` : `커밋 ${(gh[2] ?? '').slice(0, 7)}`
-  if (/^https?:\/\/claude\.ai\/(.*\/)?artifact\//.test(link)) return '아티팩트'
+  if (gh !== null) return gh[1] === 'pull' ? `PR #${gh[2]}` : gh[1] === 'issues' ? t().link.issue(gh[2] ?? '') : t().link.commit((gh[2] ?? '').slice(0, 7))
+  if (/^https?:\/\/claude\.ai\/(.*\/)?artifact\//.test(link)) return t().link.artifact
   const url = /^[a-z]+:\/\/(?:www\.)?([^/?#]+)/i.exec(link)
   if (url !== null) return url[1] ?? link
 
@@ -198,10 +199,10 @@ const summaryRows = (plan: Plan, w: number): Line[] => {
   const para = (label: string, t: string): Line[] => wrap(`${label}: ${t}`, w, WHOLE).map((l): Line => [{ text: l, color: 'text' }])
 
   return [
-    [{ text: '✓', color: 'success' }, { text: ' 완료 정리', color: 'text', bold: true }],
+    [{ text: '✓', color: 'success' }, { text: ` ${t().summary.title}`, color: 'text', bold: true }],
     [{ text: '┄'.repeat(w), color: 'inactive' }],
-    ...para('목적', s.goal),
-    ...para('결과', s.result),
+    ...para(t().summary.goal, s.goal),
+    ...para(t().summary.result, s.result),
     ...linkRow([...new Set(plan.nodes.flatMap(n => n.links ?? []))], w),
   ]
 }
@@ -213,7 +214,7 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
     if (n.parallel === true) {
       const border = { color: 'inactive' }
       const room = w - cells(indent)
-      rows.push([{ text: indent }, { text: `╭ 동시에 ${'─'.repeat(Math.max(0, room - 9))}`, ...border }])
+      rows.push([{ text: indent }, { text: `╭ ${t().parallel} ${'─'.repeat(Math.max(0, room - 3 - cells(t().parallel)))}`, ...border }])
       for (const row of inside(ctx, n.id, room - 2, '')) rows.push([{ text: indent }, { text: '│ ', ...border }, ...row])
       rows.push([{ text: indent }, { text: `╰${'─'.repeat(Math.max(0, room - 1))}`, ...border }])
       continue
@@ -382,7 +383,7 @@ export const shelfLines = (shelf: readonly Shelved[], width: number): Line[] => 
 
   return [
     [],
-    fitLine([{ text: ' 보관한 계획', bold: true, color: 'text' }], width),
+    fitLine([{ text: t().shelf, bold: true, color: 'text' }], width),
     ...parked.map(s => {
       const { done, total } = progress(s.plan)
       return spread([{ text: ` ▸ ${s.plan.title}`, color: 'inactive' }], { text: `${done}/${total}`, color: 'inactive' }, width)
@@ -400,7 +401,7 @@ const rule = (width: number): Line => [{ text: ` ${'┄'.repeat(Math.max(0, widt
 
 export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, { width, now }: FlowOptions): DrawerView => {
   const shelved = shelfLines(shelf, width)
-  if (plan.nodes.length === 0) return { head: [], body: [[{ text: '아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.', color: 'inactive' }], ...shelved], buttons: [], at: null }
+  if (plan.nodes.length === 0) return { head: [], body: [[{ text: t().empty, color: 'inactive' }], ...shelved], buttons: [], at: null }
   const parked = shelf.filter(s => s.state === 'parked').length
   const top = planHead(plan, activity, 6, width - 1, now, undefined, parked)
     .filter(l => l.length > 0)
@@ -438,9 +439,9 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
         const detail = n.detail === undefined ? [] : wrap(n.detail, width - cells(lead), WHOLE).map((t): Line => [{ text: `${lead}${t}`, color: 'inactive' }])
         return [press(row, n.id), ...detail, ...noteLines(n, width, lead), ...actionLines(drawer, n, width, lead)]
       })
-    const hint: Line[] = flow.cut ? [fitLine([{ text: ' 창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), []] : [[]]
+    const hint: Line[] = flow.cut ? [fitLine([{ text: t().narrow, color: 'inactive' }], width), []] : [[]]
     const at = find(tree)
-    const toggle = flow.cut ? [] : [tools([], [VIEW, '흐름도 보기'])]
+    const toggle = flow.cut ? [] : [tools([], [VIEW, t().toFlow])]
 
     const close = summaryRows(plan, width - 2).map((r): Line => [{ text: ' ' }, ...r])
     const end = close.length === 0 ? [] : [[], ...close]
@@ -449,10 +450,10 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
   }
   const row = tools(
     [
-      [EXPAND_ALL, '모두 펼치기'],
-      [COLLAPSE_ALL, '모두 접기'],
+      [EXPAND_ALL, t().expandAll],
+      [COLLAPSE_ALL, t().collapseAll],
     ],
-    [VIEW, '목록 보기'],
+    [VIEW, t().toList],
   )
   const at = find(flow.lines)
 
@@ -476,11 +477,11 @@ export const drawerPage = (v: DrawerView, rows: number, top: number | undefined,
   const body = [...blank, ...v.body, ...blank]
   const max = body.length - room
   // Following: the step Claude is on in the middle; with none (the plan is finished), the body's last row at the bottom.
-  const t = Math.max(0, Math.min(max, top ?? (v.at === null ? max - margin : v.at)))
+  const from = Math.max(0, Math.min(max, top ?? (v.at === null ? max - margin : v.at)))
   const foot: Line =
     top === undefined
-      ? [{ text: v.at === null ? ' 휠로 스크롤해요' : ' 진행 중인 단계를 따라가는 중 · 휠로 둘러보면 멈춰요', color: 'inactive' }]
-      : [{ text: ' 따라가기 멈춤   ', color: 'inactive' }, { text: '진행 중으로', color: 'text', bold: true, button: FOLLOW }]
+      ? [{ text: v.at === null ? t().foot.scroll : t().foot.following, color: 'inactive' }]
+      : [{ text: t().foot.stopped, color: 'inactive' }, { text: t().foot.follow, color: 'text', bold: true, button: FOLLOW }]
 
-  return { lines: [...v.head, ...body.slice(t, t + room), rule(width), fitLine(foot, width), []], top: t, max, pinned: true }
+  return { lines: [...v.head, ...body.slice(from, from + room), rule(width), fitLine(foot, width), []], top: from, max, pinned: true }
 }

@@ -1,5 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import { clean } from './sanitize'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 test('control characters, escape sequences and newlines become single spaces', () => {
   expect(clean('a\u001b[31mb')).toBe('a [31mb')

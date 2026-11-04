@@ -6,6 +6,10 @@ import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { idleActivity } from './activity'
 import { lineText } from './tree'
 import { cells } from './width'
+import { setLanguage } from './i18n'
+
+// The expectations below are written in Korean.
+setLanguage('ko')
 
 const ok = (r: PlanResult): Plan => {
   if ('error' in r) throw new Error(r.error)

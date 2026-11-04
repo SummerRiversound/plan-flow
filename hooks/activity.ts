@@ -6,6 +6,7 @@
 // ends the line falls back to the newest running tool, else to work.
 import type { Activity, ActivityPhase } from '../types'
 import { clean } from './sanitize'
+import { t } from './i18n'
 
 export type { Activity, ActivityPhase }
 
@@ -73,19 +74,19 @@ export const step = (a: Activity, e: ActivityEvent): Activity => {
 export const activityLabel = (a: Activity): string | undefined => {
   switch (a.phase) {
     case 'working':
-      return '작업 중'
+      return t().activity.working
     case 'tool':
-      return `${a.tool ?? 'tool'} 실행 중`
+      return t().activity.tool(a.tool ?? 'tool')
     case 'permission':
-      return `권한 기다리는 중: ${a.tool ?? 'tool'}`
+      return t().activity.permission(a.tool ?? 'tool')
     case 'question':
-      return '답변 기다리는 중'
+      return t().activity.question
     case 'compacting':
-      return '대화 압축 중'
+      return t().activity.compacting
     case 'interrupted':
-      return '중단됨'
+      return t().activity.interrupted
     case 'error':
-      return a.detail === undefined || a.detail === '' ? '오류' : `오류: ${a.detail}`
+      return a.detail === undefined || a.detail === '' ? t().activity.error : t().activity.errorWith(a.detail)
     case 'idle':
       return undefined
   }

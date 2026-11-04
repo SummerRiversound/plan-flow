@@ -79,7 +79,7 @@ const titleSegs = (ctx: Ctx, n: PlanNode, withNote = true): Line => {
   const out: Line = [
     ...(run && ctx.live && !hasChildren(ctx.plan.nodes, n.id)
       ? liveSegs(n.title, ctx.now)
-      : [glyphSeg(n), { text: ` ${n.title}`, color: run || n.status === 'completed' ? 'text' : 'inactive', bold: run, strike: n.status === 'skipped' }]),
+      : [glyphSeg(n), { text: ` ${n.title}`, color: 'text', dim: isFinished(n.status) && n.status !== 'needs_check', bold: run, strike: n.status === 'skipped' }]),
     ...markSeg(ctx.plan, n.id),
   ]
   const note = withNote ? noteText(n) : ''

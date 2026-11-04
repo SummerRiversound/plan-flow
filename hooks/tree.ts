@@ -42,7 +42,7 @@ export const glyphColor = (n: PlanNode): string =>
   n.status === 'completed' ? 'success' : n.status === 'blocked' ? 'error' : n.status === 'in_progress' ? 'text' : 'inactive'
 
 // The glyph piece: finished steps dim, so the running one stands out.
-export const glyphSeg = (n: PlanNode): Seg => ({ text: GLYPH[n.status], color: glyphColor(n), dim: n.status === 'completed' })
+export const glyphSeg = (n: PlanNode): Seg => ({ text: GLYPH[n.status], color: glyphColor(n) })
 
 export const lineText = (line: Line): string => line.map(s => s.text).join('')
 
@@ -159,15 +159,22 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, fo
   return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(right)) }, { text: right, color: 'inactive' }]
 }
 
-// The progress bar: a cell per stretch of leaves in plan order, green once done.
+// The progress bar: blocks to an eighth of a cell, each eighth a stretch of leaves in plan
+// order; done ones fill in green (white for those waiting on a check) over a dim `░` track.
+const EIGHTHS = ' ▏▎▍▌▋▊▉'
 const strip = (plan: Plan, bar: number): Line => {
   const leaves = leavesOf(plan)
   const out: Line = []
   for (let i = 0; i < bar; i++) {
-    const leaf = leaves[Math.floor((i * leaves.length) / bar)]
-    const seg: Seg = leaf !== undefined && isFinished(leaf.status) ? { text: '━', color: glyphColor(leaf) } : { text: '─', color: 'inactive' }
+    const done = Array.from({ length: 8 }, (_, k) => leaves[Math.floor(((i * 8 + k) * leaves.length) / (bar * 8))]).filter(l => l !== undefined && isFinished(l.status))
+    const first = done[0]
+    const seg: Seg =
+      first === undefined
+        ? { text: '░', color: 'inactive', dim: true }
+        : { text: done.length === 8 ? '█' : (EIGHTHS[done.length] ?? '█'), color: first.status === 'completed' ? 'success' : 'text' }
     const last = out[out.length - 1]
-    if (last !== undefined && last.color === seg.color && last.text[0] === seg.text) last.text += seg.text
+    if (last !== undefined && last.color === seg.color && last.dim === seg.dim && seg.text === '█' && last.text.endsWith('█')) last.text += seg.text
+    else if (last !== undefined && last.color === seg.color && last.dim === seg.dim && seg.text === '░') last.text += seg.text
     else out.push(seg)
   }
 

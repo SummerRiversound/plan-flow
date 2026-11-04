@@ -38,7 +38,7 @@ const texts = (p: Plan, a: Activity, maxRows: number, width: number, folded?: bo
 test('the head is the title, then progress as done/total and percent', () => {
   const lines = texts(sample(), idleActivity(), 40, 60)
   expect(lines[0]).toBe('로그인 기능 추가')
-  expect(lines[1]).toMatch(/^━+─+  2\/7 · 29%/)
+  expect(lines[1]).toMatch(/^█+[▏▎▍▌▋▊▉]?░+  2\/7 · 29%/)
 })
 
 test('rows carry glyph and title without ids, a parallel tag, counts on parents, and no arrow on a running leaf', () => {
@@ -165,4 +165,13 @@ test('while Claude works the running step turns and a bright band sweeps its tit
   expect(lit(0)).not.toBe(lit(FRAME_MS * 3))
   expect(lineText(row(idleActivity(), 0)).endsWith('● 주소 만들기')).toBe(true)
   expect(lineText(row({ phase: 'permission', tool: 'Bash', running: [] }, 0)).endsWith('● 주소 만들기')).toBe(true)
+})
+
+test('the progress bar fills with blocks to an eighth of a cell, done in green over a dim track', () => {
+  let p = ok(setPlan(emptyPlan(), '계획', Array.from({ length: 7 }, (_, i) => ({ title: `단계 ${i + 1}` })), 0))
+  p = ok(nextStep(ok(nextStep(p, undefined, 1)), undefined, 2))
+  const bar = (drawTree(p, idleActivity(), { maxRows: 10, width: 60, now: 3 })[1] ?? []).filter(s => /[█▏▎▍▌▋▊▉░]/.test(s.text))
+  expect(lineText(bar)).toBe('███▌░░░░░░░░░░░░░░░░░░░░')
+  expect(bar.filter(s => s.text !== '░'.repeat(s.text.length)).every(s => s.color === 'success')).toBe(true)
+  expect(bar.find(s => s.text.startsWith('░'))).toMatchObject({ color: 'inactive', dim: true })
 })

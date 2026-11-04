@@ -51,7 +51,7 @@ const view = (p: Plan, d: DrawerState = closed, width = 53) => drawerView(p, [],
 test('the pinned head names the plan, its progress and time, then the buttons that fold every box', () => {
   const head = view(sample()).head.map(lineText)
   expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
-  expect(head[1]).toMatch(/━+─+ +3\/14 · 21% · 4분 12초$/)
+  expect(head[1]).toMatch(/█+[▏▎▍▌▋▊▉]?░+ +3\/14 · 21% · 4분 12초$/)
   expect(head.find(l => l.includes('모두 펼치기'))).toContain('모두 접기')
   expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL])
   for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
@@ -235,4 +235,15 @@ test('while Claude works the running steps in the drawer turn instead of showing
   expect(still.some(l => l.includes('● 비밀번호 확인'))).toBe(true)
   expect(live.some(l => l.includes('● 비밀번호 확인'))).toBe(false)
   expect(live.some(l => l.includes('⠋ 비밀번호 확인'))).toBe(true)
+})
+
+test('finished steps step back dim, steps still to come read plain, the running one bold', () => {
+  const segs = (title: string) => draw(sample(), foldAll(sample(), closed, true)).lines.flat().find(s => s.text === ` ${title}`)
+  expect(segs('조사')).toMatchObject({ color: 'text', dim: true })
+  const check = draw(sample()).lines.find(l => l.some(s => s.text === ' 조사'))?.find(s => s.text === '✓')
+  expect(check).toMatchObject({ color: 'success' })
+  expect(check?.dim).not.toBe(true)
+  expect(segs('에러 처리')).toMatchObject({ color: 'text' })
+  expect(segs('에러 처리')?.dim).not.toBe(true)
+  expect(segs('비밀번호 확인')).toMatchObject({ color: 'text', bold: true })
 })

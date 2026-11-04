@@ -23,3 +23,4 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — Each step has a short title plus a one-sentence detail on what it does and why ("각 항목이 너무 축약되어있어서 뭘하고있는지 이해가잘안되는데.."). Above the prompt the detail shows under the running step; in the drawer, under open boxes and running steps.
 - 2026-11-04 — Only two colours: green for done, red for blocked; everything else is plain text or muted ("색이 너무많아서 정신없어진것같다.. 녹색과 붉은색만 남기고 나머지는 흰색을써야하겠는데.."). No accent colour, no per-kind colours.
 - 2026-11-04 — The band above the prompt folds to its title and progress-bar lines with a button on its title line ("접기도 있으면좋겠네 진행바행까지만 보이게").
+- 2026-11-04 — Steps carry links to what they produced (PR, issue, commit, artifact, file), shown in the drawer as one row of short names that open on click ("해당 단계에서 나온 아티팩트나 github url 등이 있으면 펼칠때 같이 항목아래 보여줄수있나? 근데 너무 복잡하지는않고 적당히 잘보이게"). Claude attaches them; nothing is scraped from tool output.

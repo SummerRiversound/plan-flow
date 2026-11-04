@@ -93,11 +93,52 @@ const pad = (line: Line, w: number): Line => {
 const press = (line: Line, id: string): Line => line.map(s => ({ ...s, button: id }))
 
 // A step's detail, `w` cells wide, while its box is open or it runs.
-const detailLines = (ctx: Ctx, n: PlanNode, w: number): Line[] => {
-  const open = hasChildren(ctx.plan.nodes, n.id) && isOpen(ctx.plan, ctx.drawer, n.id)
-  if (n.detail === undefined || !(open || n.status === 'in_progress')) return []
+// A short name for a link: a PR, issue or commit by its number, an artifact as such,
+// another URL by its host, a file by its name.
+export const linkLabel = (link: string): string => {
+  const gh = /^https?:\/\/github\.com\/[^/]+\/[^/]+\/(pull|issues|commit)\/([^/?#]+)/.exec(link)
+  if (gh !== null) return gh[1] === 'pull' ? `PR #${gh[2]}` : gh[1] === 'issues' ? `이슈 #${gh[2]}` : `커밋 ${(gh[2] ?? '').slice(0, 7)}`
+  if (/^https?:\/\/claude\.ai\/(.*\/)?artifact\//.test(link)) return '아티팩트'
+  const url = /^[a-z]+:\/\/(?:www\.)?([^/?#]+)/i.exec(link)
+  if (url !== null) return url[1] ?? link
 
-  return wrap(n.detail, w - 2, 2).map(t => [{ text: `  ${t}`, color: 'inactive' }])
+  return link.split('/').filter(p => p !== '').pop() ?? link
+}
+
+// Where a press on the link goes: URLs as they are, absolute paths as files; anything else stays plain.
+const hrefOf = (link: string): string | undefined =>
+  /^[a-z]+:\/\//i.test(link) ? link : link.startsWith('/') ? `file://${encodeURI(link)}` : undefined
+
+// One row of links, `↗ PR #12  ↗ 아티팩트`, ending in `+N` for those that do not fit.
+export const linkRow = (links: readonly string[], w: number): Line[] => {
+  if (links.length === 0) return []
+  const out: Line = [{ text: '  ' }]
+  let used = 2
+  for (let i = 0; i < links.length; i++) {
+    const link = links[i] ?? ''
+    const label = `↗ ${linkLabel(link)}`
+    const gap = i === 0 ? 0 : 2
+    const after = i === links.length - 1 ? 0 : cells(`  +${links.length - i - 1}`)
+    if (used + gap + cells(label) + after > w) {
+      out.push({ text: `${i === 0 ? '' : '  '}+${links.length - i}`, color: 'inactive' })
+      break
+    }
+    if (gap > 0) out.push({ text: '  ' })
+    out.push({ text: label, color: 'text', href: hrefOf(link) })
+    used += gap + cells(label)
+  }
+
+  return [fitLine(out, w)]
+}
+
+// Under a step: its detail while it runs or is open, and its links wherever its row shows
+// (a leaf always, a parent once open).
+const detailLines = (ctx: Ctx, n: PlanNode, w: number): Line[] => {
+  const parent = hasChildren(ctx.plan.nodes, n.id)
+  const open = parent && isOpen(ctx.plan, ctx.drawer, n.id)
+  const detail = n.detail === undefined || !(open || n.status === 'in_progress') ? [] : wrap(n.detail, w - 2, 2).map((t): Line => [{ text: `  ${t}`, color: 'inactive' }])
+
+  return [...detail, ...(parent && !open ? [] : linkRow(n.links ?? [], w))]
 }
 
 // The rows inside an open box, `w` cells wide.

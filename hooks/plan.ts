@@ -15,9 +15,11 @@ export const MAX_NODES = 60
 export const MAX_TITLE = 120
 export const MAX_NOTE = 200
 export const MAX_DETAIL = 160
+export const MAX_LINKS = 5
+const MAX_LINK = 2048
 
-export type PlanInput = { title: string; detail?: string; parallel?: boolean; children?: PlanInput[] }
-export type NodeUpdate = { id: string; status?: PlanStatus; title?: string; note?: string; detail?: string; parallel?: boolean }
+export type PlanInput = { title: string; detail?: string; links?: readonly string[]; parallel?: boolean; children?: PlanInput[] }
+export type NodeUpdate = { id: string; status?: PlanStatus; title?: string; note?: string; detail?: string; links?: readonly string[]; parallel?: boolean }
 export type PlanResult = { plan: Plan } | { error: string }
 
 export const STATUSES: readonly PlanStatus[] = ['pending', 'in_progress', 'completed', 'blocked', 'skipped']
@@ -53,6 +55,20 @@ const text = (label: string, raw: unknown, max: number, mayBeEmpty: boolean): { 
   return { value }
 }
 
+// Links added after a step's own, in order and without repeats; an empty list clears them.
+const joinLinks = (have: readonly string[] | undefined, add: readonly unknown[]): { value: string[] } | { error: string } => {
+  if (add.length === 0) return { value: [] }
+  const out = [...(have ?? [])]
+  for (const raw of add) {
+    const t = text('a link', raw, MAX_LINK, false)
+    if ('error' in t) return t
+    if (/\s/.test(t.value)) return { error: `a link has no spaces: "${t.value}"` }
+    if (!out.includes(t.value)) out.push(t.value)
+  }
+
+  return out.length > MAX_LINKS ? { error: `a step holds at most ${MAX_LINKS} links` } : { value: out }
+}
+
 // Turns nested input into nodes under `parentId`. `level` is the level the input sits at;
 // a group passes its own level on to its children.
 const build = (
@@ -75,6 +91,11 @@ const build = (
       const detail = text('a step detail', item.detail, MAX_DETAIL, true)
       if ('error' in detail) return detail
       if (detail.value !== '') node.detail = detail.value
+    }
+    if (item.links !== undefined) {
+      const links = joinLinks(undefined, item.links)
+      if ('error' in links) return links
+      if (links.value.length > 0) node.links = links.value
     }
     const kids = item.children ?? []
     if (item.parallel === true) {
@@ -312,6 +333,12 @@ export const updateNodes = (prev: Plan, updates: readonly NodeUpdate[], now: num
         if ('error' in t) return t
         if (t.value === '') delete node.detail
         else node.detail = t.value
+      }
+      if (u.links !== undefined) {
+        const links = joinLinks(node.links, u.links)
+        if ('error' in links) return links
+        if (links.value.length === 0) delete node.links
+        else node.links = links.value
       }
       if (u.parallel === true) {
         if (!isParent) return { error: `"${node.id}" has no children, so it cannot be a parallel group` }

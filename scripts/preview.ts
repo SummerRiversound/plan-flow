@@ -29,7 +29,8 @@ const pre = (s: Shot): string => {
           ]
             .filter(x => x !== '')
             .join(';')
-          return `<span style="${style}">${chars(seg.text)}</span>`
+          const body = `<span style="${style}">${chars(seg.text)}</span>`
+          return seg.href === undefined ? body : `<a href="${esc(seg.href)}" style="text-decoration:underline">${body}</a>`
         })
         .join(''),
     )

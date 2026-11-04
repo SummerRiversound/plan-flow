@@ -13,6 +13,8 @@ export type PlanNode = {
   note?: string
   // One plain sentence on what the step does and why, shown while it runs or is open.
   detail?: string
+  // What the step produced that the person may open: URLs or absolute file paths.
+  links?: string[]
   parallel?: boolean
   startedAt?: number
   doneAt?: number
@@ -61,6 +63,7 @@ declare module 'claude-code' {
           status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
           note?: string
           detail?: string
+          links?: string[]
           parallel?: boolean
           startedAt?: number
           doneAt?: number
@@ -85,6 +88,7 @@ declare module 'claude-code' {
             status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
             note?: string
             detail?: string
+            links?: string[]
             parallel?: boolean
             startedAt?: number
             doneAt?: number

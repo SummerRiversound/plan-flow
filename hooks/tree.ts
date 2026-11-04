@@ -7,8 +7,8 @@ import type { Plan, PlanNode, PlanStatus } from './plan'
 import { childrenOf, currentLeaf, finishedAt, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
 
-// `color` is a theme key or a hex; `button` is the node a press on the piece folds.
-export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string }
+// `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link.
+export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string }
 export type Line = Seg[]
 
 export const GLYPH: Record<PlanStatus, string> = { completed: '✓', in_progress: '●', pending: '○', blocked: '■', skipped: '–' }

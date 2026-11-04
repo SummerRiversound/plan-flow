@@ -137,3 +137,15 @@ test('steps carry a one-line detail, set with the step or by update, and an empt
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', detail: 3 }] })).toMatch(/^Error: .*detail must be text/)
   expect(instruction('t')).toContain('detail')
 })
+
+test('steps carry links: set with the step, added by update without repeats, cleared by an empty list', () => {
+  const set = apply(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['https://github.com/o/r/pull/1'] }] }).plan
+  expect(set.nodes[0]?.links).toEqual(['https://github.com/o/r/pull/1'])
+  const more = apply(set, { op: 'update', updates: [{ id: '1', links: ['https://github.com/o/r/pull/1', '/tmp/out.md'] }] }).plan
+  expect(more.nodes[0]?.links).toEqual(['https://github.com/o/r/pull/1', '/tmp/out.md'])
+  expect(apply(more, { op: 'update', updates: [{ id: '1', links: [] }] }).plan.nodes[0]?.links).toBeUndefined()
+  expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: 'x' }] })).toMatch(/links must be a list of text/)
+  expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['a b'] }] })).toMatch(/a link has no spaces/)
+  expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['1', '2', '3', '4', '5', '6'] }] })).toMatch(/at most 5 links/)
+  expect(instruction('t')).toContain('"links"')
+})

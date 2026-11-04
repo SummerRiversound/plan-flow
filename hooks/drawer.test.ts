@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
-import { drawFlow, isOpen, shelfLines, toggleFold } from './drawer'
+import { drawFlow, isOpen, linkLabel, linkRow, shelfLines, toggleFold } from './drawer'
 import type { Plan, PlanInput, PlanResult } from './plan'
-import { emptyPlan, nextStep, setPlan } from './plan'
+import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { lineText } from './tree'
 import { cells } from './width'
 
@@ -153,4 +153,30 @@ test('an open box and the running step show their details; folded and finished o
   expect(lines[run + 1]).toContain('아이디와 비밀번호 입력칸을 그린다')
   expect(lines.some(l => l.includes('끝난 단계 설명') || l.includes('접힌 단계 설명'))).toBe(false)
   expect(lines.every(l => cells(l) <= 53)).toBe(true)
+})
+
+test('links get short names: PR, issue and commit by number, an artifact as such, a URL by host, a file by name', () => {
+  expect(linkLabel('https://github.com/o/r/pull/42')).toBe('PR #42')
+  expect(linkLabel('https://github.com/o/r/issues/7#c1')).toBe('이슈 #7')
+  expect(linkLabel('https://github.com/o/r/commit/3f9a2c1d8e')).toBe('커밋 3f9a2c1')
+  expect(linkLabel('https://claude.ai/code/artifact/abc')).toBe('아티팩트')
+  expect(linkLabel('https://www.notion.so/page-1')).toBe('notion.so')
+  expect(linkLabel('/home/me/docs/plan.md')).toBe('plan.md')
+})
+
+test('a link row fits its width and counts what it leaves out', () => {
+  const links = ['https://github.com/o/r/pull/1', 'https://github.com/o/r/pull/2', 'https://github.com/o/r/pull/3']
+  expect(lineText(linkRow(links, 60)[0] ?? [])).toBe('  ↗ PR #1  ↗ PR #2  ↗ PR #3')
+  expect(lineText(linkRow(links, 20)[0] ?? [])).toBe('  ↗ PR #1  +2')
+  expect(linkRow(links, 60)[0]?.find(s => s.text === '↗ PR #1')?.href).toBe('https://github.com/o/r/pull/1')
+  expect(linkRow(['/a/b.md'], 60)[0]?.find(s => s.text === '↗ b.md')?.href).toBe('file:///a/b.md')
+  expect(linkRow(['notes.md'], 60)[0]?.find(s => s.text === '↗ notes.md')?.href).toBeUndefined()
+})
+
+test('links show under a step whose row shows: inside an open box, and not under a closed one', () => {
+  const r = updateNodes(sample(), [{ id: '2.1', links: ['https://github.com/o/r/pull/42'] }, { id: '3', links: ['https://github.com/o/r/pull/9'] }], 252_000)
+  const p = ok(r)
+  const text = draw(p).lines.map(lineText).join('\n')
+  expect(text).toContain('↗ PR #42')
+  expect(text).not.toContain('↗ PR #9')
 })

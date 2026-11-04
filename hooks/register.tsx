@@ -36,10 +36,10 @@ type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 
 // Draws one line of pieces; the pieces marked with a node id become that node's fold Button.
 const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: string | null, onPress: (id: string) => void) => {
-  const { Box, Text, Button } = $.ui.resolve(e)
+  const { Box, Text, Button, Link } = $.ui.resolve(e)
   const text = (s: Line[number]) => (
     <Text color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined}>
-      {s.text}
+      {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
     </Text>
   )
   const parts: Array<{ id?: string; segs: Line }> = []

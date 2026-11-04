@@ -5,10 +5,10 @@
 // each piece marked `button` into a Button that folds or unfolds that node.
 import type { DrawerState, Shelved } from '../types'
 import type { Plan, PlanNode } from './plan'
-import { childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
+import { checksOf, childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { checkLine, drawTree, duration, elapsed, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText } from './tree'
+import { drawTree, duration, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
 
 export type { DrawerState }
@@ -32,13 +32,16 @@ const count = (plan: Plan, id: string | null): string => {
   return `${u.filter(n => isFinished(n.status)).length}/${u.length}`
 }
 
-// Open unless the person folded it: the nodes above the leaf Claude is on.
+// Open unless the person folded it: the nodes above the leaf Claude is on and above the
+// steps waiting for the person to check; finished stages stay folded.
 const defaultOpen = (plan: Plan): Set<string> => {
   const leaf = currentLeaf(plan)
-  if (leaf === null) return new Set()
-  const parts = leaf.id.split('.')
+  const ids = [...(leaf === null ? [] : [leaf.id]), ...checksOf(plan).map(n => n.id)]
 
-  return new Set(parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('.')))
+  return new Set(ids.flatMap(id => {
+    const parts = id.split('.')
+    return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('.'))
+  }))
 }
 
 export const isOpen = (plan: Plan, drawer: DrawerState, id: string): boolean => drawer.open[id] ?? defaultOpen(plan).has(id)
@@ -47,6 +50,18 @@ export const toggleFold = (plan: Plan, drawer: DrawerState, id: string): DrawerS
   ...drawer,
   open: { ...drawer.open, [id]: !isOpen(plan, drawer, id) },
 })
+
+// Every box with something inside, open or folded at once.
+export const foldAll = (plan: Plan, drawer: DrawerState, open: boolean): DrawerState => ({
+  ...drawer,
+  open: Object.fromEntries(plan.nodes.filter(n => hasChildren(plan.nodes, n.id)).map(n => [n.id, open])),
+})
+
+// The drawer's own buttons and the key that presses each while the drawer holds the focus.
+export const EXPAND_ALL = 'expand-all'
+export const COLLAPSE_ALL = 'collapse-all'
+export const FOLLOW = 'follow'
+export const HOTKEYS: Readonly<Record<string, string>> = { [EXPAND_ALL]: 'e', [COLLAPSE_ALL]: 'c', [FOLLOW]: 'f' }
 
 type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 
@@ -69,6 +84,8 @@ const titleSegs = (ctx: Ctx, n: PlanNode, withNote = true): Line => {
   ]
   const note = withNote ? noteText(n) : ''
   if (note !== '') out.push({ text: note, color: n.status === 'blocked' ? 'error' : 'inactive' })
+  // The row the drawer follows finds its step by this.
+  if (out[0] !== undefined) out[0] = { ...out[0], node: n.id }
 
   return out
 }
@@ -273,12 +290,9 @@ const branches = (ctx: Ctx, group: PlanNode, width: number, axis: number, first:
 export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = false }: FlowOptions): Flow => {
   const ctx: Ctx = { plan, drawer, buttons: [], cut: false, live, now }
   if (plan.nodes.length === 0 || width <= 0) return { lines: [], buttons: [], cut: false }
-  const r = `${count(plan, null)} · ${duration(elapsed(plan, now))}`
-  const head = spread([{ text: ` ${plan.title}`, bold: true, color: 'text' }], { text: r, color: 'inactive' }, width)
-  // Too narrow for a box: the head alone.
-  if (width < MIN_INNER + 4) return { lines: [head], buttons: [], cut: true }
-  const checks = checkLine(plan, width, ' ')
-  const lines: Line[] = [head, ...(checks === null ? [] : [checks]), []]
+  // Too narrow for a box.
+  if (width < MIN_INNER + 4) return { lines: [], buttons: [], cut: true }
+  const lines: Line[] = []
   const axis = Math.floor((width - 1) / 2)
   const stages = childrenOf(plan.nodes, null)
   stages.forEach((n, i) => {
@@ -311,14 +325,56 @@ export const shelfLines = (shelf: readonly Shelved[], width: number): Line[] => 
   ]
 }
 
-// What the drawer shows: the flowchart, or the tree with a hint when the boxes would cut
-// titles; the parked plans under either.
-export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, { width, now }: FlowOptions): Flow => {
-  const shelved = shelfLines(shelf, width)
-  if (plan.nodes.length === 0) return { lines: [[{ text: '아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.', color: 'inactive' }], ...shelved], buttons: [], cut: false }
-  const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
-  if (!flow.cut) return { ...flow, lines: [...flow.lines, ...shelved] }
-  const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now })
+// What the drawer shows. `head` stays put: the plan's title, progress, steps to check and
+// what Claude is doing, then the buttons that fold every box. `body` scrolls under it: the
+// flowchart, or the tree with a hint when the boxes would cut titles, then the parked plans.
+// `at` is the body row of the step Claude is on, for the drawer to follow.
+export type DrawerView = { head: Line[]; body: Line[]; buttons: string[]; at: number | null }
 
-  return { lines: [fitLine([{ text: '창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), [], ...tree, ...shelved], buttons: [], cut: true }
+const rule = (width: number): Line => [{ text: ` ${'┄'.repeat(Math.max(0, width - 2))}`, color: 'inactive' }]
+
+export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, { width, now }: FlowOptions): DrawerView => {
+  const shelved = shelfLines(shelf, width)
+  if (plan.nodes.length === 0) return { head: [], body: [[{ text: '아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.', color: 'inactive' }], ...shelved], buttons: [], at: null }
+  const parked = shelf.filter(s => s.state === 'parked').length
+  const top = planHead(plan, activity, 6, width - 1, now, undefined, parked)
+    .filter(l => l.length > 0)
+    .map((l): Line => [{ text: ' ' }, ...l])
+  const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
+  if (flow.cut) {
+    const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now }).slice(top.length + 1)
+    return { head: [...top, rule(width)], body: [fitLine([{ text: ' 창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), [], ...tree, ...shelved], buttons: [], at: null }
+  }
+  const tools: Line = [
+    { text: ' ' },
+    { text: '모두 펼치기', color: 'text', bold: true, button: EXPAND_ALL },
+    { text: '   ' },
+    { text: '모두 접기', color: 'text', bold: true, button: COLLAPSE_ALL },
+  ]
+  const leaf = currentLeaf(plan)
+  // The step Claude is on, else the nearest box above it that shows.
+  const ids = leaf === null ? [] : leaf.id.split('.').map((_, i, parts) => parts.slice(0, parts.length - i).join('.'))
+  const at = ids.map(id => flow.lines.findIndex(l => l.some(s => s.node === id))).find(i => i >= 0) ?? null
+
+  return { head: [...top, tools, rule(width)], body: [[], ...flow.lines, ...shelved], buttons: flow.buttons, at: at === null ? null : at + 1 }
+}
+
+// The rows the pane shows, `rows` tall. When the body runs past them it scrolls under the
+// head, and a foot pins under it: following the step Claude is on (`top` undefined), or
+// stopped where the person scrolled with a button back. One blank row past the pane keeps the
+// engine sending the person's scrolls here, while its own window stays at the top.
+export type Page = { lines: Line[]; top: number; max: number; pinned: boolean }
+
+export const drawerPage = (v: DrawerView, rows: number, top: number | undefined, width: number): Page => {
+  const all = [...v.head, ...v.body]
+  const room = rows - v.head.length - 2
+  if (all.length <= rows || room < 3) return { lines: all, top: 0, max: 0, pinned: false }
+  const max = v.body.length - room
+  const t = Math.max(0, Math.min(max, top ?? (v.at === null ? 0 : v.at - Math.floor(room / 2))))
+  const foot: Line =
+    top === undefined
+      ? [{ text: v.at === null ? ' 휠로 스크롤해요' : ' 진행 중인 단계를 따라가는 중 · 휠로 둘러보면 멈춰요', color: 'inactive' }]
+      : [{ text: ' 따라가기 멈춤   ', color: 'inactive' }, { text: '진행 중으로', color: 'text', bold: true, button: FOLLOW }]
+
+  return { lines: [...v.head, ...v.body.slice(t, t + room), rule(width), fitLine(foot, width), []], top: t, max, pinned: true }
 }

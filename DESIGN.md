@@ -82,6 +82,7 @@ None. Hierarchy comes from nesting boxes, not shadows.
 - **Connectors:** `┬`/`┴` on box edges, `▼` into the next box, `╭─┴─╮` for a split and `╰─┬─╯` for a join.
 - **Tree above the prompt:** title, a progress line with `done/total · %`, then one row per node: mark, title, `∥ parallel` on a parallel parent, `done/total` flush right on parents, `◂` only on the step up next while nothing runs.
 - **Running step:** while Claude works, its mark turns (`⠋⠙⠹…`, a frame each 100 ms) and a bright band three letters wide sweeps its bold title (muted letters, the band in text colour); waiting on the person or between turns it stands still as a bold `●`. In the band and the drawer alike. A surface that draws pictures (the desktop app, the editor) gets a small picture that turns and sweeps by itself instead of redraws, which would make it blink.
+- **Drawer head and foot:** the drawer's top stays put while its body scrolls: the band's head (title, progress bar, check line, what Claude is doing), then two bold buttons `모두 펼치기` (`e`) and `모두 접기` (`c`), then a muted `┄` rule. When the body runs past the pane, a muted rule and a foot pin under it: `진행 중인 단계를 따라가는 중 · 휠로 둘러보면 멈춰요` while the window follows the running step, or `따라가기 멈춤` and a bold `진행 중으로` (`f`) once the person scrolls. A body that fits has no foot. At most three buttons; "back to the running step" lives only in the foot.
 
 ## Do's and Don'ts
 

@@ -9,7 +9,7 @@ import { cells, fit, padRight, wrap } from './width'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
 // `live` marks the running step's turning mark and swept title, which a surface that draws pictures animates itself.
-export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title' }
+export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title'; node?: string }
 export type Line = Seg[]
 
 // How long one frame of the running step's motion lasts.
@@ -182,7 +182,8 @@ export const checkLine = (plan: Plan, width: number, lead = ''): Line | null => 
   return fitLine([{ text: `${lead}◐ 확인할 것 ${checks.length}: `, color: 'text', bold: true }, { text: checks.map(n => `${n.title}${noteText(n)}`).join(' · '), color: 'text' }], width)
 }
 
-const head = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean): Line[] => {
+// The title, progress bar, steps to check and what Claude is doing; the band's top and the drawer's pinned head.
+export const planHead = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -238,7 +239,7 @@ export const FOLD_BUTTON = 'fold-band'
 export type TreeOptions = { maxRows: number; width: number; now: number; open?: string; parked?: number; folded?: boolean }
 export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded }: TreeOptions): Line[] => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
-  const top = head(plan, activity, maxRows, width, now, open, parked, folded)
+  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded)
   if (folded === true) return top.slice(0, 2)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>

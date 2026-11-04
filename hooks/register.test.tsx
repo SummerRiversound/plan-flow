@@ -159,8 +159,9 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', as
   await $.tool.call({ tool: TOOL, op: 'next' })
   for (const surface of ['terminal', 'desktop'] as const) {
     const pane = await $.ui.mount({ ...PANE, surface })
-    // Boxes that fold are buttons in the order they are drawn; the running stage holds the ring.
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['2', '3'])
+    // The buttons that fold every box, then the boxes in the order they are drawn; the running stage holds the ring.
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', '2', '3'])
+    expect((await pane.find({ type: 'Button', key: 'expand-all' }))?.props.hotkey).toBe('e')
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.autoFocus).toBe(true)
     // ↓ moves the ring to the next box; a redraw keeps it there.
     await personMoves($, '3')

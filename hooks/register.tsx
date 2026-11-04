@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { drawerView, toggleFold } from './drawer'
+import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, HOTKEYS, drawerPage, drawerView, foldAll, toggleFold } from './drawer'
 import { PAUSE_NOTICE, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
@@ -71,7 +71,7 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
         p.id === undefined ? (
           segs(p.segs)
         ) : (
-          <Button key={p.id} plain autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
+          <Button key={p.id} plain hotkey={HOTKEYS[p.id ?? '']} autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
             {segs(p.segs)}
           </Button>
         ),
@@ -103,6 +103,8 @@ async function act($: $, ev: ActivityEvent, autoShow: boolean): Promise<void> {
 }
 
 let ticker: Timer | null = null
+// Where the drawer's own window stood when it was last drawn, for the person's next scroll.
+let page = { top: 0, max: 0, pinned: false }
 // The band or drawer was drawn on a terminal, where the running step moves by redrawing.
 // shortcut: one flag for the session, so a desktop viewer beside a terminal redraws as often; split per surface if that costs.
 let onTerminal = false
@@ -359,13 +361,29 @@ export const register: Register = (on, options) => {
       width: e.props.bodyColumns,
       now,
     })
+    const shown = drawerPage(view, e.props.scroll.bodyRows, drawer.top, e.props.bodyColumns)
+    page = shown
+    // The ring goes back where it was if that row still shows, else to the box Claude is in.
+    const ids = shown.lines.flatMap(l => l.flatMap(s => (s.button === undefined ? [] : [s.button])))
     const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
-    const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id)) ?? view.buttons[0] ?? null
-    const fold = (id: string) => {
-      void update($, drawerAtom, d => ({ ...toggleFold(plan, d, id), focus: id }))
+    const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id) && ids.includes(id)) ?? null
+    const press = (id: string) => {
+      void update($, drawerAtom, (d): DrawerState =>
+        id === EXPAND_ALL || id === COLLAPSE_ALL ? foldAll(plan, d, id === EXPAND_ALL) : id === FOLLOW ? { ...d, top: undefined } : { ...toggleFold(plan, d, id), focus: id },
+      )
     }
 
-    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, focus, fold, now))}</Box>
+    return <Box flexDirection="column">{shown.lines.map(l => row($, e, l, focus, press, now))}</Box>
+  })
+
+  // The person scrolls the drawer: its body moves under the pinned head and foot, and
+  // following the running step stops until they press "진행 중으로".
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (!page.pinned) return next(e)
+    const top = Math.max(0, Math.min(page.max, page.top + e.by))
+    await update($, drawerAtom, d => ({ ...d, top }))
+
+    return next({ ...e, offset: 0 })
   })
 
   // The drawer closed (Esc, /flow, the person): the band comes back.

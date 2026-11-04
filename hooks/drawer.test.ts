@@ -1,8 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
-import { drawFlow, isOpen, linkLabel, linkRow, shelfLines, toggleFold } from './drawer'
+import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, shelfLines, toggleFold } from './drawer'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
+import { idleActivity } from './activity'
 import { lineText } from './tree'
 import { cells } from './width'
 
@@ -45,11 +46,47 @@ const closed: DrawerState = { open: {}, focus: null }
 const draw = (p: Plan, d: DrawerState = closed, width = 53) => drawFlow(p, d, { width, now: 252_000 })
 const texts = (p: Plan, d: DrawerState = closed, width = 53): string[] => draw(p, d, width).lines.map(lineText)
 
-test('the head names the plan, stages done and the time so far', () => {
-  const head = texts(sample())[0] ?? ''
-  expect(head.startsWith(' 로그인 기능 추가')).toBe(true)
-  expect(head.endsWith('1/5 · 4분 12초')).toBe(true)
-  expect(cells(head)).toBe(53)
+const view = (p: Plan, d: DrawerState = closed, width = 53) => drawerView(p, [], d, idleActivity(), { width, now: 252_000 })
+
+test('the pinned head names the plan, its progress and time, then the buttons that fold every box', () => {
+  const head = view(sample()).head.map(lineText)
+  expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
+  expect(head[1]).toMatch(/━+─+ +3\/14 · 21% · 4분 12초$/)
+  expect(head.find(l => l.includes('모두 펼치기'))).toContain('모두 접기')
+  expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL])
+  for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
+})
+
+test('fold all and unfold all reach every box with something inside', () => {
+  const p = sample()
+  const all = drawFlow(p, foldAll(p, closed, true), { width: 53, now: 0 }).lines.map(lineText)
+  expect(all.some(l => l.includes('단위'))).toBe(true)
+  expect(all.some(l => l.includes('스테이징'))).toBe(true)
+  const none = drawFlow(p, foldAll(p, closed, false), { width: 53, now: 0 }).lines.map(lineText)
+  expect(none.some(l => l.includes('비밀번호 확인'))).toBe(false)
+  expect(none.find(l => l.includes('● 구현'))).toContain('▸')
+})
+
+test('a body taller than the pane scrolls under the pinned head and a foot that follows the running step', () => {
+  const v = view(sample(), foldAll(sample(), closed, true))
+  const follow = drawerPage(v, 20, undefined, 53)
+  expect(follow.pinned).toBe(true)
+  expect(follow.lines).toHaveLength(21)
+  expect(follow.lines.slice(0, v.head.length)).toEqual(v.head)
+  const shown = follow.lines.slice(v.head.length, 20 - 2).map(lineText)
+  expect(shown.some(l => l.includes('비밀번호 확인'))).toBe(true)
+  expect(lineText(follow.lines[19] ?? [])).toContain('따라가는 중')
+  const stopped = drawerPage(v, 20, 0, 53)
+  expect(stopped.top).toBe(0)
+  expect(stopped.lines[19]?.find(s => s.button === FOLLOW)?.text).toBe('진행 중으로')
+  expect(drawerPage(v, 20, 10_000, 53).top).toBe(stopped.max)
+})
+
+test('a body that fits the pane is drawn whole, with no foot', () => {
+  const v = view(sample())
+  const page = drawerPage(v, 200, undefined, 53)
+  expect(page.pinned).toBe(false)
+  expect(page.lines).toEqual([...v.head, ...v.body])
 })
 
 test('the running stage is open with the running task, the rest is folded', () => {
@@ -186,9 +223,10 @@ test('links show under a step whose row shows: inside an open box, and not under
   expect(text).not.toContain('↗ PR #9')
 })
 
-test('the drawer names the steps waiting for the person to check under its head', () => {
-  const p = ok(updateNodes(sample(), [{ id: '1', status: 'needs_check', note: '문서 읽어 보기' }], 300_000))
-  expect(texts(p)[1]).toBe(' ◐ 확인할 것 1: 조사 (문서 읽어 보기)')
+test('the drawer names the steps waiting for the person to check in its head, and opens the boxes holding them', () => {
+  const p = ok(updateNodes(sample(), [{ id: '4.1', status: 'needs_check', note: '문서 읽어 보기' }], 300_000))
+  expect(view(p).head.map(lineText)[2]).toBe(' ◐ 확인할 것 1: 스테이징 (문서 읽어 보기)')
+  expect(isOpen(p, closed, '4')).toBe(true)
 })
 
 test('while Claude works the running steps in the drawer turn instead of showing a still mark', () => {

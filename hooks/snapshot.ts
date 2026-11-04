@@ -36,7 +36,10 @@ export const shots = (): Shot[] =>
         label: f.label,
         view: 'drawer' as const,
         width,
-        lines: drawerView(f.board.plan, f.board.shelf, { open: {}, focus: null }, f.activity, { width, now: f.now }).lines,
+        lines: (() => {
+          const v = drawerView(f.board.plan, f.board.shelf, { open: {}, focus: null }, f.activity, { width, now: f.now })
+          return [...v.head, ...v.body]
+        })(),
       }))
 
       return [...band, ...drawer]

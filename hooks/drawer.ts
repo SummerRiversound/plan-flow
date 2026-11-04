@@ -61,7 +61,8 @@ export const foldAll = (plan: Plan, drawer: DrawerState, open: boolean): DrawerS
 export const EXPAND_ALL = 'expand-all'
 export const COLLAPSE_ALL = 'collapse-all'
 export const FOLLOW = 'follow'
-export const HOTKEYS: Readonly<Record<string, string>> = { [EXPAND_ALL]: 'e', [COLLAPSE_ALL]: 'c', [FOLLOW]: 'f' }
+export const VIEW = 'view'
+export const HOTKEYS: Readonly<Record<string, string>> = { [EXPAND_ALL]: 'e', [COLLAPSE_ALL]: 'c', [FOLLOW]: 'f', [VIEW]: 'l' }
 
 type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 
@@ -341,20 +342,28 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
     .filter(l => l.length > 0)
     .map((l): Line => [{ text: ' ' }, ...l])
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
-  if (flow.cut) {
-    const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now }).slice(top.length + 1)
-    return { head: [...top, rule(width)], body: [fitLine([{ text: ' 창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), [], ...tree, ...shelved], buttons: [], at: null }
-  }
-  const tools: Line = [
-    { text: ' ' },
-    { text: '모두 펼치기', color: 'text', bold: true, button: EXPAND_ALL },
-    { text: '   ' },
-    { text: '모두 접기', color: 'text', bold: true, button: COLLAPSE_ALL },
-  ]
+  // A button row: each button with the `k: ` the engine draws before it, while they fit.
+  const buttons = (bs: ReadonlyArray<[string, string]>): Line =>
+    bs.reduce<Line>((l, [id, text]) => (cells(lineText(l)) + 3 + 3 + cells(text) > width ? l : [...l, { text: l.length === 0 ? ' ' : '   ' }, { text, color: 'text', bold: true, button: id }]), [])
   const leaf = currentLeaf(plan)
-  // The step Claude is on, else the nearest box above it that shows.
+  // The step Claude is on, else the nearest row above it that shows.
   const ids = leaf === null ? [] : leaf.id.split('.').map((_, i, parts) => parts.slice(0, parts.length - i).join('.'))
-  const at = ids.map(id => flow.lines.findIndex(l => l.some(s => s.node === id))).find(i => i >= 0) ?? null
+  const find = (lines: Line[]) => ids.map(id => lines.findIndex(l => l.some(s => s.node === id))).find(i => i >= 0) ?? null
+  // Too narrow for the boxes, or the person asked for the list: the tree.
+  if (flow.cut || drawer.list === true) {
+    const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now }).slice(top.length + 1)
+    const hint: Line[] = flow.cut ? [fitLine([{ text: ' 창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), []] : [[]]
+    const at = find(tree)
+    const toggle = flow.cut ? [] : [buttons([[VIEW, '흐름도 보기']])]
+
+    return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...shelved], buttons: [], at: at === null ? null : at + hint.length }
+  }
+  const tools = buttons([
+    [EXPAND_ALL, '모두 펼치기'],
+    [COLLAPSE_ALL, '모두 접기'],
+    [VIEW, '목록 보기'],
+  ])
+  const at = find(flow.lines)
 
   return { head: [...top, tools, rule(width)], body: [[], ...flow.lines, ...shelved], buttons: flow.buttons, at: at === null ? null : at + 1 }
 }

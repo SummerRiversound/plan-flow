@@ -139,7 +139,7 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, fo
     { text: prefixOf(plan, n), color: 'inactive' },
     ...(running && live
       ? liveSegs(n.title, now)
-      : [glyphSeg(n), { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) }]),
+      : [{ ...glyphSeg(n), node: n.id }, { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) }]),
     ...markSeg(plan, n.id),
   ]
   if (n.parallel === true) left.push({ text: ' ∥ 동시에', color: 'inactive' })

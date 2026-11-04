@@ -50,8 +50,9 @@ export type GateState = { planned: boolean; denies: number }
 
 // Folds the person set in the drawer (true open, false closed; absent follows the
 // running item), the box holding the focus ring, and the first body row the person
-// scrolled to (absent: the drawer follows the running step).
-export type DrawerState = { open: Record<string, boolean>; focus: string | null; top?: number }
+// scrolled to (absent: the drawer follows the running step), and whether the person
+// asked for the list instead of the flowchart.
+export type DrawerState = { open: Record<string, boolean>; focus: string | null; top?: number; list?: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -103,7 +104,7 @@ declare module 'claude-code' {
         at: number
       }>
       gate: { planned: boolean; denies: number }
-      drawer: { open: Record<string, boolean>; focus: string | null; top?: number }
+      drawer: { open: Record<string, boolean>; focus: string | null; top?: number; list?: boolean }
       // True once /flow has been run: with autoShow off, the tree waits for it.
       asked: boolean
       // Where /flow demo stands; null while the real board shows.

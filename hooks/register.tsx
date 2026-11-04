@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, HOTKEYS, drawerPage, drawerView, foldAll, toggleFold } from './drawer'
+import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, HOTKEYS, VIEW, drawerPage, drawerView, foldAll, toggleFold } from './drawer'
 import { PAUSE_NOTICE, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
@@ -369,7 +369,7 @@ export const register: Register = (on, options) => {
     const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id) && ids.includes(id)) ?? null
     const press = (id: string) => {
       void update($, drawerAtom, (d): DrawerState =>
-        id === EXPAND_ALL || id === COLLAPSE_ALL ? foldAll(plan, d, id === EXPAND_ALL) : id === FOLLOW ? { ...d, top: undefined } : { ...toggleFold(plan, d, id), focus: id },
+        id === EXPAND_ALL || id === COLLAPSE_ALL ? foldAll(plan, d, id === EXPAND_ALL) : id === FOLLOW ? { ...d, top: undefined } : id === VIEW ? { ...d, list: d.list !== true, top: undefined } : { ...toggleFold(plan, d, id), focus: id },
       )
     }
 

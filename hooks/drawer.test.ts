@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
-import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, shelfLines, toggleFold } from './drawer'
+import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, VIEW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, shelfLines, toggleFold } from './drawer'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { idleActivity } from './activity'
@@ -53,7 +53,7 @@ test('the pinned head names the plan, its progress and time, then the buttons th
   expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
   expect(head[1]).toMatch(/━+╸?━+ +3\/14 · 21% · 4분 12초$/)
   expect(head.find(l => l.includes('모두 펼치기'))).toContain('모두 접기')
-  expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL])
+  expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL, VIEW])
   for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
 })
 
@@ -246,4 +246,21 @@ test('finished steps step back dim, steps still to come read plain, the running 
   expect(segs('에러 처리')).toMatchObject({ color: 'text' })
   expect(segs('에러 처리')?.dim).not.toBe(true)
   expect(segs('비밀번호 확인')).toMatchObject({ color: 'text', bold: true })
+})
+
+test('a drawer wide enough for the flowchart offers the list, and the list offers the flowchart back', () => {
+  const buttons = (v: ReturnType<typeof view>) => v.head.flat().filter(s => s.button !== undefined).map(s => `${s.button}:${s.text}`)
+  expect(buttons(view(sample()))).toEqual([`${EXPAND_ALL}:모두 펼치기`, `${COLLAPSE_ALL}:모두 접기`, `${VIEW}:목록 보기`])
+  const list = view(sample(), { ...closed, list: true })
+  expect(buttons(list)).toEqual([`${VIEW}:흐름도 보기`])
+  expect(list.body.map(lineText).some(l => l.startsWith('├─ ✓ 조사'))).toBe(true)
+  expect(list.body.map(lineText).some(l => l.includes('╭'))).toBe(false)
+  // The list follows the running step too.
+  expect(lineText(list.body[list.at ?? -1] ?? [])).toContain('비밀번호 확인')
+})
+
+test('a drawer too narrow for the flowchart shows the list with no way to switch', () => {
+  const narrow = view(sample(), closed, 24)
+  expect(narrow.head.flat().some(s => s.button !== undefined)).toBe(false)
+  expect(narrow.body.map(lineText).some(l => l.includes('창을 넓히면'))).toBe(true)
 })

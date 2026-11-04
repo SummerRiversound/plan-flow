@@ -192,18 +192,25 @@ const detailLines = (ctx: Ctx, n: PlanNode, w: number): Line[] => {
 }
 
 // A finished plan's closing note as rows `w` cells wide: what it was for, how that was
-// reached, and every link the steps produced.
+// reached, and every link the steps produced. The labels share one column and each text
+// wraps under its own first row, with a blank row between the parts.
 const summaryRows = (plan: Plan, w: number): Line[] => {
   const s = plan.summary
   if (s === undefined || hasOpenWork(plan)) return []
-  const para = (label: string, t: string): Line[] => wrap(`${label}: ${t}`, w, WHOLE).map((l): Line => [{ text: l, color: 'text' }])
+  const { goal, result, links } = t().summary
+  const lw = Math.max(cells(goal), cells(result), cells(links))
+  const label = (text: string): Seg => ({ text: padRight(text, lw), color: 'text', bold: true })
+  const part = (name: string, text: string): Line[] =>
+    wrap(text, w - lw - 2, WHOLE).map((l, i): Line => [i === 0 ? label(name) : { text: ' '.repeat(lw) }, { text: `  ${l}`, color: 'text' }])
+  const row = linkRow([...new Set(plan.nodes.flatMap(n => n.links ?? []))], w - lw).map((l): Line => [label(links), ...l])
 
   return [
     [{ text: '✓', color: 'success' }, { text: ` ${t().summary.title}`, color: 'text', bold: true }],
     [{ text: '┄'.repeat(w), color: 'inactive' }],
-    ...para(t().summary.goal, s.goal),
-    ...para(t().summary.result, s.result),
-    ...linkRow([...new Set(plan.nodes.flatMap(n => n.links ?? []))], w),
+    ...part(goal, s.goal),
+    [],
+    ...part(result, s.result),
+    ...(row.length > 0 ? [[], ...row] : []),
   ]
 }
 

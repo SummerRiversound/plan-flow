@@ -122,10 +122,10 @@ test('a finished plan ends with its closing note, in the flowchart and the list,
     const body = v.body.map(lineText)
     const at = body.findIndex(l => l.includes('✓ 완료 정리'))
     expect(at).toBeGreaterThan(0)
-    expect(body.slice(at).join(' ').replace(/[│ ]+/g, ' ')).toContain('결과: 화면과 API, 세션 저장을 만들고 폰에서 로그인부터 다음 화면까지 확인했어요')
+    expect(body.slice(at).join(' ').replace(/[│ ]+/g, ' ')).toContain('결과 화면과 API, 세션 저장을 만들고 폰에서 로그인부터 다음 화면까지 확인했어요')
     for (const l of body) expect(cells(l)).toBeLessThanOrEqual(53)
     const page = drawerPage(v, 20, undefined, 53)
-    expect(page.lines.map(lineText).join('\n')).toContain('결과:')
+    expect(page.lines.map(lineText).join('\n')).toContain('결과  화면과')
   }
   const flow = view(done).body.map(lineText)
   const at = flow.findIndex(l => l.includes('✓ 완료 정리'))
@@ -133,6 +133,31 @@ test('a finished plan ends with its closing note, in the flowchart and the list,
   expect(flow[at - 2]?.trim()).toBe('▼')
   expect(flow[at]?.indexOf('│')).toBe(flow.find(l => l.includes('✓ 조사'))?.indexOf('│'))
   expect(view({ ...done, summary: undefined }).body.map(lineText).join('\n')).not.toContain('완료 정리')
+})
+
+test('the closing note keeps its labels in one column, each text wrapped under itself, a blank row between', () => {
+  let done = ok(setPlan(emptyPlan(), '로그인 기능 추가', STEPS, 0))
+  while (done.nodes.some(n => n.status !== 'completed')) done = ok(nextStep(done, undefined, 1_000))
+  done = ok(updateNodes(done, [{ id: '1', links: ['https://github.com/acme/shop/pull/42'] }], 2_000))
+  done = { ...done, summary: { goal: '로그인 버튼이 눌리지 않던 문제 고치기', result: '버튼을 덮던 투명한 층을 걷어 내고, 폰에서 눌러 다음 화면으로 넘어가는 것까지 확인했어요' } }
+  for (const v of [view(done), view(done, { ...closed, list: true })]) {
+    const body = v.body.map(lineText)
+    const inner = (l: string): string => l.replace(/^[ │]*/, '').replace(/[ │]*$/, '')
+    const from = body.findIndex(l => l.includes('✓ 완료 정리'))
+    const note = body.slice(from + 2).map(inner)
+    const goal = note.findIndex(l => l.startsWith('목적  '))
+    const result = note.findIndex(l => l.startsWith('결과  '))
+    const links = note.findIndex(l => l.startsWith('링크  ↗ PR #42'))
+    expect([goal, result, links].every(i => i >= 0)).toBe(true)
+    expect(note[result - 1]).toBe('')
+    expect(note[links - 1]).toBe('')
+    // Every row of a text starts where its first row's text starts.
+    const at = (line: string, text: string): number => cells(line.slice(0, line.indexOf(text)))
+    const col = (row: number): number => at(body[from + 2 + row]!, note[row]!.trimStart())
+    const textAt = at(body[from + 2 + goal]!, '로그인 버튼')
+    for (const row of [...Array(result - 1 - goal).keys()].map(i => goal + 1 + i).filter(i => note[i] !== '')) expect(col(row)).toBe(textAt)
+    expect(at(body[from + 2 + result]!, '버튼을')).toBe(textAt)
+  }
 })
 
 test('a body that fits the pane is drawn whole, with no foot', () => {

@@ -108,8 +108,6 @@ declare module 'claude-code' {
       demo: { scenario: number; frame: number } | null
       // True while the drawer is open: the band above the prompt steps aside.
       pane: boolean
-      // The tree row the person scrolled the band to; null follows the current step.
-      scroll: number | null
       // The band folded to its title and progress lines.
       fold: boolean
     }

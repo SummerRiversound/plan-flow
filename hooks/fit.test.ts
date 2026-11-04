@@ -33,7 +33,7 @@ test('only the running stage keeps its checkpoints', () => {
   expect(lines.some(l => l.includes('확인 6-4'))).toBe(false)
 })
 
-test('with too few rows to scroll in, rows give way to a count of what is hidden', () => {
+test('with too few rows for a window, rows give way to a count of what is hidden', () => {
   const lines = rows(big(), 3)
   expect(lines).toHaveLength(3)
   expect(lines.some(l => l.includes('단계 3'))).toBe(true)

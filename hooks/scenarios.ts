@@ -99,7 +99,7 @@ const restart = (): Frame[] => {
 
 export const SCENARIOS: Scenario[] = [
   { id: 'basic', title: '기본 진행', frames: [{ label: '동시에 진행되는 두 갈래', board: login(), activity: working, now: 250_000 }] },
-  { id: 'long', title: '긴 계획', frames: [{ label: '입력창 위는 12줄까지, 나머지는 스크롤', board: long(), activity: working, now: 400_000 }] },
+  { id: 'long', title: '긴 계획', frames: [{ label: '입력창 위는 10줄까지, 나머지는 흐름도에서', board: long(), activity: working, now: 400_000 }] },
   {
     id: 'added',
     title: '추가 작업',

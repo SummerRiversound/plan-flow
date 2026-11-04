@@ -187,25 +187,21 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, no
   return lines
 }
 
-// The most rows the tree takes above the prompt; past that it scrolls.
-export const BAND_ROWS = 12
+// The most rows the tree takes above the prompt; past that it shows a window around the current step.
+export const BAND_ROWS = 10
 
 // The `button` id of the piece that opens the drawer.
 export const OPEN_BUTTON = 'open-flow'
 // The `button` id of the piece that folds the band to its title and progress lines, and back.
 export const FOLD_BUTTON = 'fold-band'
 
-// `scroll` is the first tree row the person scrolled to; absent or null follows the current step.
 // `open` labels a button on the title line that opens the drawer; `parked` counts the plans set aside.
 // `folded` shows the fold button, and when true draws only the title and progress lines.
-export type TreeOptions = { maxRows: number; width: number; now: number; scroll?: number | null; open?: string; parked?: number; folded?: boolean }
-// `offset` is the first tree row shown, `maxOffset` the last one a scroll can reach.
-export type TreeView = { lines: Line[]; offset: number; maxOffset: number }
-
-export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, now, scroll = null, open, parked = 0, folded }: TreeOptions): TreeView => {
-  if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return { lines: [], offset: 0, maxOffset: 0 }
+export type TreeOptions = { maxRows: number; width: number; now: number; open?: string; parked?: number; folded?: boolean }
+export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded }: TreeOptions): Line[] => {
+  if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
   const top = head(plan, activity, maxRows, width, now, open, parked, folded)
-  if (folded === true) return { lines: top.slice(0, 2), offset: 0, maxOffset: 0 }
+  if (folded === true) return top.slice(0, 2)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
@@ -219,20 +215,17 @@ export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, now
   }
   const budget = maxRows - top.length
   const body = rowsFor(foldedParents(plan))
-  // Too few rows to scroll in: rows give way instead.
-  if (body.length <= budget || budget < 3) return { lines: [...top, ...fitRows(plan, budget, rowsFor, overflow)], offset: 0, maxOffset: 0 }
+  // Too few rows for a window: rows give way instead.
+  if (body.length <= budget || budget < 3) return [...top, ...fitRows(plan, budget, rowsFor, overflow)]
   const room = budget - 1
   const maxOffset = body.length - room
   const at = body.findIndex(r => marked.has(r.node.id))
-  const offset = Math.max(0, Math.min(maxOffset, scroll ?? (at < 0 ? 0 : at - Math.floor(room / 2))))
+  const offset = Math.max(0, Math.min(maxOffset, at < 0 ? 0 : at - Math.floor(room / 2)))
   const below = maxOffset - offset
-  const hint = [offset > 0 ? `↑ ${offset}줄` : '', below > 0 ? `↓ ${below}줄` : ''].filter(t => t !== '').join(' · ')
-  const lines = [...top, ...body.slice(offset, offset + room).map(r => r.line), fitLine([{ text: `${hint} · 휠, 또는 클릭 후 ↑↓`, color: 'inactive' }], width)]
+  const hint = [offset > 0 ? `위 ${offset}줄` : '', below > 0 ? `아래 ${below}줄` : '', '전체는 흐름도에서'].filter(t => t !== '').join(' · ')
 
-  return { lines, offset, maxOffset }
+  return [...top, ...body.slice(offset, offset + room).map(r => r.line), fitLine([{ text: hint, color: 'inactive' }], width)]
 }
-
-export const drawTree = (plan: Plan, activity: Activity, options: TreeOptions): Line[] => layoutTree(plan, activity, options).lines
 
 // One line for the status bar: progress, the step in hand, what Claude is doing.
 export const statusLine = (plan: Plan, activity: Activity): string | undefined => {

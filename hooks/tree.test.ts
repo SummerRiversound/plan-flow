@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { FOLD_BUTTON, drawTree, duration, layoutTree, lineText, statusLine } from './tree'
+import { FOLD_BUTTON, drawTree, duration, lineText, statusLine } from './tree'
 import { cells } from './width'
 
 const ok = (r: PlanResult): Plan => {
@@ -66,20 +66,14 @@ test('blocked and skipped leaves show why', () => {
   expect(texts(p, idleActivity(), 40, 60).find(l => l.includes('배포'))).toContain('(skipped: 다음 주에)')
 })
 
-test('a tree taller than its rows shows a window around the current step, and scrolls', () => {
+test('a tree taller than its rows shows a window around the current step and says where the rest is', () => {
   const stages = Array.from({ length: 12 }, (_, s) => ({ title: `단계 ${s + 1}` }))
   let p = ok(setPlan(emptyPlan(), '긴 계획', stages, 0))
   for (let t = 1; t <= 7; t++) p = ok(nextStep(p, undefined, t))
-  const opts = { maxRows: 9, width: 40, now: 0 }
-  const follow = layoutTree(p, idleActivity(), opts)
-  expect(follow.lines).toHaveLength(9)
-  expect(follow.lines.map(lineText).some(l => l.includes('단계 7 ◂'))).toBe(true)
-  expect(follow.maxOffset).toBe(12 - 5)
-  expect(lineText(follow.lines[8] ?? [])).toMatch(/^↑ \d+줄 · ↓ \d+줄 · 휠, 또는 클릭 후 ↑↓$/)
-  const top = layoutTree(p, idleActivity(), { ...opts, scroll: 0 })
-  expect(lineText(top.lines[3] ?? [])).toContain('단계 1')
-  expect(lineText(top.lines[8] ?? [])).toMatch(/^↓ 7줄/)
-  expect(layoutTree(p, idleActivity(), { ...opts, scroll: 99 }).offset).toBe(7)
+  const lines = drawTree(p, idleActivity(), { maxRows: 9, width: 40, now: 0 }).map(lineText)
+  expect(lines).toHaveLength(9)
+  expect(lines.some(l => l.includes('단계 7 ◂'))).toBe(true)
+  expect(lines[8]).toMatch(/^위 \d+줄 · 아래 \d+줄 · 전체는 흐름도에서$/)
 })
 
 test('the activity line follows the progress line', () => {

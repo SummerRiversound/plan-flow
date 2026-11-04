@@ -12,7 +12,7 @@ import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parse
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import type { Line } from './tree'
-import { BAND_ROWS, FOLD_BUTTON, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, OPEN_BUTTON, drawTree, fitLine, statusLine } from './tree'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -28,7 +28,6 @@ const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open:
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
 const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
 const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
-const scrollAtom = atom({ plugin: 'plan-flow', key: 'scroll' } as const, null as number | null)
 const foldAtom = atom({ plugin: 'plan-flow', key: 'fold' } as const, false)
 
 type $ = EngineInterface
@@ -135,7 +134,6 @@ async function demo($: $, arg: string | undefined): Promise<string> {
             })()
   if (arg !== undefined && !['stop', 'next', 'prev'].includes(arg) && demoFind(arg) === undefined) return `그런 시연이 없어요. 고를 수 있는 것:\n${demoList()}`
   await update($, demoAtom, () => to)
-  await update($, scrollAtom, () => null)
   await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
   if (to === null) return '시연을 끝냈어요'
   const s = SCENARIOS[to.scenario]
@@ -147,8 +145,6 @@ export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const enforce = options.enforce === true
   let offered = false
-  // The band's window as last drawn, for the next scroll.
-  let band = { offset: 0, maxOffset: 0 }
 
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL_NAME, description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false })
@@ -200,8 +196,7 @@ export const register: Register = (on, options) => {
       await update($, planAtom, () => plan)
       await update($, gateAtom, onPlanWritten)
       // A step moved: the band follows it again.
-      await update($, scrollAtom, () => null)
-      if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
+          if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
       await save($, plan, ran.board.shelf)
       await tick($, true)
       if (finishedAt(plan) !== null) {
@@ -305,16 +300,14 @@ export const register: Register = (on, options) => {
             ),
             fitLine([{ text: frame.label, color: 'inactive' }], width),
           ]
-    const view = layoutTree(plan, frame?.activity ?? (await read($, activityAtom)), {
+    const view = drawTree(plan, frame?.activity ?? (await read($, activityAtom)), {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
       width,
       now: frame?.now ?? (await $.clock.now()),
-      scroll: await read($, scrollAtom),
       open: '흐름도 보기 ▸',
       folded: frame?.folded ?? (await read($, foldAtom)),
       parked: (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length,
     })
-    band = view
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
       if (id === FOLD_BUTTON) void update($, foldAtom, f => !f)
@@ -325,19 +318,10 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column">
-        {[...top, ...view.lines].map(l => row($, e, l, null, press))}
+        {[...top, ...view].map(l => row($, e, l, null, press))}
         {below}
       </Box>
     )
-  })
-
-  // The band is capped below the engine's rows, so it scrolls its own window.
-  on('ui.scroll', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (band.maxOffset === 0) return next(e)
-    const to = Math.max(0, Math.min(band.maxOffset, band.offset + e.by))
-    await update($, scrollAtom, () => to)
-
-    return {}
   })
 
   // The drawer.

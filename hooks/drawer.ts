@@ -416,20 +416,26 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
 
 // The rows the pane shows, `rows` tall. When the body runs past them it scrolls under the
 // head, and a foot pins under it: following the step Claude is on (`top` undefined), or
-// stopped where the person scrolled with a button back. One blank row past the pane keeps the
-// engine sending the person's scrolls here, while its own window stays at the top.
+// stopped where the person scrolled with a button back. Half a window of blank rows above
+// and below the body lets the step Claude is on sit in the middle even near either end. One
+// blank row past the pane keeps the engine sending the person's scrolls here, while its own
+// window stays at the top.
 export type Page = { lines: Line[]; top: number; max: number; pinned: boolean }
 
 export const drawerPage = (v: DrawerView, rows: number, top: number | undefined, width: number): Page => {
   const all = [...v.head, ...v.body]
   const room = rows - v.head.length - 2
   if (all.length <= rows || room < 3) return { lines: all, top: 0, max: 0, pinned: false }
-  const max = v.body.length - room
-  const t = Math.max(0, Math.min(max, top ?? (v.at === null ? 0 : v.at - Math.floor(room / 2))))
+  const margin = Math.floor(room / 2)
+  const blank = Array.from({ length: margin }, (): Line => [])
+  const body = [...blank, ...v.body, ...blank]
+  const max = body.length - room
+  // Following: the step Claude is on in the middle; with none, the body's first row on top.
+  const t = Math.max(0, Math.min(max, top ?? (v.at === null ? margin : v.at)))
   const foot: Line =
     top === undefined
       ? [{ text: v.at === null ? ' 휠로 스크롤해요' : ' 진행 중인 단계를 따라가는 중 · 휠로 둘러보면 멈춰요', color: 'inactive' }]
       : [{ text: ' 따라가기 멈춤   ', color: 'inactive' }, { text: '진행 중으로', color: 'text', bold: true, button: FOLLOW }]
 
-  return { lines: [...v.head, ...v.body.slice(t, t + room), rule(width), fitLine(foot, width), []], top: t, max, pinned: true }
+  return { lines: [...v.head, ...body.slice(t, t + room), rule(width), fitLine(foot, width), []], top: t, max, pinned: true }
 }

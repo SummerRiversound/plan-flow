@@ -82,6 +82,23 @@ test('a body taller than the pane scrolls under the pinned head and a foot that 
   expect(drawerPage(v, 20, 10_000, 53).top).toBe(stopped.max)
 })
 
+test('following puts the running step in the middle of the window, even near the start or the end', () => {
+  const mid = (p: Plan) => {
+    const v = view(p, foldAll(p, closed, true))
+    const page = drawerPage(v, 20, undefined, 53)
+    const room = 20 - v.head.length - 2
+    return { row: page.lines.findIndex(l => l.some(s => s.node !== undefined && lineText(l).includes(currentTitle(p)))) - v.head.length, room }
+  }
+  const currentTitle = (p: Plan) => p.nodes.find(n => n.status === 'in_progress' && !p.nodes.some(c => c.parentId === n.id))?.title ?? ''
+  const first = ok(nextStep(ok(setPlan(emptyPlan(), '로그인 기능 추가', STEPS, 0)), undefined, 1_000))
+  let last = first
+  while (last.nodes.some(n => n.title === '운영' && n.status !== 'in_progress')) last = ok(nextStep(last, undefined, 2_000))
+  for (const p of [first, sample(), last]) {
+    const { row, room } = mid(p)
+    expect(row).toBe(Math.floor(room / 2))
+  }
+})
+
 test('a body that fits the pane is drawn whole, with no foot', () => {
   const v = view(sample())
   const page = drawerPage(v, 200, undefined, 53)

@@ -34,3 +34,4 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — A step pressed in the drawer offers "확인했어요" (on a step waiting for a check) and "질문", which fills the prompt box as a draft instead of sending ("확인했어요, 질문, 입력창에 초안채우기 가 좋겠다"). Changes the person makes on the board reach Claude with the next request.
 - 2026-11-04 — The view switch (목록 보기 / 흐름도 보기) sits flush right in the head so it stays put ("오른쪽으로 정렬시켜서 고정시켜. 위치가 바뀌니까 힘들다").
 - 2026-11-04 — Flowchart boxes on one axis share one width, and side-by-side boxes split it evenly ("박스들의 크기가 다 제각각이니까 좀 힘든데 최소 너비를 정해주면 좀 보기편해지지않을까싶어", picked from two mockups).
+- 2026-11-04 — Following keeps the running step in the middle of the drawer, with blank margin above and below the body so that holds near either end ("가운데로 두는건 좋은데 그럴수있으려면 상 하단에 패딩이있어야할듯"). "확인했어요" stays on steps waiting for a check only.

@@ -1,16 +1,36 @@
 {
   "name": "plan-flow",
+  "displayName": "Plan Flow",
   "version": "0.1.0",
   "description": "Draws Claude's current plan inside Claude Code: a live tree above the prompt and a card flowchart in a side drawer (/flow).",
+  "author": {
+    "name": "SummerRiversound",
+    "url": "https://github.com/SummerRiversound"
+  },
+  "homepage": "https://github.com/SummerRiversound/plan-flow#readme",
+  "repository": "https://github.com/SummerRiversound/plan-flow",
   "license": "MIT",
-  "keywords": ["plan", "flowchart", "progress", "pane"],
+  "icon": "./assets/icon.png",
+  "privacyPolicyUrl": "https://github.com/SummerRiversound/plan-flow#what-it-reads-and-keeps",
+  "keywords": [
+    "plan",
+    "flowchart",
+    "progress",
+    "todo",
+    "pane",
+    "mod"
+  ],
   "types": "./types/index.d.ts",
   "userConfig": {
     "language": {
       "type": "string",
       "title": "Language",
       "description": "Language of the band, drawer and toasts; auto follows Claude Code's language setting, then the system locale, then English",
-      "options": ["auto", "en", "ko"],
+      "options": [
+        "auto",
+        "en",
+        "ko"
+      ],
       "default": "auto"
     },
     "autoShow": {

@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # The build the mod is tested on; mods are in early access and their API can change between releases.
+      CLAUDE_CODE_VERSION: 2.1.318
+      DISABLE_AUTOUPDATER: 1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - run: claude plugin validate . --strict
+      - run: claude plugin test .

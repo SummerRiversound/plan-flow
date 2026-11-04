@@ -1,0 +1,17 @@
+{
+  "name": "plan-flow",
+  "description": "Claude Code mod: Claude's current plan drawn inside Claude Code, as a live tree above the prompt and a flowchart in a side drawer",
+  "owner": {
+    "name": "SummerRiversound",
+    "url": "https://github.com/SummerRiversound"
+  },
+  "plugins": [
+    {
+      "name": "plan-flow",
+      "source": "./",
+      "description": "Claude's current plan drawn inside Claude Code: stages, tasks and checkpoints as a live tree above the prompt and a flowchart in a side drawer (/flow)",
+      "category": "productivity",
+      "tags": ["plan", "flowchart", "progress", "mod"]
+    }
+  ]
+}

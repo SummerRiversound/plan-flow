@@ -217,14 +217,11 @@ export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, 
   const body = rowsFor(foldedParents(plan))
   // Too few rows for a window: rows give way instead.
   if (body.length <= budget || budget < 3) return [...top, ...fitRows(plan, budget, rowsFor, overflow)]
-  const room = budget - 1
-  const maxOffset = body.length - room
+  // A window around the current step; the drawer has the rest.
   const at = body.findIndex(r => marked.has(r.node.id))
-  const offset = Math.max(0, Math.min(maxOffset, at < 0 ? 0 : at - Math.floor(room / 2)))
-  const below = maxOffset - offset
-  const hint = [offset > 0 ? `위 ${offset}줄` : '', below > 0 ? `아래 ${below}줄` : '', '전체는 흐름도에서'].filter(t => t !== '').join(' · ')
+  const offset = Math.max(0, Math.min(body.length - budget, at < 0 ? 0 : at - Math.floor(budget / 2)))
 
-  return [...top, ...body.slice(offset, offset + room).map(r => r.line), fitLine([{ text: hint, color: 'inactive' }], width)]
+  return [...top, ...body.slice(offset, offset + budget).map(r => r.line)]
 }
 
 // One line for the status bar: progress, the step in hand, what Claude is doing.

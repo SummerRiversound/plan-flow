@@ -57,25 +57,27 @@ const right = (ctx: Ctx, n: PlanNode): Seg | null => {
   return null
 }
 
-const titleSegs = (ctx: Ctx, n: PlanNode): Line => {
+// The note, when asked for, comes last so a box may cut it without cutting the title.
+const titleSegs = (ctx: Ctx, n: PlanNode, withNote = true): Line => {
   const run = n.status === 'in_progress'
   const out: Line = [
     glyphSeg(n),
     { text: ` ${n.title}`, color: run || n.status === 'completed' ? 'text' : 'inactive', bold: run, strike: n.status === 'skipped' },
     ...markSeg(ctx.plan, n.id),
   ]
-  const note = noteText(n)
+  const note = withNote ? noteText(n) : ''
   if (note !== '') out.push({ text: note, color: n.status === 'blocked' ? 'error' : 'inactive' })
 
   return out
 }
 
 // Exactly `w` cells: the left cut to fit, the right flush right (dropped when there is no room).
-const spread = (left: Line, r: Seg | null, w: number, ctx?: Ctx): Line => {
+// With `ctx`, a cut into the first `keep` cells of the left (all of it by default) marks the flow as cut.
+const spread = (left: Line, r: Seg | null, w: number, ctx?: Ctx, keep = cells(lineText(left))): Line => {
   if (w <= 0) return []
   const fitted = (room: number): Line => {
     const out = fitLine(left, room)
-    if (ctx !== undefined && lineText(out) !== lineText(left)) ctx.cut = true
+    if (ctx !== undefined && room < keep && lineText(out) !== lineText(left)) ctx.cut = true
     return out
   }
   if (r === null || cells(r.text) + 4 > w) return pad(fitted(w), w)
@@ -154,7 +156,7 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
       continue
     }
     const parent = hasChildren(ctx.plan.nodes, n.id)
-    const content = spread(titleSegs(ctx, n), right(ctx, n), w - cells(indent), ctx)
+    const content = spread(titleSegs(ctx, n), right(ctx, n), w - cells(indent), ctx, cells(lineText(titleSegs(ctx, n, false))))
     if (parent) ctx.buttons.push(n.id)
     rows.push([{ text: indent }, ...(parent ? press(content, n.id) : content)])
     for (const d of detailLines(ctx, n, w - cells(indent))) rows.push([{ text: indent }, ...d])
@@ -183,7 +185,7 @@ const box = (ctx: Ctx, n: PlanNode, max: number, tail: boolean): Block => {
   const inner = width - 4
   const edge = { color: n.status === 'in_progress' ? glyphColor(n) : 'inactive' }
   const wall = (row: Line): Line => [{ text: '│ ', ...edge }, ...pad(row, inner), { text: ' │', ...edge }]
-  let head = spread(titleSegs(ctx, n), r, inner, ctx)
+  let head = spread(titleSegs(ctx, n), r, inner, ctx, cells(lineText(titleSegs(ctx, n, false))))
   if (hasChildren(ctx.plan.nodes, n.id)) {
     ctx.buttons.push(n.id)
     head = press(head, n.id)

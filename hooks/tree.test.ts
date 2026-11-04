@@ -66,14 +66,14 @@ test('blocked and skipped leaves show why', () => {
   expect(texts(p, idleActivity(), 40, 60).find(l => l.includes('배포'))).toContain('(skipped: 다음 주에)')
 })
 
-test('a tree taller than its rows shows a window around the current step and says where the rest is', () => {
+test('a tree taller than its rows shows a window around the current step', () => {
   const stages = Array.from({ length: 12 }, (_, s) => ({ title: `단계 ${s + 1}` }))
   let p = ok(setPlan(emptyPlan(), '긴 계획', stages, 0))
   for (let t = 1; t <= 7; t++) p = ok(nextStep(p, undefined, t))
   const lines = drawTree(p, idleActivity(), { maxRows: 9, width: 40, now: 0 }).map(lineText)
   expect(lines).toHaveLength(9)
   expect(lines.some(l => l.includes('단계 7 ◂'))).toBe(true)
-  expect(lines[8]).toMatch(/^위 \d+줄 · 아래 \d+줄 · 전체는 흐름도에서$/)
+  expect(lines.some(l => l.includes('흐름도에서') || /\d+줄/.test(l))).toBe(false)
 })
 
 test('the activity line follows the progress line', () => {

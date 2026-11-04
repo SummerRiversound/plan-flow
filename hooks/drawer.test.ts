@@ -132,6 +132,11 @@ test('a drawer too narrow for the titles says so', () => {
   expect(drawFlow(sample(), { open: {}, focus: null }, { width: 24, now: 0 }).cut).toBe(true)
 })
 
+test('a long note on a step is cut short in its box and does not send the drawer back to the tree', () => {
+  const p = ok(updateNodes(sample(), [{ id: '1', note: '이 단계는 다른 방식으로 바꾸면서 따로 두지 않고 각 변경 직후에 바로 확인하기로 했어요. '.repeat(3) }], 300_000))
+  expect(drawFlow(p, closed, { width: 53, now: 0 }).cut).toBe(false)
+})
+
 test('parked plans are listed under the flowchart', () => {
   const parked = { plan: sample(), state: 'parked' as const, at: 0 }
   const lines = shelfLines([parked, { ...parked, state: 'cancelled' as const }], 40).map(lineText)

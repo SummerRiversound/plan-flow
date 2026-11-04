@@ -119,6 +119,10 @@ test('with autoShow off, nothing shows above the prompt until /flow', { options:
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeUndefined()
   await $.command.run(FLOW)
   await band.redraw()
+  // The drawer is on screen: the band steps aside until it closes.
+  expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeUndefined()
+  await $.command.run(FLOW)
+  await band.redraw()
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
   await band.unmount()
 })

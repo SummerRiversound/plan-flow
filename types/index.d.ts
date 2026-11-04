@@ -68,6 +68,8 @@ declare module 'claude-code' {
       drawer: { open: Record<string, boolean>; focus: string | null }
       // True once /flow has been run: with autoShow off, the tree waits for it.
       asked: boolean
+      // True while the drawer is open: the band above the prompt steps aside.
+      pane: boolean
       // The tree row the person scrolled the band to; null follows the current step.
       scroll: number | null
     }

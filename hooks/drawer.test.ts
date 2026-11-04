@@ -112,3 +112,22 @@ test('pressing a folded box unfolds it, pressing again folds it', () => {
   expect(isOpen(p, folded, '2')).toBe(false)
   expect(texts(p, folded).some(l => l.includes('로그인 화면'))).toBe(false)
 })
+
+test('a closed box is wide enough for its whole title and time', () => {
+  const steps: PlanInput[] = [{ title: '코드 읽기' }, { title: '진행 부분만 펼치기' }, { title: '화면 확인' }]
+  let p = ok(setPlan(emptyPlan(), '서랍', steps, 0))
+  p = ok(nextStep(p, undefined, 0))
+  p = ok(nextStep(p, undefined, 65_000))
+  p = ok(nextStep(p, undefined, 70_000))
+  const flow = drawFlow(p, { open: {}, focus: null }, { width: 50, accent: 'claude', now: 80_000 })
+  const text = flow.lines.map(lineText).join('\n')
+  expect(text).toMatch(/코드 읽기 +1분 05초/)
+  expect(text).toContain('진행 부분만 펼치기')
+  expect(text).not.toContain('…')
+  expect(flow.cut).toBe(false)
+})
+
+test('a drawer too narrow for the titles says so', () => {
+  expect(drawFlow(sample(), { open: {}, focus: null }, { width: 53, accent: 'claude', now: 0 }).cut).toBe(false)
+  expect(drawFlow(sample(), { open: {}, focus: null }, { width: 24, accent: 'claude', now: 0 }).cut).toBe(true)
+})

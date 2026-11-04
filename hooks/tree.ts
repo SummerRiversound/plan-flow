@@ -105,7 +105,7 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked:
   return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(right)) }, { text: right, color: 'inactive' }]
 }
 
-const head = (plan: Plan, activity: Activity, maxRows: number, width: number, accent: string, now: number): Line[] => {
+const head = (plan: Plan, activity: Activity, maxRows: number, width: number, accent: string, now: number, open?: string): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -119,8 +119,16 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
   if (cells(label) + cells(time) + 4 <= width) label += time
   const bar = Math.max(0, Math.min(24, width - cells(label)))
   const filled = total === 0 ? 0 : Math.round((bar * done) / total)
+  const title: Line = [{ text: plan.title, bold: true, color: 'text' }]
+  // The button that opens the drawer, flush right when the title leaves room.
+  const button = open === undefined || cells(open) + 12 > width ? null : open
   const lines: Line[] = [
-    fitLine([{ text: plan.title, bold: true, color: 'text' }], width),
+    button === null
+      ? fitLine(title, width)
+      : (() => {
+          const cut = fitLine(title, width - cells(button) - 1)
+          return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(button)) }, { text: button, color: accent, button: OPEN_BUTTON }]
+        })(),
     fitLine([{ text: '━'.repeat(filled), color: accent }, { text: '─'.repeat(bar - filled), color: 'inactive' }, { text: label, color: 'text' }], width),
   ]
   const words = activityLabel(activity)
@@ -130,14 +138,18 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
   return lines
 }
 
+// The `button` id of the piece that opens the drawer.
+export const OPEN_BUTTON = 'open-flow'
+
 // `scroll` is the first tree row the person scrolled to; absent or null follows the current step.
-export type TreeOptions = { maxRows: number; width: number; accent: string; now: number; scroll?: number | null }
+// `open` labels a button on the title line that opens the drawer.
+export type TreeOptions = { maxRows: number; width: number; accent: string; now: number; scroll?: number | null; open?: string }
 // `offset` is the first tree row shown, `maxOffset` the last one a scroll can reach.
 export type TreeView = { lines: Line[]; offset: number; maxOffset: number }
 
-export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, accent, now, scroll = null }: TreeOptions): TreeView => {
+export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, accent, now, scroll = null, open }: TreeOptions): TreeView => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return { lines: [], offset: 0, maxOffset: 0 }
-  const top = head(plan, activity, maxRows, width, accent, now)
+  const top = head(plan, activity, maxRows, width, accent, now, open)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes

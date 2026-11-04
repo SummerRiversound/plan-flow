@@ -10,7 +10,7 @@ import type { Plan } from './plan'
 import { currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, instruction, parseOp, runOp } from './plan-tool'
 import type { Line } from './tree'
-import { layoutTree, statusLine } from './tree'
+import { OPEN_BUTTON, drawTree, layoutTree, statusLine } from './tree'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -25,6 +25,7 @@ const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idl
 const gateAtom = atom({ plugin: 'plan-flow', key: 'gate' } as const, { planned: false, denies: 0 })
 const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open: {}, focus: null } as DrawerState)
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
+const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const scrollAtom = atom({ plugin: 'plan-flow', key: 'scroll' } as const, null as number | null)
 
 type $ = EngineInterface
@@ -104,6 +105,15 @@ async function save($: $, plan: Plan): Promise<void> {
     .sort((a, b) => b[1].savedAt - a[1].savedAt)
     .slice(0, KEPT_SESSIONS)
   await $.store.set('plans', Object.fromEntries(kept))
+}
+
+// Opens the drawer; the band steps aside while it is on screen.
+async function openDrawer($: $): Promise<boolean> {
+  await update($, askedAtom, () => true)
+  const opened = await $.ui.open({ id: PANE, title: '흐름도', focus: true, closeOnEscape: true })
+  await update($, paneAtom, () => true)
+
+  return opened.isPlaced
 }
 
 export const register: Register = (on, options) => {
@@ -216,11 +226,10 @@ export const register: Register = (on, options) => {
 
       return { text: '흐름도를 닫았어요' }
     }
-    await update($, askedAtom, () => true)
+    const placed = await openDrawer($)
     await refresh($, autoShow)
-    const opened = await $.ui.open({ id: PANE, title: '흐름도', focus: true, closeOnEscape: true })
 
-    return { text: opened.isPlaced ? '흐름도를 열었어요' : '흐름도를 열었어요. 화면이 넓어지면 보여요' }
+    return { text: placed ? '흐름도를 열었어요' : '흐름도를 열었어요. 화면이 넓어지면 보여요' }
   })
 
   // The tree above the prompt.
@@ -228,6 +237,7 @@ export const register: Register = (on, options) => {
     if (e.props.hasSurvey) return next(e)
     const plan = await read($, planAtom)
     if (await hidden($, plan, autoShow)) return next(e)
+    if ((await read($, paneAtom)) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)) return next(e)
     const { Box } = $.ui.resolve(e)
     const view = layoutTree(plan, await read($, activityAtom), {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS),
@@ -235,10 +245,14 @@ export const register: Register = (on, options) => {
       accent,
       now: await $.clock.now(),
       scroll: await read($, scrollAtom),
+      open: '흐름도 보기 ▸',
     })
     band = view
+    const press = (id: string) => {
+      if (id === OPEN_BUTTON) void openDrawer($)
+    }
 
-    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, null, () => undefined))}</Box>
+    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, null, press))}</Box>
   })
 
   // The band is capped below the engine's rows, so it scrolls its own window.
@@ -256,7 +270,20 @@ export const register: Register = (on, options) => {
     const plan = await read($, planAtom)
     if (plan.nodes.length === 0) return <Text dimColor>아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.</Text>
     const drawer = await read($, drawerAtom)
-    const flow = drawFlow(plan, drawer, { width: e.props.bodyColumns, accent, now: await $.clock.now() })
+    const now = await $.clock.now()
+    const flow = drawFlow(plan, drawer, { width: e.props.bodyColumns, accent, now })
+    // Too narrow for the boxes to hold their titles: the tree, and how to get the flowchart.
+    if (flow.cut) {
+      const tree = drawTree(plan, await read($, activityAtom), { maxRows: plan.nodes.length + 6, width: e.props.bodyColumns, accent, now })
+
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>창을 넓히면 흐름도로 보여요</Text>
+          <Text> </Text>
+          {tree.map(l => row($, e, l, null, () => undefined))}
+        </Box>
+      )
+    }
     const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
     const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && flow.buttons.includes(id)) ?? flow.buttons[0] ?? null
     const fold = (id: string) => {
@@ -264,6 +291,14 @@ export const register: Register = (on, options) => {
     }
 
     return <Box flexDirection="column">{flow.lines.map(l => row($, e, l, focus, fold))}</Box>
+  })
+
+  // The drawer closed (Esc, /flow, the person): the band comes back.
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    const closed = await next(e)
+    await update($, paneAtom, () => false)
+
+    return closed
   })
 
   // Where the ring stands, so a redraw puts it back.

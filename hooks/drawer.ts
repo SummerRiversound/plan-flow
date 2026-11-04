@@ -13,7 +13,8 @@ import { cells, padRight } from './width'
 export type { DrawerState }
 
 export type FlowOptions = { width: number; accent: string; now: number }
-export type Flow = { lines: Line[]; buttons: string[] }
+// `cut` is true when some title did not fit its box: the drawer then draws the tree instead.
+export type Flow = { lines: Line[]; buttons: string[]; cut: boolean }
 
 const GAP = 5
 const MIN_BOX = 21
@@ -45,7 +46,7 @@ export const toggleFold = (plan: Plan, drawer: DrawerState, id: string): DrawerS
   open: { ...drawer.open, [id]: !isOpen(plan, drawer, id) },
 })
 
-type Ctx = { plan: Plan; drawer: DrawerState; accent: string; buttons: string[] }
+type Ctx = { plan: Plan; drawer: DrawerState; accent: string; buttons: string[]; cut: boolean }
 
 const right = (ctx: Ctx, n: PlanNode): Seg | null => {
   if (hasChildren(ctx.plan.nodes, n.id)) return { text: `${count(ctx.plan, n.id)} ${isOpen(ctx.plan, ctx.drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
@@ -68,10 +69,15 @@ const titleSegs = (ctx: Ctx, n: PlanNode): Line => {
 }
 
 // Exactly `w` cells: the left cut to fit, the right flush right (dropped when there is no room).
-const spread = (left: Line, r: Seg | null, w: number): Line => {
+const spread = (left: Line, r: Seg | null, w: number, ctx?: Ctx): Line => {
   if (w <= 0) return []
-  if (r === null || cells(r.text) + 4 > w) return pad(fitLine(left, w), w)
-  const cut = fitLine(left, w - cells(r.text) - 1)
+  const fitted = (room: number): Line => {
+    const out = fitLine(left, room)
+    if (ctx !== undefined && lineText(out) !== lineText(left)) ctx.cut = true
+    return out
+  }
+  if (r === null || cells(r.text) + 4 > w) return pad(fitted(w), w)
+  const cut = fitted(w - cells(r.text) - 1)
 
   return [...cut, { text: padRight('', w - cells(lineText(cut)) - cells(r.text)) }, r]
 }
@@ -97,7 +103,7 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
       continue
     }
     const parent = hasChildren(ctx.plan.nodes, n.id)
-    const content = spread(titleSegs(ctx, n), right(ctx, n), w - cells(indent))
+    const content = spread(titleSegs(ctx, n), right(ctx, n), w - cells(indent), ctx)
     if (parent) ctx.buttons.push(n.id)
     rows.push([{ text: indent }, ...(parent ? press(content, n.id) : content)])
     if (parent && isOpen(ctx.plan, ctx.drawer, n.id)) rows.push(...inside(ctx, n.id, w, `${indent}    `))
@@ -108,10 +114,11 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
 
 type Block = { lines: Line[]; width: number }
 
-const oddAtMost = (n: number, max: number): number => {
+// Odd, so `┬` sits in the middle: rounded up to keep the title whole, down only at `max`.
+const oddFit = (n: number, max: number): number => {
   const w = Math.min(n, max)
 
-  return w % 2 === 1 ? w : w - 1
+  return w % 2 === 1 ? w : w + 1 <= max ? w + 1 : w - 1
 }
 
 // One stage as a box; `tail` puts `┬` under its middle for what comes next.
@@ -119,11 +126,11 @@ const box = (ctx: Ctx, n: PlanNode, max: number, tail: boolean): Block => {
   const open = hasChildren(ctx.plan.nodes, n.id) && isOpen(ctx.plan, ctx.drawer, n.id)
   const r = right(ctx, n)
   const natural = cells(lineText(titleSegs(ctx, n))) + (r === null ? 0 : cells(r.text) + 1) + 4
-  const width = oddAtMost(open ? Math.max(MIN_BOX, max - 8) : Math.max(MIN_BOX, natural), max)
+  const width = oddFit(open ? Math.max(MIN_BOX, max - 8) : Math.max(MIN_BOX, natural), max)
   const inner = width - 4
   const edge = { color: n.status === 'in_progress' ? ctx.accent : 'inactive' }
   const wall = (row: Line): Line => [{ text: '│ ', ...edge }, ...pad(row, inner), { text: ' │', ...edge }]
-  let head = spread(titleSegs(ctx, n), r, inner)
+  let head = spread(titleSegs(ctx, n), r, inner, ctx)
   if (hasChildren(ctx.plan.nodes, n.id)) {
     ctx.buttons.push(n.id)
     head = press(head, n.id)
@@ -207,12 +214,12 @@ const branches = (ctx: Ctx, group: PlanNode, width: number, axis: number, first:
 }
 
 export const drawFlow = (plan: Plan, drawer: DrawerState, { width, accent, now }: FlowOptions): Flow => {
-  const ctx: Ctx = { plan, drawer, accent, buttons: [] }
-  if (plan.nodes.length === 0 || width <= 0) return { lines: [], buttons: [] }
+  const ctx: Ctx = { plan, drawer, accent, buttons: [], cut: false }
+  if (plan.nodes.length === 0 || width <= 0) return { lines: [], buttons: [], cut: false }
   const r = `${count(plan, null)} · ${duration(elapsed(plan, now))}`
   const head = spread([{ text: ` ${plan.title}`, bold: true, color: 'text' }], { text: r, color: 'inactive' }, width)
   // Too narrow for a box: the head alone.
-  if (width < MIN_INNER + 4) return { lines: [head], buttons: [] }
+  if (width < MIN_INNER + 4) return { lines: [head], buttons: [], cut: true }
   const lines: Line[] = [head, []]
   const axis = Math.floor((width - 1) / 2)
   const stages = childrenOf(plan.nodes, null)
@@ -228,5 +235,5 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, accent, now }
     for (const l of b.lines) lines.push(place([{ x: axis - (b.width - 1) / 2, line: l }]))
   })
 
-  return { lines: lines.map(l => fitLine(l, width)), buttons: ctx.buttons }
+  return { lines: lines.map(l => fitLine(l, width)), buttons: ctx.buttons, cut: ctx.cut }
 }

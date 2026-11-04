@@ -41,18 +41,6 @@ const ancestorIds = (id: string): string[] => {
   return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('.'))
 }
 
-// Numeric path order: "2" < "2.1" < "2.10" < "10".
-const byPath = (a: PlanNode, b: PlanNode): number => {
-  const x = a.id.split('.').map(Number)
-  const y = b.id.split('.').map(Number)
-  for (let i = 0; i < Math.min(x.length, y.length); i++) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0)
-    if (d !== 0) return d
-  }
-
-  return x.length - y.length
-}
-
 const idList = (plan: Plan): string => (plan.nodes.length === 0 ? 'the plan has no steps' : `valid ids: ${plan.nodes.map(n => n.id).join(', ')}`)
 
 const text = (label: string, raw: unknown, max: number, mayBeEmpty: boolean): { value: string } | { error: string } => {
@@ -216,6 +204,8 @@ export const setPlan = (prev: Plan, rawTitle: string, input: readonly PlanInput[
     return { plan: rollup({ title: title.value, nodes: made.nodes, lastChild, startedAt: same ? prev.startedAt : now }) }
   })
 
+// New steps go after the last step under `parentId`, in the order given; each added
+// subtree is marked new. A running leaf that gains children hands its run to the first.
 export const addNodes = (prev: Plan, parentId: string | null, input: readonly PlanInput[], now: number): PlanResult =>
   guarded(() => {
     if (!Array.isArray(input) || input.length === 0) return { error: 'no steps to add' }
@@ -228,28 +218,77 @@ export const addNodes = (prev: Plan, parentId: string | null, input: readonly Pl
     }
     const made = build(input, parentId, levelUnder(prev.nodes, parentId), lastChild)
     if ('error' in made) return made
-    const nodes = [...prev.nodes, ...made.nodes].sort(byPath)
-    if (nodes.length > MAX_NODES) return { error: `the plan would have ${nodes.length} steps; at most ${MAX_NODES} fit` }
+    const nodes = prev.nodes.map(n => ({ ...n }))
+    if (nodes.length + made.nodes.length > MAX_NODES) return { error: `the plan would have ${nodes.length + made.nodes.length} steps; at most ${MAX_NODES} fit` }
+    const at = parentId === null ? nodes.length : lastUnder(nodes, parentId) + 1
+    nodes.splice(at, 0, ...made.nodes)
+    const parent = parentId === null ? undefined : nodes.find(n => n.id === parentId)
+    const first = made.nodes.find(n => !hasChildren(made.nodes, n.id))
+    if (parent?.status === 'in_progress' && !hasChildren(prev.nodes, parent.id) && first !== undefined) {
+      first.status = 'in_progress'
+      if (parent.startedAt !== undefined) first.startedAt = parent.startedAt
+    }
+    const marks = { ...prev.marks }
+    for (const n of made.nodes.filter(n => n.parentId === parentId)) marks[n.id] = 'new'
     // A leaf that gains children stops being a leaf: its own status and times go.
-    const plan = rollup({ ...prev, nodes, lastChild })
+    const plan = rollup({ ...prev, nodes, lastChild, marks })
     if (prev.nodes.length === 0) plan.startedAt = now
 
     return { plan }
   })
+
+// Index of the last node at or under `id` (the list is in tree order, so a subtree is a run).
+const lastUnder = (nodes: readonly PlanNode[], id: string): number => {
+  let last = nodes.findIndex(n => n.id === id)
+  while (last + 1 < nodes.length && nodes[last + 1]?.id.startsWith(`${id}.`)) last++
+
+  return last
+}
+
+// Moves a step, with everything under it, before its sibling `before`, or after the last sibling.
+export const moveNode = (prev: Plan, id: string, before: string | undefined, _now: number): PlanResult =>
+  guarded(() => {
+    const node = prev.nodes.find(n => n.id === id)
+    if (node === undefined) return { error: `unknown id "${clean(String(id))}"; ${idList(prev)}` }
+    const sibs = childrenOf(prev.nodes, node.parentId).filter(n => n.id !== id)
+    if (before !== undefined && !sibs.some(n => n.id === before)) {
+      return { error: `"${clean(String(before))}" is not a sibling of "${id}"; steps move among their siblings (${sibs.map(n => n.id).join(', ') || 'none'})` }
+    }
+    const nodes = prev.nodes.map(n => ({ ...n }))
+    const from = nodes.findIndex(n => n.id === id)
+    const block = nodes.splice(from, lastUnder(prev.nodes, id) - from + 1)
+    const lastSib = sibs[sibs.length - 1]
+    const at = before !== undefined ? nodes.findIndex(n => n.id === before) : lastSib === undefined ? from : lastUnder(nodes, lastSib.id) + 1
+    nodes.splice(at, 0, ...block)
+
+    return { plan: rollup({ ...prev, nodes }) }
+  })
+
+// The marks a new request starts without.
+export const clearMarks = (plan: Plan): Plan => {
+  if (plan.marks === undefined) return plan
+  const { marks: _marks, ...rest } = plan
+
+  return rest
+}
 
 // All updates apply or none does. Status is set on leaves only; `note: ''` clears a note.
 export const updateNodes = (prev: Plan, updates: readonly NodeUpdate[], now: number): PlanResult =>
   guarded(() => {
     if (!Array.isArray(updates) || updates.length === 0) return { error: 'no updates given' }
     const nodes = prev.nodes.map(n => ({ ...n }))
+    const marks = { ...prev.marks }
     for (const u of updates) {
       const node = nodes.find(n => n.id === u.id)
       if (node === undefined) return { error: `unknown id "${clean(String(u.id))}"; ${idList(prev)}` }
       const isParent = hasChildren(nodes, node.id)
       if (u.status !== undefined) {
         if (!STATUSES.includes(u.status)) return { error: `unknown status "${clean(String(u.status))}"; use ${STATUSES.join(', ')}` }
-        if (isParent) return { error: `"${node.id}" has children, so its status follows them; update a leaf` }
-        setStatus(node, u.status, now)
+        // Reopening a parent reopens every finished leaf under it.
+        if (isParent && u.status !== 'pending') return { error: `"${node.id}" has children, so its status follows them; update a leaf, or set "pending" to reopen all of it` }
+        const leaves = isParent ? leavesUnder(nodes, node.id).filter(n => isFinished(n.status)) : [node]
+        if (leaves.some(n => isFinished(n.status)) && !isFinished(u.status)) marks[node.id] = 'redo'
+        for (const leaf of leaves) setStatus(leaf, u.status, now)
       }
       if (u.title !== undefined) {
         const t = text('a step title', u.title, MAX_TITLE, false)
@@ -267,7 +306,7 @@ export const updateNodes = (prev: Plan, updates: readonly NodeUpdate[], now: num
         node.parallel = true
       } else if (u.parallel === false) delete node.parallel
     }
-    const plan = rollup({ ...prev, nodes })
+    const plan = rollup({ ...prev, nodes, marks })
     const clash = concurrencyError(plan)
 
     return clash === null ? { plan } : { error: clash }

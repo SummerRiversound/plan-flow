@@ -1,20 +1,26 @@
 import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
-import { describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import type { Board } from './board'
+import { boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
 
-const apply = (plan: Plan, raw: unknown, now = 0): { plan: Plan; text: string } => {
+const run = (board: Board, raw: unknown, now = 0): { board: Board; text: string; notice?: string } => {
   const parsed = parseOp(raw)
   if ('error' in parsed) throw new Error(parsed.error)
-  const out = runOp(plan, parsed.op, now)
+  const out = runOp(board, parsed.op, now)
   if ('error' in out) throw new Error(out.error)
 
   return out
 }
+const apply = (plan: Plan, raw: unknown, now = 0): { plan: Plan; text: string } => {
+  const out = run({ plan, shelf: [] }, raw, now)
+
+  return { plan: out.board.plan, text: out.text }
+}
 const error = (plan: Plan, raw: unknown): string => {
   const parsed = parseOp(raw)
   if ('error' in parsed) return parsed.error
-  const out = runOp(plan, parsed.op, 0)
+  const out = runOp({ plan, shelf: [] }, parsed.op, 0)
 
   return 'error' in out ? out.error : 'no error'
 }
@@ -23,7 +29,7 @@ const SET = { op: 'set', title: '로그인 기능 추가', nodes: [{ title: '조
 
 test('every op is offered in the schema, next among them', () => {
   const op = (TOOL_SCHEMA.properties as Record<string, { enum?: string[] }>).op
-  expect(op?.enum).toEqual(['set', 'next', 'update', 'add', 'remove', 'show'])
+  expect(op?.enum).toEqual(['set', 'next', 'update', 'add', 'remove', 'move', 'resume', 'cancel', 'show'])
   expect(TOOL_DESCRIPTION).toContain('"next"')
 })
 
@@ -93,4 +99,31 @@ test('the instruction names the tool, next, short titles and leaving the drawing
 
 test('describePlan of an empty plan tells how to start one', () => {
   expect(describePlan(emptyPlan())).toContain('"set"')
+})
+
+test('a detour parks the plan, the answer says so and lists the shelf', () => {
+  const first = run({ plan: emptyPlan(), shelf: [] }, SET)
+  expect(error(first.board.plan, { op: 'set', title: '버그', nodes: [{ title: '재현' }] })).toContain('previous "park"')
+  const out = run(first.board, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' })
+  expect(out.notice).toBe('"로그인 기능 추가" 보관 · "버그" 시작')
+  expect(out.text).toContain('Parked: "로그인 기능 추가" (0/3 done)')
+  expect(run(out.board, { op: 'resume', previous: 'park' }).board.plan.title).toBe('로그인 기능 추가')
+  expect(run(out.board, { op: 'cancel' }).board.plan.title).toBe('로그인 기능 추가')
+})
+
+test('move, resume and previous are read and checked', () => {
+  expect(parseOp({ op: 'move', id: '2', before: '1' })).toEqual({ op: { op: 'move', id: '2', before: '1' } })
+  expect(parseOp({ op: 'resume', title: '로그인' })).toEqual({ op: { op: 'resume', title: '로그인' } })
+  const bad = parseOp({ op: 'set', title: 'x', nodes: [{ title: 'a' }], previous: 'drop' })
+  expect('error' in bad && bad.error).toContain('"park" or "cancel"')
+})
+
+test('each request carries a note while a plan is on the board, with the cases to sort it into', () => {
+  expect(boardNote({ plan: emptyPlan(), shelf: [] })).toBeUndefined()
+  const board = run({ plan: emptyPlan(), shelf: [] }, SET).board
+  const note = boardNote(board) ?? ''
+  expect(note).toContain('In hand: "로그인 기능 추가" (0/3 done, in hand: 조사 (id 1))')
+  for (const op of ['"add"', '"pending"', 'previous "park"', 'previous "cancel"', 'fresh session', '"resume"']) expect(note).toContain(op)
+  const parked = run(board, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' }).board
+  expect(boardNote(parked)).toContain('Parked: "로그인 기능 추가" (0/3)')
 })

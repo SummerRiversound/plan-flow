@@ -23,6 +23,8 @@ export type Plan = {
   nodes: PlanNode[]
   lastChild: Record<string, number>
   startedAt: number
+  // Steps this request changed: added ('new') or reopened ('redo'); cleared on the next prompt.
+  marks?: Record<string, 'new' | 'redo'>
 }
 
 export type ActivityPhase = 'idle' | 'working' | 'tool' | 'permission' | 'question' | 'compacting' | 'interrupted' | 'error'
@@ -33,6 +35,11 @@ export type Activity = {
   detail?: string
   running: Array<{ id: string; tool: string }>
 }
+
+// A plan set aside: parked to come back to, cancelled, or done. The shelf is newest first.
+export type Shelved = { plan: Plan; state: 'parked' | 'cancelled' | 'done'; at: number }
+// The session's board: the plan in hand and the shelf.
+export type Board = { plan: Plan; shelf: Shelved[] }
 
 export type GateState = { planned: boolean; denies: number }
 
@@ -57,6 +64,7 @@ declare module 'claude-code' {
         }>
         lastChild: Record<string, number>
         startedAt: number
+        marks?: Record<string, 'new' | 'redo'>
       }
       activity: {
         phase: 'idle' | 'working' | 'tool' | 'permission' | 'question' | 'compacting' | 'interrupted' | 'error'
@@ -64,6 +72,26 @@ declare module 'claude-code' {
         detail?: string
         running: Array<{ id: string; tool: string }>
       }
+      shelf: Array<{
+        plan: {
+          title: string
+          nodes: Array<{
+            id: string
+            parentId: string | null
+            title: string
+            status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
+            note?: string
+            parallel?: boolean
+            startedAt?: number
+            doneAt?: number
+          }>
+          lastChild: Record<string, number>
+          startedAt: number
+          marks?: Record<string, 'new' | 'redo'>
+        }
+        state: 'parked' | 'cancelled' | 'done'
+        at: number
+      }>
       gate: { planned: boolean; denies: number }
       drawer: { open: Record<string, boolean>; focus: string | null }
       // True once /flow has been run: with autoShow off, the tree waits for it.

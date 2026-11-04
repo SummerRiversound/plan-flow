@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
-import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
+import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { drawTree, duration, layoutTree, lineText, statusLine } from './tree'
 import { cells } from './width'
 
@@ -115,4 +115,13 @@ test('the status line names progress and the step in hand', () => {
   expect(statusLine(emptyPlan(), idleActivity())).toBeUndefined()
   expect(statusLine(emptyPlan(), working)).toBe('작업 중')
   expect(statusLine(sample(), working)).toBe('계획 2/7 · 주소 만들기 외 1개 진행 중 · 작업 중')
+})
+
+test('steps the latest request added or reopened carry a mark, and the head counts parked plans', () => {
+  let p = ok(addNodes(sample(), null, [{ title: '문서' }], 9))
+  p = ok(updateNodes(p, [{ id: '1', status: 'pending', note: '다시 조사' }], 10))
+  const lines = drawTree(p, idleActivity(), { maxRows: 40, width: 60, accent: 'claude', now: 0, parked: 2 }).map(lineText)
+  expect(lines.find(l => l.includes('문서'))).toContain('문서 새로')
+  expect(lines.find(l => l.includes('조사'))).toContain('조사 ↺')
+  expect(lines[1]).toContain('· 보관 2')
 })

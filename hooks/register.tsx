@@ -1,14 +1,14 @@
 // Wiring only: hook events in, the pure modules beside this file decide, state out.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
-import type { DrawerState } from '../types'
+import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { drawFlow, toggleFold } from './drawer'
+import { drawFlow, shelfLines, toggleFold } from './drawer'
 import { PAUSE_NOTICE, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
-import { currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
-import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, instruction, parseOp, runOp } from './plan-tool'
+import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
+import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
 import type { Line } from './tree'
 import { OPEN_BUTTON, drawTree, layoutTree, statusLine } from './tree'
 
@@ -22,6 +22,7 @@ const BAND_ROWS = 12
 
 const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan())
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
+const shelfAtom = atom({ plugin: 'plan-flow', key: 'shelf' } as const, [] as Shelved[])
 const gateAtom = atom({ plugin: 'plan-flow', key: 'gate' } as const, { planned: false, denies: 0 })
 const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open: {}, focus: null } as DrawerState)
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
@@ -29,7 +30,7 @@ const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const scrollAtom = atom({ plugin: 'plan-flow', key: 'scroll' } as const, null as number | null)
 
 type $ = EngineInterface
-type Saved = Record<string, { plan: Plan; savedAt: number }>
+type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 
 // Draws one line of pieces; the pieces marked with a node id become that node's fold Button.
 const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: string | null, onPress: (id: string) => void) => {
@@ -96,11 +97,11 @@ async function tick($: $, running: boolean): Promise<void> {
   }
 }
 
-// One plan per session, the most recent sessions kept.
-async function save($: $, plan: Plan): Promise<void> {
+// One board per session, the most recent sessions kept.
+async function save($: $, plan: Plan, shelf: Shelved[]): Promise<void> {
   const sid = await $.session.id()
   const saved = ((await $.store.get('plans')) ?? {}) as Saved
-  saved[sid] = { plan, savedAt: await $.clock.now() }
+  saved[sid] = { plan, shelf, savedAt: await $.clock.now() }
   const kept = Object.entries(saved)
     .sort((a, b) => b[1].savedAt - a[1].savedAt)
     .slice(0, KEPT_SESSIONS)
@@ -129,8 +130,10 @@ export const register: Register = (on, options) => {
     offered = true
     await $.command.register({ name: 'flow', description: '계획 흐름도를 열거나 닫아요', immediate: true })
     const saved = ((await $.store.get('plans')) ?? {}) as Saved
-    const plan = saved[await $.session.id()]?.plan ?? emptyPlan()
+    const mine = saved[await $.session.id()]
+    const plan = mine?.plan ?? emptyPlan()
     await update($, planAtom, () => plan)
+    await update($, shelfAtom, () => mine?.shelf ?? [])
     await update($, activityAtom, () => idleActivity())
     await update($, gateAtom, () => onTurnStart(plan))
     await refresh($, autoShow)
@@ -145,6 +148,16 @@ export const register: Register = (on, options) => {
     return { sections: [...composed.sections, { id: `${PLUGIN}:plan`, text: instruction(TOOL), scope: 'session' as const }] }
   })
 
+  // Each request the person sends: last request's marks go, and the model gets the board.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command !== undefined || e.isMeta === true) return next(e)
+    const plan = await read($, planAtom)
+    if (plan.marks !== undefined) await update($, planAtom, clearMarks)
+    const note = boardNote({ plan, shelf: await read($, shelfAtom) })
+
+    return next(note === undefined ? e : { ...e, context: [...(e.context ?? []), note] })
+  })
+
   // The plan tool itself.
   on('tool.call', { tool: 'mcp__plan-flow__plan' }, async ($, e) => {
     if (e.agentId !== undefined) return { deny: 'The plan belongs to the main conversation; a subagent does not change it.' }
@@ -152,17 +165,21 @@ export const register: Register = (on, options) => {
     const parsed = parseOp(input)
     if ('error' in parsed) return { result: parsed.error }
     const before = await read($, planAtom)
-    const ran = runOp(before, parsed.op, await $.clock.now())
+    const shelf = await read($, shelfAtom)
+    const ran = runOp({ plan: before, shelf }, parsed.op, await $.clock.now())
     if ('error' in ran) return { result: ran.error }
-    if (ran.plan !== before) {
-      await update($, planAtom, () => ran.plan)
+    if (ran.notice !== undefined) $.ui.toast(ran.notice)
+    if (ran.board.shelf !== shelf) await update($, shelfAtom, () => ran.board.shelf)
+    if (ran.board.plan !== before || ran.board.shelf !== shelf) {
+      const plan = ran.board.plan
+      await update($, planAtom, () => plan)
       await update($, gateAtom, onPlanWritten)
       // A step moved: the band follows it again.
       await update($, scrollAtom, () => null)
-      if (ran.plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
-      await save($, ran.plan)
+      if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
+      await save($, plan, ran.board.shelf)
       await tick($, true)
-      if (finishedAt(ran.plan) !== null) {
+      if (finishedAt(plan) !== null) {
         $.clock.after(HIDE_AFTER_MS + 100, () => {
           $.ui.invalidate('ui.render')
           void refresh($, autoShow)
@@ -246,6 +263,7 @@ export const register: Register = (on, options) => {
       now: await $.clock.now(),
       scroll: await read($, scrollAtom),
       open: '흐름도 보기 ▸',
+      parked: (await read($, shelfAtom)).filter(s => s.state === 'parked').length,
     })
     band = view
     const press = (id: string) => {
@@ -268,13 +286,21 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
     const plan = await read($, planAtom)
-    if (plan.nodes.length === 0) return <Text dimColor>아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.</Text>
+    const shelved = shelfLines(await read($, shelfAtom), e.props.bodyColumns)
+    if (plan.nodes.length === 0) {
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.</Text>
+          {shelved.map(l => row($, e, l, null, () => undefined))}
+        </Box>
+      )
+    }
     const drawer = await read($, drawerAtom)
     const now = await $.clock.now()
     const flow = drawFlow(plan, drawer, { width: e.props.bodyColumns, accent, now })
     // Too narrow for the boxes to hold their titles: the tree, and how to get the flowchart.
     if (flow.cut) {
-      const tree = drawTree(plan, await read($, activityAtom), { maxRows: plan.nodes.length + 6, width: e.props.bodyColumns, accent, now })
+      const tree = [...drawTree(plan, await read($, activityAtom), { maxRows: plan.nodes.length + 6, width: e.props.bodyColumns, accent, now }), ...shelved]
 
       return (
         <Box flexDirection="column">
@@ -290,7 +316,7 @@ export const register: Register = (on, options) => {
       void read($, planAtom).then(p => update($, drawerAtom, d => ({ ...toggleFold(p, d, id), focus: id })))
     }
 
-    return <Box flexDirection="column">{flow.lines.map(l => row($, e, l, focus, fold))}</Box>
+    return <Box flexDirection="column">{[...flow.lines, ...shelved].map(l => row($, e, l, focus, fold))}</Box>
   })
 
   // The drawer closed (Esc, /flow, the person): the band comes back.

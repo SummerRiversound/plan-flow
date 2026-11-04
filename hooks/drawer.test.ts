@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
-import { drawFlow, isOpen, toggleFold } from './drawer'
+import { drawFlow, isOpen, shelfLines, toggleFold } from './drawer'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan } from './plan'
 import { lineText } from './tree'
@@ -130,4 +130,13 @@ test('a closed box is wide enough for its whole title and time', () => {
 test('a drawer too narrow for the titles says so', () => {
   expect(drawFlow(sample(), { open: {}, focus: null }, { width: 53, accent: 'claude', now: 0 }).cut).toBe(false)
   expect(drawFlow(sample(), { open: {}, focus: null }, { width: 24, accent: 'claude', now: 0 }).cut).toBe(true)
+})
+
+test('parked plans are listed under the flowchart', () => {
+  const parked = { plan: sample(), state: 'parked' as const, at: 0 }
+  const lines = shelfLines([parked, { ...parked, state: 'cancelled' as const }], 40).map(lineText)
+  expect(lines).toHaveLength(3)
+  expect(lines[1]).toContain('보관한 계획')
+  expect(lines[2]).toMatch(/^ ▸ 로그인 기능 추가 +\d+\/\d+$/)
+  expect(shelfLines([], 40)).toEqual([])
 })

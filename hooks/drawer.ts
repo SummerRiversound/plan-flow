@@ -3,11 +3,11 @@
 // An open box lists its tasks, a `╭ 동시에` block for tasks that run together, and the
 // checkpoints of every open task. Pure: register.tsx turns the lines into elements and
 // each piece marked `button` into a Button that folds or unfolds that node.
-import type { DrawerState } from '../types'
+import type { DrawerState, Shelved } from '../types'
 import type { Plan, PlanNode } from './plan'
-import { childrenOf, currentLeaf, hasChildren, isFinished } from './plan'
+import { childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
-import { GLYPH, duration, elapsed, fitLine, lineText, noteText, statusColor } from './tree'
+import { GLYPH, duration, elapsed, fitLine, lineText, markSeg, noteText, statusColor } from './tree'
 import { cells, padRight } from './width'
 
 export type { DrawerState }
@@ -61,6 +61,7 @@ const titleSegs = (ctx: Ctx, n: PlanNode): Line => {
   const out: Line = [
     { text: GLYPH[n.status], color: statusColor(n.status, ctx.accent) },
     { text: ` ${n.title}`, color: run || n.status === 'completed' ? 'text' : 'inactive', bold: run, strike: n.status === 'skipped' },
+    ...markSeg(ctx.plan, n.id, ctx.accent),
   ]
   const note = noteText(n)
   if (note !== '') out.push({ text: note, color: n.status === 'blocked' ? 'error' : 'inactive' })
@@ -236,4 +237,19 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, accent, now }
   })
 
   return { lines: lines.map(l => fitLine(l, width)), buttons: ctx.buttons, cut: ctx.cut }
+}
+
+// The plans set aside to come back to, under the flowchart.
+export const shelfLines = (shelf: readonly Shelved[], width: number): Line[] => {
+  const parked = shelf.filter(s => s.state === 'parked')
+  if (parked.length === 0 || width <= 0) return []
+
+  return [
+    [],
+    fitLine([{ text: ' 보관한 계획', bold: true, color: 'text' }], width),
+    ...parked.map(s => {
+      const { done, total } = progress(s.plan)
+      return spread([{ text: ` ▸ ${s.plan.title}`, color: 'inactive' }], { text: `${done}/${total}`, color: 'inactive' }, width)
+    }),
+  ]
 }

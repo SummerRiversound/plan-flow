@@ -1,19 +1,24 @@
 // The tool Claude keeps the plan with: its description and schema, reading its
 // untrusted input, running an op on the plan, and the plain text it answers.
+import type { Board, Previous } from './board'
+import { cancelBoard, resumeBoard, setBoard, settle } from './board'
 import type { NodeUpdate, Plan, PlanInput } from './plan'
-import { addNodes, MAX_NOTE, MAX_TITLE, nextStep, progress, removeNode, setPlan, STATUSES, updateNodes } from './plan'
+import { addNodes, currentLeaf, hasOpenWork, MAX_NOTE, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
 import { clean } from './sanitize'
 
 export const TOOL_NAME = 'plan'
-export const OPS = ['set', 'next', 'update', 'add', 'remove', 'show'] as const
+export const OPS = ['set', 'next', 'update', 'add', 'remove', 'move', 'resume', 'cancel', 'show'] as const
 export type OpName = (typeof OPS)[number]
 
 export type PlanOp =
-  | { op: 'set'; title: string; nodes: PlanInput[] }
+  | { op: 'set'; title: string; nodes: PlanInput[]; previous?: Previous }
   | { op: 'next'; id?: string }
   | { op: 'update'; updates: NodeUpdate[] }
   | { op: 'add'; parent: string | null; nodes: PlanInput[] }
   | { op: 'remove'; id: string }
+  | { op: 'move'; id: string; before?: string }
+  | { op: 'resume'; title?: string; previous?: Previous }
+  | { op: 'cancel' }
   | { op: 'show' }
 
 export const ANSWER_LIMIT = 4000
@@ -24,8 +29,10 @@ export const TOOL_DESCRIPTION = [
   'Steps that do not depend on each other go under one node with "parallel": true and are worked on together; the step after the group waits for all of them.',
   'op "next" says the running step is done and starts the one after it (give "id" when several run and a particular one finished).',
   'op "update" changes steps by id: status, title, or a note (say why a step is blocked or skipped).',
-  'op "add" puts new steps under "parent" (or at the top), op "remove" drops a step with everything under it, op "show" answers the plan with its ids.',
-  'A step with children takes its status from them, so only leaves get a status.',
+  'op "add" puts new steps under "parent" (or at the top; a leaf may get children when a step turns out bigger), op "remove" drops a step with everything under it, op "move" puts a step before its sibling "before" (or last), op "show" answers the plan with its ids.',
+  'A step with children takes its status from them, so only leaves get a status; status "pending" on a finished step or parent reopens it to redo.',
+  'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
+  'op "resume" brings back a shelved plan ("title", else the newest parked), op "cancel" drops the plan in hand and brings back the newest parked one.',
 ].join(' ')
 
 // JSON Schema, written out level by level because it may not use $ref. Groups do not
@@ -45,10 +52,12 @@ export const TOOL_SCHEMA: Schema = {
   type: 'object',
   properties: {
     op: { type: 'string', enum: [...OPS] },
-    title: { type: 'string', description: 'The task, for op set' },
+    title: { type: 'string', description: 'The task, for op set; the shelved plan, for op resume' },
+    previous: { type: 'string', enum: ['park', 'cancel'], description: 'For op set and resume while the plan in hand has open steps: park it to come back to, or cancel it' },
+    before: { type: 'string', description: 'For op move: the sibling to move in front of; leave out to move last' },
     nodes: { type: 'array', description: 'Steps, for op set and add', items: stepSchema(5) },
     parent: { type: 'string', description: 'Id to add under, for op add; leave out for the top level' },
-    id: { type: 'string', description: 'For op remove: the step to drop. For op next: the running step that finished' },
+    id: { type: 'string', description: 'For op remove: the step to drop. For op move: the step to move. For op next: the running step that finished' },
     updates: {
       type: 'array',
       description: 'For op update',
@@ -71,14 +80,45 @@ export const TOOL_SCHEMA: Schema = {
 // The section the system prompt carries while the tool is offered.
 export const instruction = (tool: string): string =>
   [
-    `Plan board: for a task that needs more than a couple of tool calls, first call ${tool} with op "set": a short task title and its steps.`,
+    `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title and its steps.`,
     "Every title is at most 4 words, in the user's language.",
     'Put steps that do not depend on each other under one node with "parallel": true and work on them together (several tool calls or agents in one message).',
     'When a step is done call op "next"; it finishes that step and starts the following one. Use op "update" for blocked or skipped steps, with a note saying why.',
+    'While a plan is on the board, each request carries a plan-flow note: follow it to decide what the request does to the board before acting.',
     'The person sees the board drawn on screen, so never describe, list or redraw the plan in your reply.',
     'A plain question needs no plan.',
     `If the tool is not loaded yet, load it with ToolSearch (query "select:${tool}").`,
   ].join(' ')
+
+// The note each request carries while the board has a plan: where things stand, and the
+// cases to sort the request into before acting.
+export const boardNote = (board: Board): string | undefined => {
+  const parked = board.shelf.filter(s => s.state === 'parked')
+  if (board.plan.nodes.length === 0 && parked.length === 0) return undefined
+  const lines = ['plan-flow: the board before this request.']
+  if (board.plan.nodes.length > 0) {
+    const { done, total } = progress(board.plan)
+    const leaf = currentLeaf(board.plan)
+    const state = hasOpenWork(board.plan) ? (leaf === null ? '' : `, in hand: ${leaf.title} (id ${leaf.id})`) : ', finished'
+    lines.push(`In hand: "${board.plan.title}" (${done}/${total} done${state}).`)
+  }
+  if (parked.length > 0) lines.push(`Parked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total})`).join(', ')}.`)
+  lines.push(
+    'Decide what this request does to the board, change the board first, then work:',
+    '- a question, or a quick side job that does not change the task: leave the board alone;',
+    '- more work for this task, a follow-up after it finished, or a step that turned out bigger: op "add" (under the step it belongs to; a leaf may get children);',
+    '- redo finished work: op "update" with status "pending" and a note why;',
+    '- a different approach, dropped scope or a new order: update titles, op "remove" or status "skipped" with a note, op "move";',
+    '- the person is needed (sign-in, a decision): status "blocked" with a note;',
+    '- a detour that shares this context: op "set" with previous "park"; the parked plan comes back when the detour finishes;',
+    '- unrelated work: first suggest doing it in a fresh session and ask; if the person stays here, op "set" with previous "park";',
+    '- start over: op "set" with previous "cancel";',
+    '- back to parked work: op "resume".',
+    'When the request reads as more than one of these, ask the person before changing the board.',
+  )
+
+  return lines.join('\n')
+}
 
 type Raw = Record<string, unknown>
 type Parsed<T> = { value: T } | { error: string }
@@ -153,6 +193,13 @@ const readUpdates = (raw: unknown): Parsed<NodeUpdate[]> => {
   return { value: out }
 }
 
+const readPrevious = (raw: Raw): Parsed<Previous | undefined> => {
+  const v = raw.previous
+  if (v === undefined) return { value: undefined }
+
+  return v === 'park' || v === 'cancel' ? { value: v } : bad(`"previous" must be "park" or "cancel", not ${clean(String(v))}`)
+}
+
 // Reads the tool's input, which comes from the model and is checked field by field.
 export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
   if (!isObject(raw)) return bad(`the plan tool takes an object with an "op", not ${kind(raw)}`)
@@ -162,10 +209,36 @@ export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
   switch (op) {
     case 'set': {
       if (typeof raw.title !== 'string') return bad('op set needs a "title"')
+      const previous = readPrevious(raw)
+      if ('error' in previous) return previous
       const nodes = readSteps(raw.nodes, 'nodes')
+      if ('error' in nodes) return nodes
 
-      return 'error' in nodes ? nodes : { op: { op, title: raw.title, nodes: nodes.value } }
+      return { op: previous.value === undefined ? { op, title: raw.title, nodes: nodes.value } : { op, title: raw.title, nodes: nodes.value, previous: previous.value } }
     }
+    case 'move': {
+      if (typeof raw.id !== 'string') return bad('op move needs the "id" of the step to move')
+      const before = optionalText(raw, 'before', '')
+      if ('error' in before) return before
+
+      return { op: before.value === undefined || before.value === '' ? { op, id: raw.id } : { op, id: raw.id, before: before.value } }
+    }
+    case 'resume': {
+      const previous = readPrevious(raw)
+      if ('error' in previous) return previous
+      const title = optionalText(raw, 'title', '')
+      if ('error' in title) return title
+
+      return {
+        op: {
+          op,
+          ...(title.value === undefined || title.value === '' ? {} : { title: title.value }),
+          ...(previous.value === undefined ? {} : { previous: previous.value }),
+        },
+      }
+    }
+    case 'cancel':
+      return { op: { op } }
     case 'add': {
       const parent = optionalText(raw, 'parent', '')
       if ('error' in parent) return parent
@@ -219,20 +292,40 @@ export const describePlan = (plan: Plan): string => {
   return out.join('\n')
 }
 
+// The board as the model reads it: the plan in hand, then the shelf in one line.
+export const describeBoard = (board: Board): string => {
+  const parked = board.shelf.filter(s => s.state === 'parked')
+  const plan = describePlan(board.plan)
+
+  return parked.length === 0 ? plan : `${plan}\nParked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total} done)`).join(', ')}`
+}
+
 // Runs one op: the new plan and the answer, or the refusal with the plan unchanged.
-export const runOp = (plan: Plan, op: PlanOp, now: number): { plan: Plan; text: string } | { error: string } => {
-  if (op.op === 'show') return { plan, text: describePlan(plan) }
+export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; text: string; notice?: string } | { error: string } => {
+  if (op.op === 'show') return { board, text: describeBoard(board) }
+  const plan = board.plan
   const result =
     op.op === 'set'
-      ? setPlan(plan, op.title, op.nodes, now)
-      : op.op === 'next'
-        ? nextStep(plan, op.id, now)
-        : op.op === 'update'
-          ? updateNodes(plan, op.updates, now)
-          : op.op === 'add'
-            ? addNodes(plan, op.parent, op.nodes, now)
-            : removeNode(plan, op.id, now)
+      ? setBoard(board, op.title, op.nodes, op.previous, now)
+      : op.op === 'resume'
+        ? resumeBoard(board, op.title, op.previous, now)
+        : op.op === 'cancel'
+          ? cancelBoard(board, now)
+          : settle(
+              board,
+              op.op === 'next'
+                ? nextStep(plan, op.id, now)
+                : op.op === 'update'
+                  ? updateNodes(plan, op.updates, now)
+                  : op.op === 'add'
+                    ? addNodes(plan, op.parent, op.nodes, now)
+                    : op.op === 'move'
+                      ? moveNode(plan, op.id, op.before, now)
+                      : removeNode(plan, op.id, now),
+              now,
+            )
   if ('error' in result) return bad(result.error)
+  const text = describeBoard(result.board)
 
-  return { plan: result.plan, text: describePlan(result.plan) }
+  return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

@@ -15,3 +15,8 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — Progress: one full plan send, then short updates by node id, plus a `next` op.
 - 2026-11-04 — The plan comes only from Claude calling the mod's tool. Plan-mode markdown and TodoWrite are not read in v0.1.
 - 2026-11-04 — Blocking edits until a plan exists is a setting, off by default.
+- 2026-11-04 — The board follows the session's work, not each prompt: "프롬프트 하나에 만드는게 아니라 작업의 설계를 잘해주고 관리해줘서 사용자가 해당 세션의 흐름을 항상 직관적으로 이해할수있도록". Continuing work adds steps to the current plan; a detour parks it and it comes back when the detour ends; starting over cancels it. A new plan over open work must say whether the old one is parked or cancelled.
+- 2026-11-04 — Claude classifies each request (a note on every prompt while a plan exists), not a separate model call.
+- 2026-11-04 — Unrelated work: Claude suggests a fresh session first and parks only if the person stays.
+- 2026-11-04 — Park or cancel without asking when the request is clear; ask only when the case is ambiguous.
+- 2026-11-04 — Changes show as marks on steps (new, redo) and a parked list; a change log waits until it proves needed.

@@ -27,6 +27,9 @@ const PANE = {
   props: { title: '흐름도', isFocused: true, bodyColumns: 53, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
+// Toasts the plugin raised, newest last.
+const toasts: string[] = []
+
 // The engine beneath the plugin: each hook answers what the session would.
 const engine = (on: On) => {
   const clock = mock.clock(on, { now: 1_000 })
@@ -42,7 +45,7 @@ const engine = (on: On) => {
   on('tool.call', () => ({ result: 'ran' }))
   on('ui.focus', () => ({}))
   on('ui.status', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_, e) => (toasts.push(e.text), { value: undefined }))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
 
@@ -181,4 +184,24 @@ test('a resumed session gets its plan back', async ($, on) => {
   await $.tool.call({ tool: TOOL, ...PLAN })
   await start($)
   expect(String((await $.tool.call({ tool: TOOL, op: 'show' })).result)).toContain('Plan: 로그인 기능 추가')
+})
+
+test('each request carries the board to the model, and a detour parks the plan with a toast', async ($, on) => {
+  engine(on)
+  let context: readonly string[] = []
+  on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))
+  await start($)
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  expect(context).toEqual([])
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  await $.prompt.submit({ text: '그 전에 버그 하나만', wait: false, origin: { kind: 'composer' } })
+  expect(context[0]).toContain('In hand: "로그인 기능 추가"')
+  const refused = await $.tool.call({ tool: TOOL, op: 'set', title: '버그', nodes: [{ title: '재현' }] })
+  expect(String(refused.result)).toContain('previous "park"')
+  await $.tool.call({ tool: TOOL, op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' })
+  expect(toasts).toContain('"로그인 기능 추가" 보관 · "버그" 시작')
+  // A new session start (a reload) finds the shelf again.
+  await start($)
+  await $.prompt.submit({ text: '계속', wait: false, origin: { kind: 'composer' } })
+  expect(context[0]).toContain('Parked: "로그인 기능 추가" (0/5)')
 })

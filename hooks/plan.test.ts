@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { Plan, PlanInput, PlanResult } from './plan'
-import { addNodes, currentLeaf, emptyPlan, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
+import { addNodes, clearMarks, currentLeaf, emptyPlan, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
 
 const ok = (r: PlanResult): Plan => {
   if ('error' in r) throw new Error(`expected a plan, got: ${r.error}`)
@@ -79,7 +79,7 @@ test('a parent takes its status from its children', () => {
   p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a', children: [{ title: 'x' }, { title: 'y' }] }], 0))
   p = ok(updateNodes(p, [{ id: '1.1', status: 'completed' }, { id: '1.2', status: 'skipped' }], 5))
   expect(statusOf(p, '1')).toBe('completed')
-  expect(fails(updateNodes(p, [{ id: '1', status: 'pending' }], 6))).toContain('children')
+  expect(fails(updateNodes(p, [{ id: '1', status: 'completed' }], 6))).toContain('children')
 })
 
 test('updates stamp when a leaf starts and finishes, and parents span their children', () => {
@@ -197,4 +197,42 @@ test('the current leaf is the first running one, else the first pending one', ()
   p = ok(updateNodes(p, [{ id: '2.2.1.2', status: 'in_progress' }], 1))
   expect(currentLeaf(p)?.id).toBe('2.2.1.2')
   expect(currentLeaf(emptyPlan())).toBeNull()
+})
+
+test('reopening finished work marks it redo, and pending on a parent reopens all of it', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a', children: [{ title: 'x' }, { title: 'y' }] }, { title: 'b' }], 0))
+  p = ok(updateNodes(p, [{ id: '1.1', status: 'completed' }, { id: '1.2', status: 'completed' }], 5))
+  const leaf = ok(updateNodes(p, [{ id: '1.2', status: 'pending', note: '형식 변경' }], 6))
+  expect(statusOf(leaf, '1.2')).toBe('pending')
+  expect(leaf.marks).toEqual({ '1.2': 'redo' })
+  const whole = ok(updateNodes(p, [{ id: '1', status: 'pending' }], 6))
+  expect(statusOf(whole, '1.1')).toBe('pending')
+  expect(statusOf(whole, '1.2')).toBe('pending')
+  expect(whole.marks).toEqual({ '1': 'redo' })
+  expect(clearMarks(whole).marks).toBeUndefined()
+})
+
+test('added steps go after what is already under their parent and are marked new', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a', children: [{ title: 'x' }] }, { title: 'b' }], 0))
+  p = ok(addNodes(p, '1', [{ title: 'z', children: [{ title: 'z1' }] }], 1))
+  expect(p.nodes.map(n => n.title)).toEqual(['a', 'x', 'z', 'z1', 'b'])
+  expect(p.marks).toEqual({ '1.2': 'new' })
+})
+
+test('a running step that gains children hands its run to the first', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a' }, { title: 'b' }], 0))
+  p = ok(nextStep(p, undefined, 100))
+  p = ok(addNodes(p, '1', [{ title: 'a1' }, { title: 'a2' }], 200))
+  expect(statusOf(p, '1.1')).toBe('in_progress')
+  expect(statusOf(p, '1')).toBe('in_progress')
+  expect(p.nodes.find(n => n.id === '1.1')?.startedAt).toBe(100)
+})
+
+test('a step moves among its siblings with everything under it', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a' }, { title: 'b', children: [{ title: 'b1' }] }, { title: 'c' }], 0))
+  p = ok(moveNode(p, '2', '1', 1))
+  expect(p.nodes.map(n => n.title)).toEqual(['b', 'b1', 'a', 'c'])
+  p = ok(moveNode(p, '2', undefined, 2))
+  expect(p.nodes.map(n => n.title)).toEqual(['a', 'c', 'b', 'b1'])
+  expect(fails(moveNode(p, '2', '2.1', 3))).toContain('sibling')
 })

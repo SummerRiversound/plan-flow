@@ -63,6 +63,13 @@ export const markedLeaves = (plan: Plan): Set<string> => {
   return new Set(run.length > 0 ? run.map(n => n.id) : cur === null ? [] : [cur.id])
 }
 
+// The mark a step carries while the request that changed it is the latest.
+export const markSeg = (plan: Plan, id: string, accent: string): Seg[] => {
+  const m = plan.marks?.[id]
+
+  return m === undefined ? [] : [{ text: m === 'new' ? ' 새로' : ' ↺', color: accent }]
+}
+
 export const noteText = (n: PlanNode): string =>
   n.note === undefined ? '' : n.status === 'blocked' || n.status === 'skipped' ? ` (${n.status}: ${n.note})` : ` (${n.note})`
 
@@ -89,6 +96,7 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked:
     { text: prefixOf(plan, n), color: 'inactive' },
     { text: GLYPH[n.status], color: statusColor(n.status, accent) },
     { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) },
+    ...markSeg(plan, n.id, accent),
   ]
   if (n.parallel === true) left.push({ text: ' ∥ 동시에', color: 'inactive' })
   const note = noteText(n)
@@ -105,7 +113,7 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked:
   return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(right)) }, { text: right, color: 'inactive' }]
 }
 
-const head = (plan: Plan, activity: Activity, maxRows: number, width: number, accent: string, now: number, open?: string): Line[] => {
+const head = (plan: Plan, activity: Activity, maxRows: number, width: number, accent: string, now: number, open?: string, parked = 0): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -117,6 +125,7 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
   let label = `  ${done}/${total} · ${pct}%`
   const time = ` · ${duration(elapsed(plan, now))}`
   if (cells(label) + cells(time) + 4 <= width) label += time
+  if (parked > 0 && cells(label) + 8 + 4 <= width) label += ` · 보관 ${parked}`
   const bar = Math.max(0, Math.min(24, width - cells(label)))
   const filled = total === 0 ? 0 : Math.round((bar * done) / total)
   const title: Line = [{ text: plan.title, bold: true, color: 'text' }]
@@ -142,14 +151,14 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
 export const OPEN_BUTTON = 'open-flow'
 
 // `scroll` is the first tree row the person scrolled to; absent or null follows the current step.
-// `open` labels a button on the title line that opens the drawer.
-export type TreeOptions = { maxRows: number; width: number; accent: string; now: number; scroll?: number | null; open?: string }
+// `open` labels a button on the title line that opens the drawer; `parked` counts the plans set aside.
+export type TreeOptions = { maxRows: number; width: number; accent: string; now: number; scroll?: number | null; open?: string; parked?: number }
 // `offset` is the first tree row shown, `maxOffset` the last one a scroll can reach.
 export type TreeView = { lines: Line[]; offset: number; maxOffset: number }
 
-export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, accent, now, scroll = null, open }: TreeOptions): TreeView => {
+export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, accent, now, scroll = null, open, parked = 0 }: TreeOptions): TreeView => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return { lines: [], offset: 0, maxOffset: 0 }
-  const top = head(plan, activity, maxRows, width, accent, now, open)
+  const top = head(plan, activity, maxRows, width, accent, now, open, parked)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes

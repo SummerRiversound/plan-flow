@@ -75,6 +75,17 @@ export const pickStep = (drawer: DrawerState, id: string): DrawerState => ({ ...
 const buttonRow = (bs: ReadonlyArray<[string, string]>, w: number, lead = ' ', chrome = 4): Line =>
   bs.reduce<Line>((l, [id, text]) => (cells(lineText(l)) + (l.length === 0 ? cells(lead) : 2) + chrome + cells(text) > w ? l : [...l, { text: l.length === 0 ? lead : '  ' }, { text, color: 'text', bold: true, button: id }]), [])
 
+// Rows enough for any note or detail a person writes.
+const WHOLE = 40
+
+// A step's note in full, wrapped under its row: what the row shows cut, in the row's colour.
+const noteLines = (n: PlanNode, w: number, lead: string): Line[] => {
+  const note = noteText(n).trim().slice(1, -1)
+  if (note === '') return []
+
+  return wrap(note, w - cells(lead), WHOLE).map((t): Line => [{ text: `${lead}${t}`, color: n.status === 'blocked' ? 'error' : 'inactive' }])
+}
+
 // The buttons under the picked step: "확인 완료" only while it waits for the person's check.
 const actionLines = (drawer: DrawerState, n: PlanNode, w: number, lead: string): Line[] =>
   drawer.pick !== n.id ? [] : [buttonRow([...(n.status === 'needs_check' ? [[CONFIRM, '[ 확인 완료 ]'] as [string, string]] : []), [ASK, '[ 논의 ]']], w, lead, 0)]
@@ -170,12 +181,14 @@ export const linkRow = (links: readonly string[], w: number): Line[] => {
 
 // Under a step: its detail while it runs or is open, and its links wherever its row shows
 // (a leaf always, a parent once open).
+// A picked step shows all of its detail and its whole note here, since its row may cut the note.
 const detailLines = (ctx: Ctx, n: PlanNode, w: number): Line[] => {
   const parent = hasChildren(ctx.plan.nodes, n.id)
   const open = parent && isOpen(ctx.plan, ctx.drawer, n.id)
-  const detail = n.detail === undefined || !(open || n.status === 'in_progress') ? [] : wrap(n.detail, w - 2, 2).map((t): Line => [{ text: `  ${t}`, color: 'inactive' }])
+  const picked = !parent && ctx.drawer.pick === n.id
+  const detail = n.detail === undefined || !(open || picked || n.status === 'in_progress') ? [] : wrap(n.detail, w - 2, picked ? WHOLE : 2).map((t): Line => [{ text: `  ${t}`, color: 'inactive' }])
 
-  return [...detail, ...(parent && !open ? [] : linkRow(n.links ?? [], w))]
+  return [...detail, ...(picked ? noteLines(n, w, '  ') : []), ...(parent && !open ? [] : linkRow(n.links ?? [], w))]
 }
 
 // The rows inside an open box, `w` cells wide.
@@ -191,7 +204,7 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
       continue
     }
     const parent = hasChildren(ctx.plan.nodes, n.id)
-    const content = spread(titleSegs(ctx, n), right(ctx, n), w - cells(indent), ctx, cells(lineText(titleSegs(ctx, n, false))))
+    const content = spread(titleSegs(ctx, n, ctx.drawer.pick !== n.id), right(ctx, n), w - cells(indent), ctx, cells(lineText(titleSegs(ctx, n, false))))
     ctx.buttons.push(n.id)
     rows.push([{ text: indent }, ...press(content, n.id)])
     for (const d of detailLines(ctx, n, w - cells(indent))) rows.push([{ text: indent }, ...d])
@@ -225,7 +238,7 @@ const box = (ctx: Ctx, n: PlanNode, width: number, tail: boolean): Block => {
   const inner = width - 4
   const edge = { color: n.status === 'in_progress' ? glyphColor(n) : 'inactive' }
   const wall = (row: Line): Line => [{ text: '│ ', ...edge }, ...pad(row, inner), { text: ' │', ...edge }]
-  const head = press(spread(titleSegs(ctx, n), r, inner, ctx, cells(lineText(titleSegs(ctx, n, false)))), n.id)
+  const head = press(spread(titleSegs(ctx, n, ctx.drawer.pick !== n.id), r, inner, ctx, cells(lineText(titleSegs(ctx, n, false)))), n.id)
   ctx.buttons.push(n.id)
   const acts = hasChildren(ctx.plan.nodes, n.id) ? [] : actionLines(ctx.drawer, n, inner, '  ')
   const lines: Line[] = [[{ text: `╭${'─'.repeat(width - 2)}╮`, ...edge }], wall(head), ...detailLines(ctx, n, inner).map(wall), ...acts.map(wall)]
@@ -394,7 +407,13 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
         const n = plan.nodes.find(x => l[0]?.node === x.id)
         if (n === undefined || hasChildren(plan.nodes, n.id)) return [l]
         steps.push(n.id)
-        return [press(l, n.id), ...actionLines(drawer, n, width, `${' '.repeat(cells(l[0]?.text ?? '') + 2)}`)]
+        if (drawer.pick !== n.id) return [press(l, n.id)]
+        // Picked: the note leaves the row for whole lines under it, with the detail.
+        const lead = ' '.repeat(cells(l[0]?.text ?? '') + 2)
+        const note = noteText(n)
+        const row = note === '' ? l : l.filter(s => s.text !== note)
+        const detail = n.detail === undefined ? [] : wrap(n.detail, width - cells(lead), WHOLE).map((t): Line => [{ text: `${lead}${t}`, color: 'inactive' }])
+        return [press(row, n.id), ...detail, ...noteLines(n, width, lead), ...actionLines(drawer, n, width, lead)]
       })
     const hint: Line[] = flow.cut ? [fitLine([{ text: ' 창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), []] : [[]]
     const at = find(tree)

@@ -173,6 +173,18 @@ test('pressing a step picks it: a step waiting for a check offers 확인 완료 
   expect(view(p, { ...waiting, list: true }).buttons).toContain('2.2.1.1')
 })
 
+test('a picked step shows its whole note and detail under its row, in the flowchart and the list', () => {
+  const note = '폰에서 로그인 버튼을 눌러 보고 다음 화면으로 넘어가는지, 에러 문구가 맞는지 확인'
+  const p = ok(updateNodes(sample(), [{ id: '2.2.1.1', status: 'needs_check', note }], 210_000))
+  const picked = pickStep(closed, '2.2.1.1')
+  const joined = (ls: string[]) => ls.map(l => l.replace(/[│ ]+/g, ' ')).join(' ').replace(/ +/g, ' ')
+  // Folded, the row cuts the note; picked, every word of it shows.
+  expect(joined(texts(p, closed))).not.toContain('에러 문구가 맞는지 확인')
+  expect(joined(texts(p, picked))).toContain('에러 문구가 맞는지 확인')
+  expect(joined(view(p, { ...picked, list: true }).body.map(lineText))).toContain('에러 문구가 맞는지 확인')
+  for (const w of [53, 40]) for (const l of texts(p, picked, w)) expect(cells(l)).toBeLessThanOrEqual(w)
+})
+
 test('pressing a folded box unfolds it, pressing again folds it', () => {
   const p = sample()
   expect(isOpen(p, closed, '4')).toBe(false)

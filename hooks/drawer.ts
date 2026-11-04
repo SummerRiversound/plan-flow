@@ -8,12 +8,13 @@ import type { Plan, PlanNode } from './plan'
 import { childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { checkLine, drawTree, duration, elapsed, fitLine, glyphColor, glyphSeg, lineText, markSeg, noteText } from './tree'
+import { checkLine, drawTree, duration, elapsed, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText } from './tree'
 import { cells, padRight, wrap } from './width'
 
 export type { DrawerState }
 
-export type FlowOptions = { width: number; now: number }
+// `live`: Claude is at work, so the running steps move.
+export type FlowOptions = { width: number; now: number; live?: boolean }
 // `cut` is true when some title did not fit its box: the drawer then draws the tree instead.
 export type Flow = { lines: Line[]; buttons: string[]; cut: boolean }
 
@@ -47,7 +48,7 @@ export const toggleFold = (plan: Plan, drawer: DrawerState, id: string): DrawerS
   open: { ...drawer.open, [id]: !isOpen(plan, drawer, id) },
 })
 
-type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean }
+type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 
 const right = (ctx: Ctx, n: PlanNode): Seg | null => {
   if (hasChildren(ctx.plan.nodes, n.id)) return { text: `${count(ctx.plan, n.id)} ${isOpen(ctx.plan, ctx.drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
@@ -61,8 +62,9 @@ const right = (ctx: Ctx, n: PlanNode): Seg | null => {
 const titleSegs = (ctx: Ctx, n: PlanNode, withNote = true): Line => {
   const run = n.status === 'in_progress'
   const out: Line = [
-    glyphSeg(n),
-    { text: ` ${n.title}`, color: run || n.status === 'completed' ? 'text' : 'inactive', bold: run, strike: n.status === 'skipped' },
+    ...(run && ctx.live && !hasChildren(ctx.plan.nodes, n.id)
+      ? liveSegs(n.title, ctx.now)
+      : [glyphSeg(n), { text: ` ${n.title}`, color: run || n.status === 'completed' ? 'text' : 'inactive', bold: run, strike: n.status === 'skipped' }]),
     ...markSeg(ctx.plan, n.id),
   ]
   const note = withNote ? noteText(n) : ''
@@ -268,8 +270,8 @@ const branches = (ctx: Ctx, group: PlanNode, width: number, axis: number, first:
   return out
 }
 
-export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now }: FlowOptions): Flow => {
-  const ctx: Ctx = { plan, drawer, buttons: [], cut: false }
+export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = false }: FlowOptions): Flow => {
+  const ctx: Ctx = { plan, drawer, buttons: [], cut: false, live, now }
   if (plan.nodes.length === 0 || width <= 0) return { lines: [], buttons: [], cut: false }
   const r = `${count(plan, null)} · ${duration(elapsed(plan, now))}`
   const head = spread([{ text: ` ${plan.title}`, bold: true, color: 'text' }], { text: r, color: 'inactive' }, width)
@@ -314,7 +316,7 @@ export const shelfLines = (shelf: readonly Shelved[], width: number): Line[] => 
 export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, { width, now }: FlowOptions): Flow => {
   const shelved = shelfLines(shelf, width)
   if (plan.nodes.length === 0) return { lines: [[{ text: '아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.', color: 'inactive' }], ...shelved], buttons: [], cut: false }
-  const flow = drawFlow(plan, drawer, { width, now })
+  const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
   if (!flow.cut) return { ...flow, lines: [...flow.lines, ...shelved] }
   const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now })
 

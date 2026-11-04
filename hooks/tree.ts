@@ -7,9 +7,33 @@ import type { Plan, PlanNode, PlanStatus } from './plan'
 import { checksOf, childrenOf, currentLeaf, finishedAt, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
 
-// `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link.
-export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string }
+// `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
+// `live` marks the running step's turning mark and swept title, which a surface that draws pictures animates itself.
+export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title' }
 export type Line = Seg[]
+
+// How long one frame of the running step's motion lasts.
+export const FRAME_MS = 100
+const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+
+// Claude is at work (not waiting on the person, not between turns): only then does the running step move.
+export const isLive = (a: Activity): boolean => a.phase === 'working' || a.phase === 'tool' || a.phase === 'compacting'
+
+// The running step while Claude works: a turning mark, and a bright band three letters wide sweeping its title.
+export const liveSegs = (title: string, now: number): Seg[] => {
+  const tick = Math.floor(now / FRAME_MS)
+  const chars = [...title]
+  const at = (tick % (chars.length + 6)) - 3
+  const out: Seg[] = [{ text: SPIN[tick % SPIN.length] ?? '●', color: 'text', bold: true, live: 'mark' }, { text: ' ', live: 'title' }]
+  chars.forEach((ch, i) => {
+    const color = Math.abs(i - at) <= 1 ? 'text' : 'inactive'
+    const last = out[out.length - 1]
+    if (last !== undefined && last.color === color) last.text += ch
+    else out.push({ text: ch, color, bold: true, live: 'title' })
+  })
+
+  return out
+}
 
 export const GLYPH: Record<PlanStatus, string> = { completed: '✓', in_progress: '●', pending: '○', blocked: '■', skipped: '–', needs_check: '◐' }
 
@@ -108,17 +132,21 @@ const detailRows = (plan: Plan, n: PlanNode, width: number, marked: Set<string>)
   ])
 }
 
-const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, folded: ReadonlySet<string>): Line => {
+const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, folded: ReadonlySet<string>, live: boolean, now: number): Line => {
   const done = isFinished(n.status) && n.status !== 'needs_check'
+  const running = n.status === 'in_progress' && !hasChildren(plan.nodes, n.id)
   const left: Line = [
     { text: prefixOf(plan, n), color: 'inactive' },
-    glyphSeg(n),
-    { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) },
+    ...(running && live
+      ? liveSegs(n.title, now)
+      : [glyphSeg(n), { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) }]),
     ...markSeg(plan, n.id),
   ]
   if (n.parallel === true) left.push({ text: ' ∥ 동시에', color: 'inactive' })
   const note = noteText(n)
   if (note !== '') left.push({ text: note, color: n.status === 'blocked' ? 'warning' : 'inactive' })
+  if (running) return fitLine(left, width)
+  // The step up next while nothing runs.
   if (marked.has(n.id)) return [...fitLine(left, width - 2), { text: ' ◂', color: glyphColor(n) }]
   const right = hasChildren(plan.nodes, n.id)
     ? counts(plan, n.id) + (folded.has(n.id) ? ' ▸' : '')
@@ -216,7 +244,7 @@ export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, 
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
       .filter(n => ![...folded].some(id => n.id.startsWith(`${id}.`)))
-      .flatMap(node => [nodeRow(plan, node, width, marked, folded), ...detailRows(plan, node, width, marked)].map(line => ({ node, line })))
+      .flatMap(node => [nodeRow(plan, node, width, marked, folded, isLive(activity), now), ...detailRows(plan, node, width, marked)].map(line => ({ node, line })))
   const overflow = (hidden: readonly PlanNode[]): Line => {
     const fin = hidden.filter(n => n.status === 'completed').length
     const wait = hidden.filter(n => n.status === 'pending').length

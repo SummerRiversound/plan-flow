@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { FOLD_BUTTON, drawTree, duration, lineText, statusLine } from './tree'
+import { FOLD_BUTTON, FRAME_MS, drawTree, duration, lineText, statusLine } from './tree'
 import { cells } from './width'
 
 const ok = (r: PlanResult): Plan => {
@@ -41,13 +41,13 @@ test('the head is the title, then progress as done/total and percent', () => {
   expect(lines[1]).toMatch(/^━+─+  2\/7 · 29%/)
 })
 
-test('rows carry glyph and title without ids, a parallel tag, counts on parents and a mark on the current leaf', () => {
+test('rows carry glyph and title without ids, a parallel tag, counts on parents, and no arrow on a running leaf', () => {
   const lines = texts(sample(), idleActivity(), 40, 60)
   expect(lines).toContain('├─ ✓ 조사                                                1초')
   expect(lines.some(l => /\d+(\.\d+)* /.test(l.replace(/^[│├└─ ]+[✓●○■–] /, '')) && /─ [✓●○] \d/.test(l))).toBe(false)
   expect(lines.find(l => l.startsWith('├─ ● 구현'))?.endsWith('1/5')).toBe(true)
   expect(lines.find(l => l.includes('API와 디자인'))).toContain('∥ 동시에')
-  expect(lines.find(l => l.includes('주소 만들기'))?.endsWith('◂')).toBe(true)
+  expect(lines.find(l => l.includes('주소 만들기'))?.endsWith('● 주소 만들기')).toBe(true)
   expect(lines.find(l => l.includes('배포'))?.startsWith('└─ ○')).toBe(true)
   // Counts sit flush right.
   for (const l of lines.filter(l => /\d+\/\d+( ▸)?$/.test(l) && l.includes('─ '))) expect(cells(l)).toBe(60)
@@ -56,7 +56,7 @@ test('rows carry glyph and title without ids, a parallel tag, counts on parents 
 test('only the current path is unfolded; a folded parent says so', () => {
   const p = ok(setPlan(emptyPlan(), '계획', [{ title: '첫째', children: [{ title: '가' }] }, { title: '둘째', children: [{ title: '나' }, { title: '다' }] }], 0))
   const lines = texts(ok(nextStep(p, undefined, 1)), idleActivity(), 40, 40)
-  expect(lines.some(l => l.includes('가 ◂'))).toBe(true)
+  expect(lines.some(l => l.endsWith('● 가'))).toBe(true)
   expect(lines.some(l => l.includes('나'))).toBe(false)
   expect(lines.find(l => l.includes('둘째'))?.endsWith('0/2 ▸')).toBe(true)
 })
@@ -72,7 +72,7 @@ test('a tree taller than its rows shows a window around the current step', () =>
   for (let t = 1; t <= 7; t++) p = ok(nextStep(p, undefined, t))
   const lines = drawTree(p, idleActivity(), { maxRows: 9, width: 40, now: 0 }).map(lineText)
   expect(lines).toHaveLength(9)
-  expect(lines.some(l => l.includes('단계 7 ◂'))).toBe(true)
+  expect(lines.some(l => l.endsWith('● 단계 7'))).toBe(true)
   expect(lines.some(l => l.includes('흐름도에서') || /\d+줄/.test(l))).toBe(false)
 })
 
@@ -154,4 +154,15 @@ test('steps waiting for the person to check are gathered on one line under the p
   expect(lines[2]).toBe('◐ 확인할 것 2: 화면 (폰에서 눌러 보기) · API')
   expect(lines.some(l => l.includes('◐ 화면'))).toBe(true)
   expect(drawTree(p, idleActivity(), { maxRows: 10, width: 60, now: 2, folded: true }).map(lineText).some(l => l.includes('확인할 것'))).toBe(false)
+})
+
+test('while Claude works the running step turns and a bright band sweeps its title; between turns it stands still', () => {
+  const row = (a: Activity, now: number) => drawTree(sample(), a, { maxRows: 40, width: 60, now }).find(l => lineText(l).includes('주소 만들기')) ?? []
+  const lit = (now: number) => row(working, now).filter(s => s.live === 'title' && s.color === 'text').map(s => s.text).join('')
+  expect(lineText(row(working, 0))).not.toBe(lineText(row(working, FRAME_MS)))
+  expect(lineText(row(working, 0)).endsWith(' 주소 만들기')).toBe(true)
+  expect(lineText(row(working, 0))).not.toContain('●')
+  expect(lit(0)).not.toBe(lit(FRAME_MS * 3))
+  expect(lineText(row(idleActivity(), 0)).endsWith('● 주소 만들기')).toBe(true)
+  expect(lineText(row({ phase: 'permission', tool: 'Bash', running: [] }, 0)).endsWith('● 주소 만들기')).toBe(true)
 })

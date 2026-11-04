@@ -80,13 +80,14 @@ None. Hierarchy comes from nesting boxes, not shadows.
 - **Link row:** under a step whose row shows (a leaf, or an open box), one row of short names in text colour, each a hyperlink: `↗ PR #42  ↗ 아티팩트  ↗ LoginPage.tsx`, ending in muted `+N` for links that do not fit. The drawer only; the band above the prompt stays as it is.
 - **Check line:** under the progress bar (band) or the head (drawer), bold `◐ 확인할 것 N:` then each step waiting for the person's check with its note, joined by ` · `; absent when there are none, and folded away with the band.
 - **Connectors:** `┬`/`┴` on box edges, `▼` into the next box, `╭─┴─╮` for a split and `╰─┬─╯` for a join.
-- **Tree above the prompt:** title, a progress line with `done/total · %`, then one row per node: mark, title, `∥ parallel` on a parallel parent, `done/total` flush right on parents, `◂` on the current leaf.
+- **Tree above the prompt:** title, a progress line with `done/total · %`, then one row per node: mark, title, `∥ parallel` on a parallel parent, `done/total` flush right on parents, `◂` only on the step up next while nothing runs.
+- **Running step:** while Claude works, its mark turns (`⠋⠙⠹…`, a frame each 100 ms) and a bright band three letters wide sweeps its bold title (muted letters, the band in text colour); waiting on the person or between turns it stands still as a bold `●`. In the band and the drawer alike. A surface that draws pictures (the desktop app, the editor) gets a small picture that turns and sweeps by itself instead of redraws, which would make it blink.
 
 ## Do's and Don'ts
 
 - Do keep colour to green for done and red for blocked; the running step stands out by weight, not colour.
 - Do put the status mark first and the count or time last on every row.
 - Do animate only while something runs, and only the running item.
-- Don't use literal colors in code; use theme keys.
+- Don't use literal colors in code; use theme keys. The one exception is the running step's picture on picture surfaces, which cannot read theme keys and follows the viewer's light or dark scheme instead.
 - Don't draw icon tiles or subagent strips.
 - Don't let the tree above the prompt grow past the rows it is given; fold completed subtrees, then show a window around the current step, with no hint row.

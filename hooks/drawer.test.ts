@@ -190,3 +190,11 @@ test('the drawer names the steps waiting for the person to check under its head'
   const p = ok(updateNodes(sample(), [{ id: '1', status: 'needs_check', note: '문서 읽어 보기' }], 300_000))
   expect(texts(p)[1]).toBe(' ◐ 확인할 것 1: 조사 (문서 읽어 보기)')
 })
+
+test('while Claude works the running steps in the drawer turn instead of showing a still mark', () => {
+  const live = drawFlow(sample(), closed, { width: 53, now: 0, live: true }).lines.map(lineText)
+  const still = drawFlow(sample(), closed, { width: 53, now: 0 }).lines.map(lineText)
+  expect(still.some(l => l.includes('● 비밀번호 확인'))).toBe(true)
+  expect(live.some(l => l.includes('● 비밀번호 확인'))).toBe(false)
+  expect(live.some(l => l.includes('⠋ 비밀번호 확인'))).toBe(true)
+})

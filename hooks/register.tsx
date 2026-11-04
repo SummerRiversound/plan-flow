@@ -11,8 +11,10 @@ import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLea
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
+import { liveSvg } from './gui'
 import type { Line } from './tree'
-import { BAND_ROWS, FOLD_BUTTON, OPEN_BUTTON, drawTree, fitLine, statusLine } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, fitLine, statusLine } from './tree'
+import { cells } from './width'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -34,13 +36,27 @@ type $ = EngineInterface
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 
 // Draws one line of pieces; the pieces marked with a node id become that node's fold Button.
-const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: string | null, onPress: (id: string) => void) => {
-  const { Box, Text, Button, Link } = $.ui.resolve(e)
+// Every piece is monospaced, so the cell counts the lines are built on hold off the terminal too.
+const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: string | null, onPress: (id: string) => void, now: number) => {
+  const t = $.ui.resolve(e)
+  const { Box, Text, Button, Link } = t
+  // A surface that draws pictures animates the running step itself; the terminal gets the frame drawn now.
+  const Svg = e.surface !== 'terminal' && 'Svg' in t ? t.Svg : null
   const text = (s: Line[number]) => (
-    <Text color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined}>
+    <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined}>
       {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
     </Text>
   )
+  const segs = (ss: Line) => {
+    if (Svg === null) return ss.map(text)
+    const title = ss.filter(s => s.live === 'title').map(s => s.text).join('').trimStart()
+    return ss.flatMap(s => {
+      if (s.live === 'title') return []
+      if (s.live !== 'mark') return [text(s)]
+      const pic = liveSvg(title, cells(title), now)
+      return [<Svg source={pic.source} alt={title} width={pic.width} height={pic.height} />]
+    })
+  }
   const parts: Array<{ id?: string; segs: Line }> = []
   for (const s of line) {
     const last = parts[parts.length - 1]
@@ -53,10 +69,10 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
     <Box flexDirection="row">
       {parts.map(p =>
         p.id === undefined ? (
-          p.segs.map(text)
+          segs(p.segs)
         ) : (
           <Button key={p.id} plain autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
-            {p.segs.map(text)}
+            {segs(p.segs)}
           </Button>
         ),
       )}
@@ -87,11 +103,15 @@ async function act($: $, ev: ActivityEvent, autoShow: boolean): Promise<void> {
 }
 
 let ticker: Timer | null = null
+// The band or drawer was drawn on a terminal, where the running step moves by redrawing.
+// shortcut: one flag for the session, so a desktop viewer beside a terminal redraws as often; split per surface if that costs.
+let onTerminal = false
 
-// Elapsed times redraw each second, only while a turn runs on an open plan.
+// While a turn runs on an open plan: each frame on a terminal, for the running step's motion;
+// each second elsewhere, for the elapsed times.
 async function tick($: $, running: boolean): Promise<void> {
   const want = running && hasOpenWork(await read($, planAtom))
-  if (want && ticker === null) ticker = $.clock.every(1000, () => $.ui.invalidate('ui.render'))
+  if (want && ticker === null) ticker = $.clock.every(onTerminal ? FRAME_MS : 1000, () => $.ui.invalidate('ui.render'))
   if (!want && ticker !== null) {
     ticker.cancel()
     ticker = null
@@ -275,6 +295,7 @@ export const register: Register = (on, options) => {
   // The band is one slot: what the plugins beneath draw stays, under the tree.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const below = await next(e)
+    if (e.surface === 'terminal') onTerminal = true
     if (e.props.hasSurvey) return below
     const at = await read($, demoAtom)
     const frame = at === null ? undefined : demoFrame(at)
@@ -283,6 +304,7 @@ export const register: Register = (on, options) => {
     if ((await read($, paneAtom)) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)) return below
     const { Box } = $.ui.resolve(e)
     const width = e.props.bodyColumns
+    const now = frame?.now ?? (await $.clock.now())
     const top: Line[] =
       at === null || frame === undefined
         ? []
@@ -303,7 +325,7 @@ export const register: Register = (on, options) => {
     const view = drawTree(plan, frame?.activity ?? (await read($, activityAtom)), {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
       width,
-      now: frame?.now ?? (await $.clock.now()),
+      now,
       open: '흐름도 보기 ▸',
       folded: frame?.folded ?? (await read($, foldAtom)),
       parked: (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length,
@@ -318,7 +340,7 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column">
-        {[...top, ...view].map(l => row($, e, l, null, press))}
+        {[...top, ...view].map(l => row($, e, l, null, press, now))}
         {below}
       </Box>
     )
@@ -331,9 +353,11 @@ export const register: Register = (on, options) => {
     const frame = at === null ? undefined : demoFrame(at)
     const plan = frame?.board.plan ?? (await read($, planAtom))
     const drawer = await read($, drawerAtom)
+    if (e.surface === 'terminal') onTerminal = true
+    const now = frame?.now ?? (await $.clock.now())
     const view = drawerView(plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, frame?.activity ?? (await read($, activityAtom)), {
       width: e.props.bodyColumns,
-      now: frame?.now ?? (await $.clock.now()),
+      now,
     })
     const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
     const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id)) ?? view.buttons[0] ?? null
@@ -341,7 +365,7 @@ export const register: Register = (on, options) => {
       void update($, drawerAtom, d => ({ ...toggleFold(plan, d, id), focus: id }))
     }
 
-    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, focus, fold))}</Box>
+    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, focus, fold, now))}</Box>
   })
 
   // The drawer closed (Esc, /flow, the person): the band comes back.

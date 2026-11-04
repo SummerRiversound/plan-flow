@@ -29,7 +29,7 @@ test('only the running stage keeps its checkpoints', () => {
   expect(lines).toHaveLength(13)
   expect(lines.find(l => l.includes('단계 1'))?.endsWith('4/4 ▸')).toBe(true)
   expect(lines.some(l => l.includes('확인 1-1'))).toBe(false)
-  expect(lines.find(l => l.includes('확인 3-3'))?.endsWith('◂')).toBe(true)
+  expect(lines.find(l => l.includes('확인 3-3'))?.endsWith('● 확인 3-3')).toBe(true)
   expect(lines.some(l => l.includes('확인 6-4'))).toBe(false)
 })
 

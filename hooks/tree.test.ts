@@ -115,7 +115,10 @@ test('steps the latest request added or reopened carry a mark, and the head coun
   let p = ok(addNodes(sample(), null, [{ title: '문서' }], 9))
   p = ok(updateNodes(p, [{ id: '1', status: 'pending', note: '다시 조사' }], 10))
   const lines = drawTree(p, idleActivity(), { maxRows: 40, width: 60, now: 0, parked: 2 }).map(lineText)
-  expect(lines.find(l => l.includes('문서'))).toContain('문서 새로')
+  expect(lines.find(l => l.includes('문서'))).toContain('문서  new ')
+  // The new mark is a badge drawn inverted, apart from the title's own text.
+  const row = drawTree(p, idleActivity(), { maxRows: 40, width: 60, now: 0 }).find(l => lineText(l).includes('문서')) ?? []
+  expect(row.find(s => s.text === ' new ')).toMatchObject({ inverse: true, bold: true })
   expect(lines.find(l => l.includes('조사'))).toContain('조사 ↺')
   expect(lines[1]).toContain('· 보관 2')
 })

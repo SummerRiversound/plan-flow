@@ -9,7 +9,7 @@ import { cells, fit, padRight, wrap } from './width'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
 // `live` marks the running step's turning mark and swept title, which a surface that draws pictures animates itself.
-export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title'; node?: string }
+export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title'; node?: string; inverse?: boolean }
 export type Line = Seg[]
 
 // How long one frame of the running step's motion lasts.
@@ -95,7 +95,10 @@ export const markedLeaves = (plan: Plan): Set<string> => {
 export const markSeg = (plan: Plan, id: string): Seg[] => {
   const m = plan.marks?.[id]
 
-  return m === undefined ? [] : [{ text: m === 'new' ? ' 새로' : ' ↺', color: 'text', bold: true }]
+  if (m === undefined) return []
+
+  // A step just added gets an inverted ` new ` badge, so it does not read as part of its title.
+  return m === 'new' ? [{ text: ' ' }, { text: ' new ', color: 'text', bold: true, inverse: true }] : [{ text: ' ↺', color: 'text', bold: true }]
 }
 
 export const noteText = (n: PlanNode): string =>

@@ -43,7 +43,7 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
   // A surface that draws pictures animates the running step itself; the terminal gets the frame drawn now.
   const Svg = e.surface !== 'terminal' && 'Svg' in t ? t.Svg : null
   const text = (s: Line[number]) => (
-    <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined}>
+    <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined} inverse={s.inverse === true ? true : undefined}>
       {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
     </Text>
   )

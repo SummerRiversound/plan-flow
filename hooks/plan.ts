@@ -5,10 +5,10 @@
 // Levels: stage, task, checkpoint. A `parallel` node is a group, not a level of its
 // own: its children sit at the group's level and run at the same time, and the
 // step after the group waits for all of them.
-import type { Plan, PlanNode, PlanStatus } from '../types'
+import type { Plan, PlanNode, PlanStatus, StepKind } from '../types'
 import { clean } from './sanitize'
 
-export type { Plan, PlanNode, PlanStatus }
+export type { Plan, PlanNode, PlanStatus, StepKind }
 
 export const MAX_LEVELS = 3
 export const MAX_NODES = 60
@@ -16,11 +16,12 @@ export const MAX_TITLE = 120
 export const MAX_NOTE = 200
 export const MAX_DETAIL = 160
 
-export type PlanInput = { title: string; detail?: string; parallel?: boolean; children?: PlanInput[] }
-export type NodeUpdate = { id: string; status?: PlanStatus; title?: string; note?: string; detail?: string; parallel?: boolean }
+export type PlanInput = { title: string; detail?: string; kind?: StepKind; parallel?: boolean; children?: PlanInput[] }
+export type NodeUpdate = { id: string; status?: PlanStatus; title?: string; note?: string; detail?: string; kind?: StepKind; parallel?: boolean }
 export type PlanResult = { plan: Plan } | { error: string }
 
 export const STATUSES: readonly PlanStatus[] = ['pending', 'in_progress', 'completed', 'blocked', 'skipped']
+export const KINDS: readonly StepKind[] = ['explore', 'build', 'verify', 'person']
 
 export const emptyPlan = (): Plan => ({ title: '', nodes: [], lastChild: {}, startedAt: 0 })
 
@@ -76,6 +77,7 @@ const build = (
       if ('error' in detail) return detail
       if (detail.value !== '') node.detail = detail.value
     }
+    if (item.kind !== undefined) node.kind = item.kind
     const kids = item.children ?? []
     if (item.parallel === true) {
       if (kids.length === 0) return { error: `"${title.value}" is parallel but has no children; parallel marks a group of steps` }
@@ -313,6 +315,7 @@ export const updateNodes = (prev: Plan, updates: readonly NodeUpdate[], now: num
         if (t.value === '') delete node.detail
         else node.detail = t.value
       }
+      if (u.kind !== undefined) node.kind = u.kind
       if (u.parallel === true) {
         if (!isParent) return { error: `"${node.id}" has no children, so it cannot be a parallel group` }
         node.parallel = true

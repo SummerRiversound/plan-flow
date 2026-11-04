@@ -4,7 +4,7 @@
 import { drawerView } from './drawer'
 import { SCENARIOS } from './scenarios'
 import type { Line } from './tree'
-import { ACCENT, BAND_ROWS, layoutTree, lineText } from './tree'
+import { BAND_ROWS, layoutTree, lineText } from './tree'
 
 export type Shot = { key: string; scenario: string; label: string; view: 'band' | 'drawer'; width: number; rows?: number; lines: Line[] }
 
@@ -28,7 +28,7 @@ export const shots = (): Shot[] =>
         view: 'band' as const,
         width,
         rows,
-        lines: layoutTree(f.board.plan, f.activity, { maxRows: rows, width, accent: ACCENT, now: f.now, open: '흐름도 보기 ▸', parked }).lines,
+        lines: layoutTree(f.board.plan, f.activity, { maxRows: rows, width, now: f.now, open: '흐름도 보기 ▸', parked }).lines,
       }))
       const drawer = DRAWER_WIDTHS.map(width => ({
         key: `${name} drawer ${width}`,
@@ -36,7 +36,7 @@ export const shots = (): Shot[] =>
         label: f.label,
         view: 'drawer' as const,
         width,
-        lines: drawerView(f.board.plan, f.board.shelf, { open: {}, focus: null }, f.activity, { width, accent: ACCENT, now: f.now }).lines,
+        lines: drawerView(f.board.plan, f.board.shelf, { open: {}, focus: null }, f.activity, { width, now: f.now }).lines,
       }))
 
       return [...band, ...drawer]

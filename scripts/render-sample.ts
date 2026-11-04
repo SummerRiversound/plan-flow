@@ -49,6 +49,6 @@ plan = ok(nextStep(plan, '2.2.1.1', 203_000))
 const now = 252_000
 
 console.log('--- drawer (53 columns) ---')
-for (const line of drawFlow(plan, { open: {}, focus: null }, { width: 53, accent: 'claude', now }).lines) console.log(lineText(line))
+for (const line of drawFlow(plan, { open: {}, focus: null }, { width: 53, now }).lines) console.log(lineText(line))
 console.log('--- above the prompt (60 columns, 24 rows) ---')
-for (const line of drawTree(plan, { phase: 'tool', tool: 'Edit', running: [] }, { maxRows: 24, width: 60, accent: 'claude', now })) console.log(lineText(line))
+for (const line of drawTree(plan, { phase: 'tool', tool: 'Edit', running: [] }, { maxRows: 24, width: 60, now })) console.log(lineText(line))

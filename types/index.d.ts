@@ -3,6 +3,10 @@
 // are what the code uses.
 export type PlanStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
 
+// What a step is, which its colour says: looking into something, making or changing
+// something, checking it, or a step only the person can do.
+export type StepKind = 'explore' | 'build' | 'verify' | 'person'
+
 // One step. Ids are paths ("2", "2.1", "2.1.3"); a parent's status is derived from
 // its children. `parallel` marks a group whose children run at the same time.
 export type PlanNode = {
@@ -13,6 +17,7 @@ export type PlanNode = {
   note?: string
   // One plain sentence on what the step does and why, shown while it runs or is open.
   detail?: string
+  kind?: StepKind
   parallel?: boolean
   startedAt?: number
   doneAt?: number
@@ -61,6 +66,7 @@ declare module 'claude-code' {
           status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
           note?: string
           detail?: string
+          kind?: 'explore' | 'build' | 'verify' | 'person'
           parallel?: boolean
           startedAt?: number
           doneAt?: number
@@ -85,6 +91,7 @@ declare module 'claude-code' {
             status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped'
             note?: string
             detail?: string
+            kind?: 'explore' | 'build' | 'verify' | 'person'
             parallel?: boolean
             startedAt?: number
             doneAt?: number

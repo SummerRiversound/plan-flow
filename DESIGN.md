@@ -1,11 +1,12 @@
 ---
 version: alpha
 name: plan-flow terminal
-description: A plan drawn as a card flowchart inside Claude Code's terminal, quiet except for the one item that is running.
+description: A plan drawn as a card flowchart inside Claude Code's terminal; a mark's shape says where a step stands and its colour says what kind of step it is.
 colors:
-  primary: "#2b9be0"
-  on-primary: "#06131c"
-  success: "#5cc072"
+  explore: "#9664ed"
+  build: "#2c82ec"
+  verify: "#30a246"
+  person: "#bc8514"
   error: "#ff6b80"
   text: "#e8e6e3"
   muted: "#9a968f"
@@ -36,29 +37,41 @@ components:
   stage-box-running:
     textColor: "{colors.text}"
     typography: "{typography.title}"
-  row-done:
-    textColor: "{colors.success}"
-    typography: "{typography.body}"
   row-waiting:
     textColor: "{colors.muted}"
     typography: "{typography.body}"
+  row-blocked:
+    textColor: "{colors.error}"
+    typography: "{typography.body}"
+  mark-explore:
+    textColor: "{colors.explore}"
+  mark-build:
+    textColor: "{colors.build}"
+  mark-verify:
+    textColor: "{colors.verify}"
+  mark-person:
+    textColor: "{colors.person}"
 ---
 
 # plan-flow terminal
 
 ## Overview
 
-A plan is drawn in two places: a live tree above the prompt, and a card flowchart in the `/flow` side drawer. It should read like a CI run graph — calm, dense, and with exactly one thing asking for attention: the item running now. The target drawings are in `docs/design-reference/terminal/`.
+A plan is drawn in two places: a live tree above the prompt, and a card flowchart in the `/flow` side drawer. It should read like a CI run graph: calm and dense. A row's mark carries two things at once: its shape is the status (`✓` done, `●` running, `○` waiting, `■` blocked, `–` skipped) and its colour is the kind of step. The target drawings are in `docs/design-reference/terminal/`.
 
 ## Colors
 
-The hex values are the dark-theme reference used in the mockups. In code every color but primary is a Claude Code theme key, so light and dark themes follow the user's setting. Primary is the mod's own sky blue, kept apart from Claude Code's orange; its mid lightness reads on both themes (6.3:1 on the dark surface, 3.1:1 on white).
+Colour means the kind of step, never decoration. The four kinds follow the roles common issue trackers and design systems already give these hues, so they read without a key: purple for looking into something, blue for work in progress, green for checks, amber for "waiting on a person". Each is a fixed hex of mid lightness, so it reads on both themes (at least 4.9:1 on the dark surface, 3.2:1 on white). The rest are Claude Code theme keys and follow the user's light or dark setting.
 
-- **Primary (#2b9be0, set in code as a hex; the `accentColor` setting overrides it):** the running stage, task or checkpoint, the progress bar and the drawer button, and nothing else.
-- **Success (#5cc072, `success`):** done marks and done chips.
-- **Error (#ff6b80, `error`):** a failed item and its note.
-- **Muted (#9a968f, `inactive`):** waiting items, box borders, connectors, times.
-- **Text (#e8e6e3, `text`):** names of done and running items.
+- **Explore (#9664ed):** reading code, logs or docs to find out how things stand.
+- **Build (#2c82ec):** writing or changing code, files or settings.
+- **Verify (#30a246):** tests, checks, reviews, looking at the result.
+- **Person (#bc8514):** a step only the person can do: sign in, approve, press deploy.
+- **Error (#ff6b80, `error`):** a blocked step and its note, whatever its kind.
+- **Muted (#9a968f, `inactive`):** waiting items without a kind, skipped steps, borders, connectors, times, the legend's words.
+- **Text (#e8e6e3, `text`):** step names; bold for buttons, the running step and the plan title.
+
+A parent with no kind of its own takes the kind all its steps share. A done mark is its kind's colour dimmed. The progress bar fills in the colour of each finished step, so it shows what kind of work is behind. A legend line under the drawer's head names only the kinds the plan uses.
 
 ## Typography
 
@@ -75,16 +88,16 @@ None. Hierarchy comes from nesting boxes, not shadows.
 ## Components
 
 - **Stage box:** rounded box, status mark and name on the left, `1/4` or time flush right. Folded shows `▸`, unfolded `▾` with its tasks inside.
-- **Running stage box:** border and mark in primary, name bold.
+- **Running stage box:** border and mark in the step's kind colour, name bold.
 - **Parallel group:** `╭ 동시에` header line inside a box, holding the tasks that run at the same time.
 - **Connectors:** `┬`/`┴` on box edges, `▼` into the next box, `╭─┴─╮` for a split and `╰─┬─╯` for a join.
-- **Tree above the prompt:** title, a progress line with `done/total · %`, then one row per node: glyph, id, title, `∥ parallel` on a parallel parent, `done/total` flush right on parents, `◂` on the current leaf.
+- **Tree above the prompt:** title, a progress line with `done/total · %`, then one row per node: mark, title, `∥ parallel` on a parallel parent, `done/total` flush right on parents, `◂` on the current leaf.
 
 ## Do's and Don'ts
 
-- Do keep a single accent: only the running item uses primary.
+- Do let colour say only the kind of step; status is the mark's shape.
 - Do put the status mark first and the count or time last on every row.
 - Do animate only while something runs, and only the running item.
-- Don't use literal colors in code; use theme keys.
-- Don't draw icon tiles, percent bars or subagent strips.
+- Don't use literal colors in code beyond the four kind colours; use theme keys.
+- Don't draw icon tiles or subagent strips.
 - Don't let the tree above the prompt grow past the rows it is given; fold completed subtrees instead.

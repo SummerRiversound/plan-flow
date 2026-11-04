@@ -2,8 +2,8 @@
 // untrusted input, running an op on the plan, and the plain text it answers.
 import type { Board, Previous } from './board'
 import { cancelBoard, resumeBoard, setBoard, settle } from './board'
-import type { NodeUpdate, Plan, PlanInput } from './plan'
-import { addNodes, currentLeaf, hasOpenWork, MAX_DETAIL, MAX_NOTE, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
+import type { NodeUpdate, Plan, PlanInput, StepKind } from './plan'
+import { addNodes, currentLeaf, hasOpenWork, KINDS, MAX_DETAIL, MAX_NOTE, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
 import { clean } from './sanitize'
 
 export const TOOL_NAME = 'plan'
@@ -26,15 +26,18 @@ export const ANSWER_LIMIT = 4000
 export const TOOL_DESCRIPTION = [
   'The plan board for the current task; the person watches it on screen while you work.',
   'op "set" starts it: a title and the steps, nested as stages, tasks and checkpoints (3 levels at most).',
-  'Each step has a short title and a "detail": one plain sentence on what it does and why, shown under the step while it runs.',
+  'Each step has a short title, a "detail": one plain sentence on what it does and why, shown under the step while it runs, and a "kind" (explore, build, verify or person) that colours it.',
   'Steps that do not depend on each other go under one node with "parallel": true and are worked on together; the step after the group waits for all of them.',
   'op "next" says the running step is done and starts the one after it (give "id" when several run and a particular one finished).',
-  'op "update" changes steps by id: status, title, detail, or a note (say why a step is blocked or skipped).',
+  'op "update" changes steps by id: status, title, detail, kind, or a note (say why a step is blocked or skipped).',
   'op "add" puts new steps under "parent" (or at the top; a leaf may get children when a step turns out bigger), op "remove" drops a step with everything under it, op "move" puts a step before its sibling "before" (or last), op "show" answers the plan with its ids.',
   'A step with children takes its status from them, so only leaves get a status; status "pending" on a finished step or parent reopens it to redo.',
   'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
   'op "resume" brings back a shelved plan ("title", else the newest parked), op "cancel" drops the plan in hand and brings back the newest parked one.',
 ].join(' ')
+
+const KIND_HELP =
+  'What the step is, shown as its colour: explore (reading, looking into, finding out), build (making or changing code, docs or config), verify (running tests, checking a result), person (only the person can do it: decide, sign in, check on a device)'
 
 // JSON Schema, written out level by level because it may not use $ref. Groups do not
 // count as levels, so the nesting goes deeper than three.
@@ -43,6 +46,7 @@ const stepSchema = (depth: number): Schema => {
   const properties: Record<string, Schema> = {
     title: { type: 'string', description: `At most 4 words, in the user's language (${MAX_TITLE} characters at most)` },
     detail: { type: 'string', description: `One plain sentence: what this step does and why, in words the person already uses (${MAX_DETAIL} characters at most)` },
+    kind: { type: 'string', enum: [...KINDS], description: KIND_HELP },
     parallel: { type: 'boolean', description: 'This node groups steps that run at the same time' },
   }
   if (depth > 1) properties.children = { type: 'array', items: stepSchema(depth - 1) }
@@ -71,6 +75,7 @@ export const TOOL_SCHEMA: Schema = {
           title: { type: 'string' },
           note: { type: 'string', description: `Why, for blocked or skipped (${MAX_NOTE} characters at most); empty clears it` },
           detail: { type: 'string', description: 'The step\'s one-sentence detail; empty clears it' },
+          kind: { type: 'string', enum: [...KINDS] },
           parallel: { type: 'boolean' },
         },
         required: ['id'],
@@ -86,6 +91,7 @@ export const instruction = (tool: string): string =>
     `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title and its steps.`,
     "Every title is at most 4 words, in the user's language.",
     'Give every step a detail: one plain sentence saying what it does and why, so the person follows without asking; use words the person already uses, never labels coined in this session.',
+    'Give every step a kind: explore, build, verify, or person for a step only the person can do.',
     'Put steps that do not depend on each other under one node with "parallel": true and work on them together (several tool calls or agents in one message).',
     'When a step is done call op "next"; it finishes that step and starts the following one. Use op "update" for blocked or skipped steps, with a note saying why.',
     'While a plan is on the board, each request carries a plan-flow note: follow it to decide what the request does to the board before acting.',
@@ -145,6 +151,14 @@ const optionalFlag = (raw: Raw, key: string, at: string): Parsed<boolean | undef
   return typeof v === 'boolean' ? { value: v } : bad(`${at}${key} must be true or false, not ${kind(v)}`)
 }
 
+const optionalKind = (raw: Raw, at: string): Parsed<StepKind | undefined> => {
+  const v = raw.kind
+  if (v === undefined) return { value: undefined }
+  const kind = KINDS.find(k => k === v)
+
+  return kind === undefined ? bad(`${at}kind "${clean(String(v))}" is not one of ${KINDS.join(', ')}`) : { value: kind }
+}
+
 const readSteps = (raw: unknown, at: string): Parsed<PlanInput[]> => {
   if (!Array.isArray(raw)) return bad(`${at} must be a list of steps, not ${kind(raw)}`)
   const steps: PlanInput[] = []
@@ -157,6 +171,9 @@ const readSteps = (raw: unknown, at: string): Parsed<PlanInput[]> => {
     const detail = optionalText(item, 'detail', `${here}.`)
     if ('error' in detail) return detail
     if (detail.value !== undefined) step.detail = detail.value
+    const stepKind = optionalKind(item, `${here}.`)
+    if ('error' in stepKind) return stepKind
+    if (stepKind.value !== undefined) step.kind = stepKind.value
     const parallel = optionalFlag(item, 'parallel', `${here}.`)
     if ('error' in parallel) return parallel
     if (parallel.value !== undefined) step.parallel = parallel.value
@@ -194,6 +211,9 @@ const readUpdates = (raw: unknown): Parsed<NodeUpdate[]> => {
     const detail = optionalText(item, 'detail', here)
     if ('error' in detail) return detail
     if (detail.value !== undefined) u.detail = detail.value
+    const stepKind = optionalKind(item, here)
+    if ('error' in stepKind) return stepKind
+    if (stepKind.value !== undefined) u.kind = stepKind.value
     const parallel = optionalFlag(item, 'parallel', here)
     if ('error' in parallel) return parallel
     if (parallel.value !== undefined) u.parallel = parallel.value

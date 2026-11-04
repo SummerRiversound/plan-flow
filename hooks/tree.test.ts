@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { drawTree, duration, layoutTree, lineText, statusLine } from './tree'
+import { KIND_COLOR, drawTree, duration, layoutTree, legend, lineText, statusLine } from './tree'
 import { cells } from './width'
 
 const ok = (r: PlanResult): Plan => {
@@ -33,7 +33,7 @@ const sample = (): Plan => {
 }
 const working: Activity = { phase: 'working', running: [] }
 const texts = (p: Plan, a: Activity, maxRows: number, width: number): string[] =>
-  drawTree(p, a, { maxRows, width, accent: 'claude', now: 0 }).map(lineText)
+  drawTree(p, a, { maxRows, width, now: 0 }).map(lineText)
 
 test('the head is the title, then progress as done/total and percent', () => {
   const lines = texts(sample(), idleActivity(), 40, 60)
@@ -70,7 +70,7 @@ test('a tree taller than its rows shows a window around the current step, and sc
   const stages = Array.from({ length: 12 }, (_, s) => ({ title: `단계 ${s + 1}` }))
   let p = ok(setPlan(emptyPlan(), '긴 계획', stages, 0))
   for (let t = 1; t <= 7; t++) p = ok(nextStep(p, undefined, t))
-  const opts = { maxRows: 9, width: 40, accent: 'claude', now: 0 }
+  const opts = { maxRows: 9, width: 40, now: 0 }
   const follow = layoutTree(p, idleActivity(), opts)
   expect(follow.lines).toHaveLength(9)
   expect(follow.lines.map(lineText).some(l => l.includes('단계 7 ◂'))).toBe(true)
@@ -91,7 +91,7 @@ test('no row is wider than the band, Hangul counted as two cells', () => {
   const blocked = ok(updateNodes(long, [{ id: '1.1', status: 'blocked', note: '디자인 확정을 기다리는 중입니다' }], 1))
   for (const p of [sample(), blocked]) {
     for (let width = 12; width <= 80; width++) {
-      for (const line of drawTree(p, working, { maxRows: 40, width, accent: 'claude', now: 0 })) {
+      for (const line of drawTree(p, working, { maxRows: 40, width, now: 0 })) {
         expect(cells(lineText(line))).toBeLessThanOrEqual(width)
       }
     }
@@ -120,7 +120,7 @@ test('the status line names progress and the step in hand', () => {
 test('steps the latest request added or reopened carry a mark, and the head counts parked plans', () => {
   let p = ok(addNodes(sample(), null, [{ title: '문서' }], 9))
   p = ok(updateNodes(p, [{ id: '1', status: 'pending', note: '다시 조사' }], 10))
-  const lines = drawTree(p, idleActivity(), { maxRows: 40, width: 60, accent: 'claude', now: 0, parked: 2 }).map(lineText)
+  const lines = drawTree(p, idleActivity(), { maxRows: 40, width: 60, now: 0, parked: 2 }).map(lineText)
   expect(lines.find(l => l.includes('문서'))).toContain('문서 새로')
   expect(lines.find(l => l.includes('조사'))).toContain('조사 ↺')
   expect(lines[1]).toContain('· 보관 2')
@@ -141,4 +141,35 @@ test('the running step shows its detail under it, wrapped to two rows; other ste
   expect(lines.some(l => l.includes('끝난 단계'))).toBe(false)
   expect(lines.some(l => l.includes('묶음 설명'))).toBe(false)
   expect(lines.every(l => cells(l) <= 40)).toBe(true)
+})
+
+const KINDED: PlanInput[] = [
+  { title: '조사', kind: 'explore' },
+  { title: '구현', children: [{ title: '화면', kind: 'build' }, { title: 'API', kind: 'build' }] },
+  { title: '확인', kind: 'verify' },
+  { title: '메모' },
+]
+const kinded = (): Plan => ok(nextStep(ok(nextStep(ok(setPlan(emptyPlan(), '종류별 색', KINDED, 0)), undefined, 1000)), undefined, 2000))
+const segOf = (p: Plan, title: string) =>
+  drawTree(p, working, { maxRows: 40, width: 60, now: 0 })
+    .find(l => lineText(l).includes(title))
+    ?.find(s => ['✓', '●', '○'].includes(s.text))
+
+test('a step is coloured by its kind; a parent takes the kind its steps share, a step without one keeps the plain colours', () => {
+  const p = kinded()
+  expect(segOf(p, '조사')?.color).toBe(KIND_COLOR.explore)
+  expect(segOf(p, '화면')?.color).toBe(KIND_COLOR.build)
+  expect(segOf(p, '구현')?.color).toBe(KIND_COLOR.build)
+  expect(segOf(p, '메모')?.color).toBe('inactive')
+})
+
+test('the legend names only the kinds the plan uses, and wraps instead of cutting', () => {
+  expect(legend(kinded(), 60).map(lineText)).toEqual(['● 살펴보기  ● 만들기  ● 확인하기'])
+  expect(legend(kinded(), 22).map(lineText)).toEqual(['● 살펴보기  ● 만들기', '● 확인하기'])
+  expect(legend(ok(setPlan(emptyPlan(), '종류 없음', [{ title: '하나' }], 0)), 60)).toEqual([])
+})
+
+test('the progress bar takes the colour of each finished step', () => {
+  const head = drawTree(kinded(), working, { maxRows: 40, width: 60, now: 0 })[1] ?? []
+  expect(head.find(s => s.text.includes('━'))?.color).toBe(KIND_COLOR.explore)
 })

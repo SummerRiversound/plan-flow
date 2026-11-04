@@ -17,7 +17,7 @@ const big = (): Plan => {
   for (let t = 1; t <= 11; t++) p = ok(nextStep(p, undefined, t))
   return p
 }
-const rows = (p: Plan, maxRows: number, width = 60): string[] => drawTree(p, idleActivity(), { maxRows, width, accent: 'claude', now: 0 }).map(lineText)
+const rows = (p: Plan, maxRows: number, width = 60): string[] => drawTree(p, idleActivity(), { maxRows, width, now: 0 }).map(lineText)
 
 test('the view never takes more rows than it is given', () => {
   for (let maxRows = 0; maxRows <= 40; maxRows++) expect(rows(big(), maxRows).length).toBeLessThanOrEqual(maxRows)

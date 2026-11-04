@@ -12,7 +12,7 @@ import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parse
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import type { Line } from './tree'
-import { ACCENT, BAND_ROWS, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
+import { BAND_ROWS, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -145,7 +145,6 @@ async function demo($: $, arg: string | undefined): Promise<string> {
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const enforce = options.enforce === true
-  const accent = typeof options.accentColor === 'string' && options.accentColor.trim() !== '' ? options.accentColor.trim() : ACCENT
   let offered = false
   // The band's window as last drawn, for the next scroll.
   let band = { offset: 0, maxOffset: 0 }
@@ -294,10 +293,10 @@ export const register: Register = (on, options) => {
         : [
             fitLine(
               [
-                { text: `▶ 시연 ${at.scenario + 1}/${SCENARIOS.length} · ${SCENARIOS[at.scenario]?.title ?? ''}  `, color: accent, bold: true },
+                { text: `▶ 시연 ${at.scenario + 1}/${SCENARIOS.length} · ${SCENARIOS[at.scenario]?.title ?? ''}  `, color: 'text', bold: true },
                 { text: '◂ 이전', color: 'inactive', button: DEMO_PREV },
                 { text: '  ' },
-                { text: '다음 ▸', color: accent, button: DEMO_NEXT },
+                { text: '다음 ▸', color: 'text', bold: true, button: DEMO_NEXT },
                 { text: '  ' },
                 { text: '끝 ✕', color: 'inactive', button: DEMO_STOP },
               ],
@@ -308,7 +307,6 @@ export const register: Register = (on, options) => {
     const view = layoutTree(plan, frame?.activity ?? (await read($, activityAtom)), {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
       width,
-      accent,
       now: frame?.now ?? (await $.clock.now()),
       scroll: await read($, scrollAtom),
       open: '흐름도 보기 ▸',
@@ -348,7 +346,6 @@ export const register: Register = (on, options) => {
     const drawer = await read($, drawerAtom)
     const view = drawerView(plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, frame?.activity ?? (await read($, activityAtom)), {
       width: e.props.bodyColumns,
-      accent,
       now: frame?.now ?? (await $.clock.now()),
     })
     const stage = currentLeaf(plan)?.id.split('.')[0] ?? null

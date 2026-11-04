@@ -17,12 +17,6 @@
       "title": "Require a plan first",
       "description": "Refuse state-changing tools (Edit, Write, Bash, ...) until the task has a plan",
       "default": false
-    },
-    "accentColor": {
-      "type": "string",
-      "title": "Accent color",
-      "description": "Theme key or color for the running item (for example #2b9be0, claude, magenta)",
-      "default": "#2b9be0"
     }
   }
 }

@@ -3,18 +3,61 @@
 import type { Activity } from '../types'
 import { activityLabel } from './activity'
 import { fitRows, foldedParents } from './fit'
-import type { Plan, PlanNode, PlanStatus } from './plan'
-import { childrenOf, currentLeaf, finishedAt, hasChildren, leavesUnder, isFinished, progress, runningLeaves } from './plan'
+import type { Plan, PlanNode, PlanStatus, StepKind } from './plan'
+import { childrenOf, currentLeaf, finishedAt, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
 
-// `color` is a theme key or the accent setting; `button` is the node a press on the piece folds.
+// `color` is a theme key or a hex; `button` is the node a press on the piece folds.
 export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string }
 export type Line = Seg[]
 
 export const GLYPH: Record<PlanStatus, string> = { completed: '✓', in_progress: '●', pending: '○', blocked: '■', skipped: '–' }
 
-export const statusColor = (s: PlanStatus, accent: string): string =>
-  s === 'completed' ? 'success' : s === 'in_progress' ? accent : s === 'blocked' ? 'error' : 'inactive'
+// Colour says what a step is; its glyph says where it stands. Each hex blends the light and
+// dark theme's functional colour 6:4, so one value reads on both.
+export const KIND_COLOR: Record<StepKind, string> = { explore: '#9664ed', build: '#2c82ec', verify: '#30a246', person: '#bc8514' }
+export const KIND_LABEL: Record<StepKind, string> = { explore: '살펴보기', build: '만들기', verify: '확인하기', person: '내 차례' }
+
+// A step's kind: its own, else the one every leaf under it shares.
+export const kindOf = (plan: Plan, n: PlanNode): StepKind | undefined => {
+  if (n.kind !== undefined) return n.kind
+  const under = leavesUnder(plan.nodes, n.id)
+  const first = under[0]?.kind
+
+  return first !== undefined && under.every(l => l.kind === first) ? first : undefined
+}
+
+// The colour of a step's glyph: blocked and skipped by status, else its kind; a step
+// without a kind falls back to status colours.
+export const glyphColor = (plan: Plan, n: PlanNode): string => {
+  if (n.status === 'blocked') return 'error'
+  if (n.status === 'skipped') return 'inactive'
+  const k = kindOf(plan, n)
+  if (k !== undefined) return KIND_COLOR[k]
+
+  return n.status === 'completed' ? 'success' : n.status === 'in_progress' ? 'text' : 'inactive'
+}
+
+// The glyph piece: finished steps dim, so the running one stands out.
+export const glyphSeg = (plan: Plan, n: PlanNode): Seg => ({ text: GLYPH[n.status], color: glyphColor(plan, n), dim: n.status === 'completed' })
+
+// One line naming the colours the plan uses; empty when no step has a kind.
+export const legend = (plan: Plan, width: number): Line[] => {
+  const used = (Object.keys(KIND_LABEL) as StepKind[]).filter(k => plan.nodes.some(n => n.kind === k))
+  if (used.length === 0) return []
+
+  // Entries go onto a new row rather than being cut when the view is narrow.
+  const rows: Line[] = [[]]
+  for (const k of used) {
+    const last = rows[rows.length - 1] ?? []
+    const gap = last.length === 0 ? '' : '  '
+    if (last.length > 0 && cells(lineText(last)) + cells(`${gap}● ${KIND_LABEL[k]}`) > width) rows.push([])
+    const row = rows[rows.length - 1] ?? []
+    row.push({ text: `${row.length === 0 ? '' : '  '}● `, color: KIND_COLOR[k] }, { text: KIND_LABEL[k], color: 'inactive' })
+  }
+
+  return rows.map(r => fitLine(r, width))
+}
 
 export const lineText = (line: Line): string => line.map(s => s.text).join('')
 
@@ -64,10 +107,10 @@ export const markedLeaves = (plan: Plan): Set<string> => {
 }
 
 // The mark a step carries while the request that changed it is the latest.
-export const markSeg = (plan: Plan, id: string, accent: string): Seg[] => {
+export const markSeg = (plan: Plan, id: string): Seg[] => {
   const m = plan.marks?.[id]
 
-  return m === undefined ? [] : [{ text: m === 'new' ? ' 새로' : ' ↺', color: accent }]
+  return m === undefined ? [] : [{ text: m === 'new' ? ' 새로' : ' ↺', color: 'text', bold: true }]
 }
 
 export const noteText = (n: PlanNode): string =>
@@ -104,18 +147,18 @@ const detailRows = (plan: Plan, n: PlanNode, width: number, marked: Set<string>)
   ])
 }
 
-const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked: Set<string>, folded: ReadonlySet<string>): Line => {
+const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, folded: ReadonlySet<string>): Line => {
   const done = isFinished(n.status)
   const left: Line = [
     { text: prefixOf(plan, n), color: 'inactive' },
-    { text: GLYPH[n.status], color: statusColor(n.status, accent) },
+    glyphSeg(plan, n),
     { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) },
-    ...markSeg(plan, n.id, accent),
+    ...markSeg(plan, n.id),
   ]
   if (n.parallel === true) left.push({ text: ' ∥ 동시에', color: 'inactive' })
   const note = noteText(n)
   if (note !== '') left.push({ text: note, color: n.status === 'blocked' ? 'warning' : 'inactive' })
-  if (marked.has(n.id)) return [...fitLine(left, width - 2), { text: ' ◂', color: accent }]
+  if (marked.has(n.id)) return [...fitLine(left, width - 2), { text: ' ◂', color: glyphColor(plan, n) }]
   const right = hasChildren(plan.nodes, n.id)
     ? counts(plan, n.id) + (folded.has(n.id) ? ' ▸' : '')
     : n.status === 'completed' && n.startedAt !== undefined && n.doneAt !== undefined ? duration(n.doneAt - n.startedAt) : ''
@@ -127,7 +170,22 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked:
   return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(right)) }, { text: right, color: 'inactive' }]
 }
 
-const head = (plan: Plan, activity: Activity, maxRows: number, width: number, accent: string, now: number, open?: string, parked = 0): Line[] => {
+// The progress bar: a cell per stretch of leaves in plan order, drawn in the kind's colour once finished.
+const strip = (plan: Plan, bar: number): Line => {
+  const leaves = leavesOf(plan)
+  const out: Line = []
+  for (let i = 0; i < bar; i++) {
+    const leaf = leaves[Math.floor((i * leaves.length) / bar)]
+    const seg: Seg = leaf !== undefined && isFinished(leaf.status) ? { text: '━', color: glyphColor(plan, leaf) } : { text: '─', color: 'inactive' }
+    const last = out[out.length - 1]
+    if (last !== undefined && last.color === seg.color && last.text[0] === seg.text) last.text += seg.text
+    else out.push(seg)
+  }
+
+  return out
+}
+
+const head = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -141,7 +199,6 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
   if (cells(label) + cells(time) + 4 <= width) label += time
   if (parked > 0 && cells(label) + 8 + 4 <= width) label += ` · 보관 ${parked}`
   const bar = Math.max(0, Math.min(24, width - cells(label)))
-  const filled = total === 0 ? 0 : Math.round((bar * done) / total)
   const title: Line = [{ text: plan.title, bold: true, color: 'text' }]
   // The button that opens the drawer, flush right when the title leaves room.
   const button = open === undefined || cells(open) + 12 > width ? null : open
@@ -150,19 +207,18 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
       ? fitLine(title, width)
       : (() => {
           const cut = fitLine(title, width - cells(button) - 1)
-          return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(button)) }, { text: button, color: accent, button: OPEN_BUTTON }]
+          return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(button)) }, { text: button, color: 'text', bold: true, button: OPEN_BUTTON }]
         })(),
-    fitLine([{ text: '━'.repeat(filled), color: accent }, { text: '─'.repeat(bar - filled), color: 'inactive' }, { text: label, color: 'text' }], width),
+    fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),
   ]
   const words = activityLabel(activity)
-  if (words !== undefined) lines.push(fitLine([{ text: '● ', color: activity.phase === 'error' ? 'error' : accent }, { text: words, color: 'text' }], width))
+  const run = runningLeaves(plan)[0]
+  const dot = activity.phase === 'error' ? 'error' : run === undefined ? 'text' : glyphColor(plan, run)
+  if (words !== undefined) lines.push(fitLine([{ text: '● ', color: dot }, { text: words, color: 'text' }], width))
   lines.push([])
 
   return lines
 }
-
-// The mod's accent: a sky blue of mid lightness, readable on dark and light themes alike.
-export const ACCENT = '#2b9be0'
 
 // The most rows the tree takes above the prompt; past that it scrolls.
 export const BAND_ROWS = 12
@@ -172,18 +228,18 @@ export const OPEN_BUTTON = 'open-flow'
 
 // `scroll` is the first tree row the person scrolled to; absent or null follows the current step.
 // `open` labels a button on the title line that opens the drawer; `parked` counts the plans set aside.
-export type TreeOptions = { maxRows: number; width: number; accent: string; now: number; scroll?: number | null; open?: string; parked?: number }
+export type TreeOptions = { maxRows: number; width: number; now: number; scroll?: number | null; open?: string; parked?: number }
 // `offset` is the first tree row shown, `maxOffset` the last one a scroll can reach.
 export type TreeView = { lines: Line[]; offset: number; maxOffset: number }
 
-export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, accent, now, scroll = null, open, parked = 0 }: TreeOptions): TreeView => {
+export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, now, scroll = null, open, parked = 0 }: TreeOptions): TreeView => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return { lines: [], offset: 0, maxOffset: 0 }
-  const top = head(plan, activity, maxRows, width, accent, now, open, parked)
+  const top = head(plan, activity, maxRows, width, now, open, parked)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
       .filter(n => ![...folded].some(id => n.id.startsWith(`${id}.`)))
-      .flatMap(node => [nodeRow(plan, node, width, accent, marked, folded), ...detailRows(plan, node, width, marked)].map(line => ({ node, line })))
+      .flatMap(node => [nodeRow(plan, node, width, marked, folded), ...detailRows(plan, node, width, marked)].map(line => ({ node, line })))
   const overflow = (hidden: readonly PlanNode[]): Line => {
     const fin = hidden.filter(n => n.status === 'completed').length
     const wait = hidden.filter(n => n.status === 'pending').length

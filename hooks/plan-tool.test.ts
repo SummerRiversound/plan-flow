@@ -137,3 +137,11 @@ test('steps carry a one-line detail, set with the step or by update, and an empt
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', detail: 3 }] })).toMatch(/^Error: .*detail must be text/)
   expect(instruction('t')).toContain('detail')
 })
+
+test('steps carry a kind, set with the step or by update; an unknown kind is refused', () => {
+  const { plan } = apply(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: '조사', kind: 'explore' }, { title: '결정', kind: 'person' }] })
+  expect(plan.nodes.map(n => n.kind)).toEqual(['explore', 'person'])
+  expect(apply(plan, { op: 'update', updates: [{ id: '1', kind: 'build' }] }).plan.nodes[0]?.kind).toBe('build')
+  expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', kind: 'design' }] })).toMatch(/^Error: .*kind "design" is not one of explore, build, verify, person/)
+  expect(instruction('t')).toContain('kind')
+})

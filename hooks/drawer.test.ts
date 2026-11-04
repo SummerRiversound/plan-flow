@@ -42,7 +42,7 @@ const sample = (): Plan => {
   return ok(nextStep(p, '2.2.1.1', 203_000))
 }
 const closed: DrawerState = { open: {}, focus: null }
-const draw = (p: Plan, d: DrawerState = closed, width = 53) => drawFlow(p, d, { width, accent: 'claude', now: 252_000 })
+const draw = (p: Plan, d: DrawerState = closed, width = 53) => drawFlow(p, d, { width, now: 252_000 })
 const texts = (p: Plan, d: DrawerState = closed, width = 53): string[] => draw(p, d, width).lines.map(lineText)
 
 test('the head names the plan, stages done and the time so far', () => {
@@ -119,7 +119,7 @@ test('a closed box is wide enough for its whole title and time', () => {
   p = ok(nextStep(p, undefined, 0))
   p = ok(nextStep(p, undefined, 65_000))
   p = ok(nextStep(p, undefined, 70_000))
-  const flow = drawFlow(p, { open: {}, focus: null }, { width: 50, accent: 'claude', now: 80_000 })
+  const flow = drawFlow(p, { open: {}, focus: null }, { width: 50, now: 80_000 })
   const text = flow.lines.map(lineText).join('\n')
   expect(text).toMatch(/코드 읽기 +1분 05초/)
   expect(text).toContain('진행 부분만 펼치기')
@@ -128,8 +128,8 @@ test('a closed box is wide enough for its whole title and time', () => {
 })
 
 test('a drawer too narrow for the titles says so', () => {
-  expect(drawFlow(sample(), { open: {}, focus: null }, { width: 53, accent: 'claude', now: 0 }).cut).toBe(false)
-  expect(drawFlow(sample(), { open: {}, focus: null }, { width: 24, accent: 'claude', now: 0 }).cut).toBe(true)
+  expect(drawFlow(sample(), { open: {}, focus: null }, { width: 53, now: 0 }).cut).toBe(false)
+  expect(drawFlow(sample(), { open: {}, focus: null }, { width: 24, now: 0 }).cut).toBe(true)
 })
 
 test('parked plans are listed under the flowchart', () => {

@@ -3,7 +3,7 @@
 import type { Activity } from '../types'
 import { activityLabel } from './activity'
 import { fitRows, foldedParents } from './fit'
-import type { Plan, PlanNode, PlanStatus, StepKind } from './plan'
+import type { Plan, PlanNode, PlanStatus } from './plan'
 import { childrenOf, currentLeaf, finishedAt, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
 
@@ -13,51 +13,12 @@ export type Line = Seg[]
 
 export const GLYPH: Record<PlanStatus, string> = { completed: '✓', in_progress: '●', pending: '○', blocked: '■', skipped: '–' }
 
-// Colour says what a step is; its glyph says where it stands. Each hex blends the light and
-// dark theme's functional colour 6:4, so one value reads on both.
-export const KIND_COLOR: Record<StepKind, string> = { explore: '#9664ed', build: '#2c82ec', verify: '#30a246', person: '#bc8514' }
-export const KIND_LABEL: Record<StepKind, string> = { explore: '살펴보기', build: '만들기', verify: '확인하기', person: '내 차례' }
-
-// A step's kind: its own, else the one every leaf under it shares.
-export const kindOf = (plan: Plan, n: PlanNode): StepKind | undefined => {
-  if (n.kind !== undefined) return n.kind
-  const under = leavesUnder(plan.nodes, n.id)
-  const first = under[0]?.kind
-
-  return first !== undefined && under.every(l => l.kind === first) ? first : undefined
-}
-
-// The colour of a step's glyph: blocked and skipped by status, else its kind; a step
-// without a kind falls back to status colours.
-export const glyphColor = (plan: Plan, n: PlanNode): string => {
-  if (n.status === 'blocked') return 'error'
-  if (n.status === 'skipped') return 'inactive'
-  const k = kindOf(plan, n)
-  if (k !== undefined) return KIND_COLOR[k]
-
-  return n.status === 'completed' ? 'success' : n.status === 'in_progress' ? 'text' : 'inactive'
-}
+// Only two colours carry meaning: green for done, red for blocked. Everything else is plain text or muted.
+export const glyphColor = (n: PlanNode): string =>
+  n.status === 'completed' ? 'success' : n.status === 'blocked' ? 'error' : n.status === 'in_progress' ? 'text' : 'inactive'
 
 // The glyph piece: finished steps dim, so the running one stands out.
-export const glyphSeg = (plan: Plan, n: PlanNode): Seg => ({ text: GLYPH[n.status], color: glyphColor(plan, n), dim: n.status === 'completed' })
-
-// One line naming the colours the plan uses; empty when no step has a kind.
-export const legend = (plan: Plan, width: number): Line[] => {
-  const used = (Object.keys(KIND_LABEL) as StepKind[]).filter(k => plan.nodes.some(n => n.kind === k))
-  if (used.length === 0) return []
-
-  // Entries go onto a new row rather than being cut when the view is narrow.
-  const rows: Line[] = [[]]
-  for (const k of used) {
-    const last = rows[rows.length - 1] ?? []
-    const gap = last.length === 0 ? '' : '  '
-    if (last.length > 0 && cells(lineText(last)) + cells(`${gap}● ${KIND_LABEL[k]}`) > width) rows.push([])
-    const row = rows[rows.length - 1] ?? []
-    row.push({ text: `${row.length === 0 ? '' : '  '}● `, color: KIND_COLOR[k] }, { text: KIND_LABEL[k], color: 'inactive' })
-  }
-
-  return rows.map(r => fitLine(r, width))
-}
+export const glyphSeg = (n: PlanNode): Seg => ({ text: GLYPH[n.status], color: glyphColor(n), dim: n.status === 'completed' })
 
 export const lineText = (line: Line): string => line.map(s => s.text).join('')
 
@@ -151,14 +112,14 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, fo
   const done = isFinished(n.status)
   const left: Line = [
     { text: prefixOf(plan, n), color: 'inactive' },
-    glyphSeg(plan, n),
+    glyphSeg(n),
     { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) },
     ...markSeg(plan, n.id),
   ]
   if (n.parallel === true) left.push({ text: ' ∥ 동시에', color: 'inactive' })
   const note = noteText(n)
   if (note !== '') left.push({ text: note, color: n.status === 'blocked' ? 'warning' : 'inactive' })
-  if (marked.has(n.id)) return [...fitLine(left, width - 2), { text: ' ◂', color: glyphColor(plan, n) }]
+  if (marked.has(n.id)) return [...fitLine(left, width - 2), { text: ' ◂', color: glyphColor(n) }]
   const right = hasChildren(plan.nodes, n.id)
     ? counts(plan, n.id) + (folded.has(n.id) ? ' ▸' : '')
     : n.status === 'completed' && n.startedAt !== undefined && n.doneAt !== undefined ? duration(n.doneAt - n.startedAt) : ''
@@ -170,13 +131,13 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, fo
   return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(right)) }, { text: right, color: 'inactive' }]
 }
 
-// The progress bar: a cell per stretch of leaves in plan order, drawn in the kind's colour once finished.
+// The progress bar: a cell per stretch of leaves in plan order, green once done.
 const strip = (plan: Plan, bar: number): Line => {
   const leaves = leavesOf(plan)
   const out: Line = []
   for (let i = 0; i < bar; i++) {
     const leaf = leaves[Math.floor((i * leaves.length) / bar)]
-    const seg: Seg = leaf !== undefined && isFinished(leaf.status) ? { text: '━', color: glyphColor(plan, leaf) } : { text: '─', color: 'inactive' }
+    const seg: Seg = leaf !== undefined && isFinished(leaf.status) ? { text: '━', color: glyphColor(leaf) } : { text: '─', color: 'inactive' }
     const last = out[out.length - 1]
     if (last !== undefined && last.color === seg.color && last.text[0] === seg.text) last.text += seg.text
     else out.push(seg)
@@ -219,7 +180,7 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, no
   ]
   const words = activityLabel(activity)
   const run = runningLeaves(plan)[0]
-  const dot = activity.phase === 'error' ? 'error' : run === undefined ? 'text' : glyphColor(plan, run)
+  const dot = activity.phase === 'error' ? 'error' : run === undefined ? 'text' : glyphColor(run)
   if (words !== undefined) lines.push(fitLine([{ text: '● ', color: dot }, { text: words, color: 'text' }], width))
   lines.push([])
 

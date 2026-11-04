@@ -8,7 +8,7 @@ import type { Plan, PlanNode } from './plan'
 import { childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { drawTree, duration, elapsed, fitLine, glyphColor, glyphSeg, legend, lineText, markSeg, noteText } from './tree'
+import { drawTree, duration, elapsed, fitLine, glyphColor, glyphSeg, lineText, markSeg, noteText } from './tree'
 import { cells, padRight, wrap } from './width'
 
 export type { DrawerState }
@@ -52,7 +52,7 @@ type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean }
 const right = (ctx: Ctx, n: PlanNode): Seg | null => {
   if (hasChildren(ctx.plan.nodes, n.id)) return { text: `${count(ctx.plan, n.id)} ${isOpen(ctx.plan, ctx.drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
   if (n.status === 'completed' && n.startedAt !== undefined && n.doneAt !== undefined) return { text: duration(n.doneAt - n.startedAt), color: 'inactive' }
-  if (n.status === 'in_progress') return { text: '진행 중', color: glyphColor(ctx.plan, n) }
+  if (n.status === 'in_progress') return { text: '진행 중', color: glyphColor(n) }
 
   return null
 }
@@ -60,7 +60,7 @@ const right = (ctx: Ctx, n: PlanNode): Seg | null => {
 const titleSegs = (ctx: Ctx, n: PlanNode): Line => {
   const run = n.status === 'in_progress'
   const out: Line = [
-    glyphSeg(ctx.plan, n),
+    glyphSeg(n),
     { text: ` ${n.title}`, color: run || n.status === 'completed' ? 'text' : 'inactive', bold: run, strike: n.status === 'skipped' },
     ...markSeg(ctx.plan, n.id),
   ]
@@ -140,7 +140,7 @@ const box = (ctx: Ctx, n: PlanNode, max: number, tail: boolean): Block => {
   const wide = open || detailLines(ctx, n, max).length > 0
   const width = oddFit(wide ? Math.max(MIN_BOX, max - 8) : Math.max(MIN_BOX, natural), max)
   const inner = width - 4
-  const edge = { color: n.status === 'in_progress' ? glyphColor(ctx.plan, n) : 'inactive' }
+  const edge = { color: n.status === 'in_progress' ? glyphColor(n) : 'inactive' }
   const wall = (row: Line): Line => [{ text: '│ ', ...edge }, ...pad(row, inner), { text: ' │', ...edge }]
   let head = spread(titleSegs(ctx, n), r, inner, ctx)
   if (hasChildren(ctx.plan.nodes, n.id)) {
@@ -232,7 +232,7 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now }: FlowOp
   const head = spread([{ text: ` ${plan.title}`, bold: true, color: 'text' }], { text: r, color: 'inactive' }, width)
   // Too narrow for a box: the head alone.
   if (width < MIN_INNER + 4) return { lines: [head], buttons: [], cut: true }
-  const lines: Line[] = [head, ...legend(plan, width), []]
+  const lines: Line[] = [head, []]
   const axis = Math.floor((width - 1) / 2)
   const stages = childrenOf(plan.nodes, null)
   stages.forEach((n, i) => {
@@ -274,5 +274,5 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
   if (!flow.cut) return { ...flow, lines: [...flow.lines, ...shelved] }
   const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now })
 
-  return { lines: [fitLine([{ text: '창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), ...legend(plan, width), [], ...tree, ...shelved], buttons: [], cut: true }
+  return { lines: [fitLine([{ text: '창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), [], ...tree, ...shelved], buttons: [], cut: true }
 }

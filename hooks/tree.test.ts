@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { FOLD_BUTTON, KIND_COLOR, drawTree, duration, layoutTree, legend, lineText, statusLine } from './tree'
+import { FOLD_BUTTON, drawTree, duration, layoutTree, lineText, statusLine } from './tree'
 import { cells } from './width'
 
 const ok = (r: PlanResult): Plan => {
@@ -141,37 +141,6 @@ test('the running step shows its detail under it, wrapped to two rows; other ste
   expect(lines.some(l => l.includes('끝난 단계'))).toBe(false)
   expect(lines.some(l => l.includes('묶음 설명'))).toBe(false)
   expect(lines.every(l => cells(l) <= 40)).toBe(true)
-})
-
-const KINDED: PlanInput[] = [
-  { title: '조사', kind: 'explore' },
-  { title: '구현', children: [{ title: '화면', kind: 'build' }, { title: 'API', kind: 'build' }] },
-  { title: '확인', kind: 'verify' },
-  { title: '메모' },
-]
-const kinded = (): Plan => ok(nextStep(ok(nextStep(ok(setPlan(emptyPlan(), '종류별 색', KINDED, 0)), undefined, 1000)), undefined, 2000))
-const segOf = (p: Plan, title: string) =>
-  drawTree(p, working, { maxRows: 40, width: 60, now: 0 })
-    .find(l => lineText(l).includes(title))
-    ?.find(s => ['✓', '●', '○'].includes(s.text))
-
-test('a step is coloured by its kind; a parent takes the kind its steps share, a step without one keeps the plain colours', () => {
-  const p = kinded()
-  expect(segOf(p, '조사')?.color).toBe(KIND_COLOR.explore)
-  expect(segOf(p, '화면')?.color).toBe(KIND_COLOR.build)
-  expect(segOf(p, '구현')?.color).toBe(KIND_COLOR.build)
-  expect(segOf(p, '메모')?.color).toBe('inactive')
-})
-
-test('the legend names only the kinds the plan uses, and wraps instead of cutting', () => {
-  expect(legend(kinded(), 60).map(lineText)).toEqual(['● 살펴보기  ● 만들기  ● 확인하기'])
-  expect(legend(kinded(), 22).map(lineText)).toEqual(['● 살펴보기  ● 만들기', '● 확인하기'])
-  expect(legend(ok(setPlan(emptyPlan(), '종류 없음', [{ title: '하나' }], 0)), 60)).toEqual([])
-})
-
-test('the progress bar takes the colour of each finished step', () => {
-  const head = drawTree(kinded(), working, { maxRows: 40, width: 60, now: 0 })[1] ?? []
-  expect(head.find(s => s.text.includes('━'))?.color).toBe(KIND_COLOR.explore)
 })
 
 test('the band folds to its title and progress lines, and its button says which way it goes', () => {

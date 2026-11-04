@@ -6,7 +6,7 @@ import type { Shot } from '../hooks/snapshot'
 import { shots } from '../hooks/snapshot'
 import { cells } from '../hooks/width'
 
-// Theme keys to DESIGN.md colours; a hex (a kind colour) is drawn as it is.
+// Theme keys to DESIGN.md colours; a hex is drawn as it is.
 const COLOR: Record<string, string> = { success: '#5cc072', error: '#ff6b80', warning: '#e5b567', inactive: '#9a968f', text: '#e8e6e3' }
 
 const esc = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

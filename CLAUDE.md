@@ -21,4 +21,5 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — Park or cancel without asking when the request is clear; ask only when the case is ambiguous.
 - 2026-11-04 — Changes show as marks on steps (new, redo) and a parked list; a change log waits until it proves needed.
 - 2026-11-04 — Each step has a short title plus a one-sentence detail on what it does and why ("각 항목이 너무 축약되어있어서 뭘하고있는지 이해가잘안되는데.."). Above the prompt the detail shows under the running step; in the drawer, under open boxes and running steps.
-- 2026-11-04 — No single accent colour. A mark's shape is the step's status and its colour is the step's kind (explore, build, verify, person), each hue taken from the role reference palettes give it ("단순히 그냥 색이 존재한다기보다 색이 의미를 지니는게 좋을것같아서. 너무 복잡하지 않은 선에서"; "하늘 내가 정한거 primary 컬러로쓰지말고 각 요소의 적절한 색을 레퍼런스찾아서 정해줘"). Blocked stays the theme's error colour.
+- 2026-11-04 — Only two colours: green for done, red for blocked; everything else is plain text or muted ("색이 너무많아서 정신없어진것같다.. 녹색과 붉은색만 남기고 나머지는 흰색을써야하겠는데.."). No accent colour, no per-kind colours.
+- 2026-11-04 — The band above the prompt folds to its title and progress-bar lines with a button on its title line ("접기도 있으면좋겠네 진행바행까지만 보이게").

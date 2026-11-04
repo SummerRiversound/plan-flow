@@ -7,7 +7,8 @@ import type { DrawerState, Shelved } from '../types'
 import type { Plan, PlanNode } from './plan'
 import { childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
-import { GLYPH, duration, elapsed, fitLine, lineText, markSeg, noteText, statusColor } from './tree'
+import type { Activity } from '../types'
+import { GLYPH, drawTree, duration, elapsed, fitLine, lineText, markSeg, noteText, statusColor } from './tree'
 import { cells, padRight } from './width'
 
 export type { DrawerState }
@@ -252,4 +253,16 @@ export const shelfLines = (shelf: readonly Shelved[], width: number): Line[] => 
       return spread([{ text: ` ▸ ${s.plan.title}`, color: 'inactive' }], { text: `${done}/${total}`, color: 'inactive' }, width)
     }),
   ]
+}
+
+// What the drawer shows: the flowchart, or the tree with a hint when the boxes would cut
+// titles; the parked plans under either.
+export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, { width, accent, now }: FlowOptions): Flow => {
+  const shelved = shelfLines(shelf, width)
+  if (plan.nodes.length === 0) return { lines: [[{ text: '아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.', color: 'inactive' }], ...shelved], buttons: [], cut: false }
+  const flow = drawFlow(plan, drawer, { width, accent, now })
+  if (!flow.cut) return { ...flow, lines: [...flow.lines, ...shelved] }
+  const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, accent, now })
+
+  return { lines: [fitLine([{ text: '창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), [], ...tree, ...shelved], buttons: [], cut: true }
 }

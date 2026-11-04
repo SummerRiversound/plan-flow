@@ -4,21 +4,21 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { drawFlow, shelfLines, toggleFold } from './drawer'
+import { drawerView, toggleFold } from './drawer'
 import { PAUSE_NOTICE, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
+import type { DemoAt } from './scenarios'
+import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import type { Line } from './tree'
-import { OPEN_BUTTON, drawTree, layoutTree, statusLine } from './tree'
+import { BAND_ROWS, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
 const PANE = 'plan-flow'
 const HIDE_AFTER_MS = 5000
 const KEPT_SESSIONS = 20
-// The most rows the tree takes above the prompt; past that it scrolls.
-const BAND_ROWS = 12
 
 const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan())
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
@@ -26,6 +26,7 @@ const shelfAtom = atom({ plugin: 'plan-flow', key: 'shelf' } as const, [] as She
 const gateAtom = atom({ plugin: 'plan-flow', key: 'gate' } as const, { planned: false, denies: 0 })
 const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open: {}, focus: null } as DrawerState)
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
+const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
 const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const scrollAtom = atom({ plugin: 'plan-flow', key: 'scroll' } as const, null as number | null)
 
@@ -115,6 +116,30 @@ async function openDrawer($: $): Promise<boolean> {
   await update($, paneAtom, () => true)
 
   return opened.isPlaced
+}
+
+// `/flow demo [scenario|next|prev|stop]`: canned boards in the real views; the board itself is untouched.
+async function demo($: $, arg: string | undefined): Promise<string> {
+  const at = await read($, demoAtom)
+  const to: DemoAt | null =
+    arg === 'stop'
+      ? null
+      : arg === 'next' || arg === 'prev'
+        ? demoStep(at ?? { scenario: 0, frame: -1 }, arg === 'next' ? 1 : -1)
+        : arg === undefined
+          ? { scenario: 0, frame: 0 }
+          : (() => {
+              const i = demoFind(arg)
+              return i === undefined ? at : { scenario: i, frame: 0 }
+            })()
+  if (arg !== undefined && !['stop', 'next', 'prev'].includes(arg) && demoFind(arg) === undefined) return `그런 시연이 없어요. 고를 수 있는 것:\n${demoList()}`
+  await update($, demoAtom, () => to)
+  await update($, scrollAtom, () => null)
+  await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
+  if (to === null) return '시연을 끝냈어요'
+  const s = SCENARIOS[to.scenario]
+
+  return `시연 ${to.scenario + 1}/${SCENARIOS.length}: ${s?.title ?? ''} — ${demoFrame(to)?.label ?? ''}\n/flow demo next 로 다음, /flow demo stop 으로 끝내요.\n${demoList()}`
 }
 
 export const register: Register = (on, options) => {
@@ -237,7 +262,9 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'flow' }, async $ => {
+  on('command.run', { command: 'flow' }, async ($, e) => {
+    const [word, arg] = e.args.trim().split(/\s+/)
+    if (word === 'demo') return { text: await demo($, arg) }
     if ((await $.ui.panes()).some(p => p.id === PANE)) {
       await $.ui.close({ id: PANE })
 
@@ -252,25 +279,48 @@ export const register: Register = (on, options) => {
   // The tree above the prompt.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
-    const plan = await read($, planAtom)
-    if (await hidden($, plan, autoShow)) return next(e)
+    const at = await read($, demoAtom)
+    const frame = at === null ? undefined : demoFrame(at)
+    const plan = frame?.board.plan ?? (await read($, planAtom))
+    if (frame === undefined && (await hidden($, plan, autoShow))) return next(e)
     if ((await read($, paneAtom)) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)) return next(e)
     const { Box } = $.ui.resolve(e)
-    const view = layoutTree(plan, await read($, activityAtom), {
-      maxRows: Math.min(e.props.maxRows, BAND_ROWS),
-      width: e.props.bodyColumns,
+    const width = e.props.bodyColumns
+    const top: Line[] =
+      at === null || frame === undefined
+        ? []
+        : [
+            fitLine(
+              [
+                { text: `▶ 시연 ${at.scenario + 1}/${SCENARIOS.length} · ${SCENARIOS[at.scenario]?.title ?? ''}  `, color: accent, bold: true },
+                { text: '◂ 이전', color: 'inactive', button: DEMO_PREV },
+                { text: '  ' },
+                { text: '다음 ▸', color: accent, button: DEMO_NEXT },
+                { text: '  ' },
+                { text: '끝 ✕', color: 'inactive', button: DEMO_STOP },
+              ],
+              width,
+            ),
+            fitLine([{ text: frame.label, color: 'inactive' }], width),
+          ]
+    const view = layoutTree(plan, frame?.activity ?? (await read($, activityAtom)), {
+      maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
+      width,
       accent,
-      now: await $.clock.now(),
+      now: frame?.now ?? (await $.clock.now()),
       scroll: await read($, scrollAtom),
       open: '흐름도 보기 ▸',
-      parked: (await read($, shelfAtom)).filter(s => s.state === 'parked').length,
+      parked: (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length,
     })
     band = view
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
+      if (id === DEMO_NEXT) void demo($, 'next')
+      if (id === DEMO_PREV) void demo($, 'prev')
+      if (id === DEMO_STOP) void demo($, 'stop')
     }
 
-    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, null, press))}</Box>
+    return <Box flexDirection="column">{[...top, ...view.lines].map(l => row($, e, l, null, press))}</Box>
   })
 
   // The band is capped below the engine's rows, so it scrolls its own window.
@@ -284,39 +334,23 @@ export const register: Register = (on, options) => {
 
   // The drawer.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const plan = await read($, planAtom)
-    const shelved = shelfLines(await read($, shelfAtom), e.props.bodyColumns)
-    if (plan.nodes.length === 0) {
-      return (
-        <Box flexDirection="column">
-          <Text dimColor>아직 계획이 없어요. Claude가 계획을 세우면 여기에 그려져요.</Text>
-          {shelved.map(l => row($, e, l, null, () => undefined))}
-        </Box>
-      )
-    }
+    const { Box } = $.ui.resolve(e)
+    const at = await read($, demoAtom)
+    const frame = at === null ? undefined : demoFrame(at)
+    const plan = frame?.board.plan ?? (await read($, planAtom))
     const drawer = await read($, drawerAtom)
-    const now = await $.clock.now()
-    const flow = drawFlow(plan, drawer, { width: e.props.bodyColumns, accent, now })
-    // Too narrow for the boxes to hold their titles: the tree, and how to get the flowchart.
-    if (flow.cut) {
-      const tree = [...drawTree(plan, await read($, activityAtom), { maxRows: plan.nodes.length + 6, width: e.props.bodyColumns, accent, now }), ...shelved]
-
-      return (
-        <Box flexDirection="column">
-          <Text dimColor>창을 넓히면 흐름도로 보여요</Text>
-          <Text> </Text>
-          {tree.map(l => row($, e, l, null, () => undefined))}
-        </Box>
-      )
-    }
+    const view = drawerView(plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, frame?.activity ?? (await read($, activityAtom)), {
+      width: e.props.bodyColumns,
+      accent,
+      now: frame?.now ?? (await $.clock.now()),
+    })
     const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
-    const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && flow.buttons.includes(id)) ?? flow.buttons[0] ?? null
+    const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id)) ?? view.buttons[0] ?? null
     const fold = (id: string) => {
-      void read($, planAtom).then(p => update($, drawerAtom, d => ({ ...toggleFold(p, d, id), focus: id })))
+      void update($, drawerAtom, d => ({ ...toggleFold(plan, d, id), focus: id }))
     }
 
-    return <Box flexDirection="column">{[...flow.lines, ...shelved].map(l => row($, e, l, focus, fold))}</Box>
+    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, focus, fold))}</Box>
   })
 
   // The drawer closed (Esc, /flow, the person): the band comes back.

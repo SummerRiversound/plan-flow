@@ -147,6 +147,9 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
   return lines
 }
 
+// The most rows the tree takes above the prompt; past that it scrolls.
+export const BAND_ROWS = 12
+
 // The `button` id of the piece that opens the drawer.
 export const OPEN_BUTTON = 'open-flow'
 

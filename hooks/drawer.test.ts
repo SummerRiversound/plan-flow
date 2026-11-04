@@ -272,6 +272,15 @@ test('a drawer wide enough for the flowchart offers the list, and the list offer
   expect(buttons(view(sample()))).toEqual([`${EXPAND_ALL}:모두 펼치기`, `${COLLAPSE_ALL}:모두 접기`, `${VIEW}:목록 보기`])
   const list = view(sample(), { ...closed, list: true })
   expect(buttons(list)).toEqual([`${VIEW}:흐름도 보기`])
+  // The switch ends where the rule ends in both views, so it does not move when pressed.
+  const end = (v: ReturnType<typeof view>) => {
+    const l = v.head.find(x => x.some(s => s.button === VIEW)) ?? []
+    return cells(lineText(l)) + 4 * l.filter(s => s.button !== undefined).length
+  }
+  for (const w of [53, 70]) {
+    expect(end(view(sample(), closed, w))).toBe(w - 1)
+    expect(end(view(sample(), { ...closed, list: true }, w))).toBe(w - 1)
+  }
   expect(list.body.map(lineText).some(l => l.startsWith('├─ ✓ 조사'))).toBe(true)
   expect(list.body.map(lineText).some(l => l.includes('╭'))).toBe(false)
   // The list follows the running step too.

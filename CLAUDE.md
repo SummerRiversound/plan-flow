@@ -32,3 +32,4 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — A drawer wide enough for the flowchart offers a "목록 보기" button to switch to the list a narrow drawer shows, and back ("서랍이 커져서 흐름도로 볼수있을때에 한정해서, 서랍이 작을때처럼 목록뷰로 토글하는 버튼이 보이면 좋을것같아").
 - 2026-11-04 — The drawer's buttons have no hotkeys and are drawn as buttons (`[ 모두 펼치기 ]`) so they read as something to press ("단축키 없애자 잘 동작도안한다. 버튼이란거 알수있게나해줘").
 - 2026-11-04 — A step pressed in the drawer offers "확인했어요" (on a step waiting for a check) and "질문", which fills the prompt box as a draft instead of sending ("확인했어요, 질문, 입력창에 초안채우기 가 좋겠다"). Changes the person makes on the board reach Claude with the next request.
+- 2026-11-04 — The view switch (목록 보기 / 흐름도 보기) sits flush right in the head so it stays put ("오른쪽으로 정렬시켜서 고정시켜. 위치가 바뀌니까 힘들다").

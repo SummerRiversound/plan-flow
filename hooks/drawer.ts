@@ -356,7 +356,16 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
     .filter(l => l.length > 0)
     .map((l): Line => [{ text: ' ' }, ...l])
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
-  const buttons = (bs: ReadonlyArray<[string, string]>): Line => buttonRow(bs, width)
+  // The head's button row: `right` (the view switch) flush with the rule's end, so it stays put
+  // when the view changes; the others from the left, while they fit before it.
+  const tools = (left: ReadonlyArray<[string, string]>, [id, text]: [string, string]): Line => {
+    const r = 4 + cells(text)
+    if (r + 1 > width - 1) return buttonRow([[id, text]], width)
+    const l = buttonRow(left, width - 1 - r - 2)
+    const used = cells(lineText(l)) + 4 * l.filter(s => s.button !== undefined).length
+
+    return [...l, { text: padRight('', width - 1 - r - used) }, { text, color: 'text', bold: true, button: id }]
+  }
   const leaf = currentLeaf(plan)
   // The step Claude is on, else the nearest row above it that shows.
   const ids = leaf === null ? [] : leaf.id.split('.').map((_, i, parts) => parts.slice(0, parts.length - i).join('.'))
@@ -375,18 +384,20 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
       })
     const hint: Line[] = flow.cut ? [fitLine([{ text: ' 창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), []] : [[]]
     const at = find(tree)
-    const toggle = flow.cut ? [] : [buttons([[VIEW, '흐름도 보기']])]
+    const toggle = flow.cut ? [] : [tools([], [VIEW, '흐름도 보기'])]
 
     return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...shelved], buttons: steps, at: at === null ? null : at + hint.length }
   }
-  const tools = buttons([
-    [EXPAND_ALL, '모두 펼치기'],
-    [COLLAPSE_ALL, '모두 접기'],
+  const row = tools(
+    [
+      [EXPAND_ALL, '모두 펼치기'],
+      [COLLAPSE_ALL, '모두 접기'],
+    ],
     [VIEW, '목록 보기'],
-  ])
+  )
   const at = find(flow.lines)
 
-  return { head: [...top, tools, rule(width)], body: [[], ...flow.lines, ...shelved], buttons: flow.buttons, at: at === null ? null : at + 1 }
+  return { head: [...top, row, rule(width)], body: [[], ...flow.lines, ...shelved], buttons: flow.buttons, at: at === null ? null : at + 1 }
 }
 
 // The rows the pane shows, `rows` tall. When the body runs past them it scrolls under the

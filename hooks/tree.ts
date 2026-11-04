@@ -2,7 +2,7 @@
 // turns the pieces into Text elements, tests read them back as plain text.
 import type { Activity } from '../types'
 import { activityLabel } from './activity'
-import { fitRows } from './fit'
+import { fitRows, foldedParents } from './fit'
 import type { Plan, PlanNode, PlanStatus } from './plan'
 import { childrenOf, currentLeaf, finishedAt, hasChildren, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight } from './width'
@@ -83,19 +83,21 @@ const prefixOf = (plan: Plan, n: PlanNode): string => {
   return out + (isLastSibling(plan, n) ? '└─ ' : '├─ ')
 }
 
-const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked: Set<string>): Line => {
+const nodeRow = (plan: Plan, n: PlanNode, width: number, accent: string, marked: Set<string>, folded: ReadonlySet<string>): Line => {
   const done = isFinished(n.status)
   const left: Line = [
     { text: prefixOf(plan, n), color: 'inactive' },
     { text: GLYPH[n.status], color: statusColor(n.status, accent) },
-    { text: ` ${n.id} ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) },
+    { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) },
   ]
-  if (n.parallel === true) left.push({ text: ' ∥ parallel', color: 'inactive' })
+  if (n.parallel === true) left.push({ text: ' ∥ 동시에', color: 'inactive' })
   const note = noteText(n)
   if (note !== '') left.push({ text: note, color: n.status === 'blocked' ? 'warning' : 'inactive' })
   if (marked.has(n.id)) return [...fitLine(left, width - 2), { text: ' ◂', color: accent }]
-  if (!hasChildren(plan.nodes, n.id)) return fitLine(left, width)
-  const right = counts(plan, n.id)
+  const right = hasChildren(plan.nodes, n.id)
+    ? counts(plan, n.id) + (folded.has(n.id) ? ' ▸' : '')
+    : n.status === 'completed' && n.startedAt !== undefined && n.doneAt !== undefined ? duration(n.doneAt - n.startedAt) : ''
+  if (right === '') return fitLine(left, width)
   const room = width - cells(right) - 1
   if (room < 8) return fitLine(left, width)
   const cut = fitLine(left, room)
@@ -128,25 +130,41 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
   return lines
 }
 
-export type TreeOptions = { maxRows: number; width: number; accent: string; now: number }
+// `scroll` is the first tree row the person scrolled to; absent or null follows the current step.
+export type TreeOptions = { maxRows: number; width: number; accent: string; now: number; scroll?: number | null }
+// `offset` is the first tree row shown, `maxOffset` the last one a scroll can reach.
+export type TreeView = { lines: Line[]; offset: number; maxOffset: number }
 
-export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, accent, now }: TreeOptions): Line[] => {
-  if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
+export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, accent, now, scroll = null }: TreeOptions): TreeView => {
+  if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return { lines: [], offset: 0, maxOffset: 0 }
   const top = head(plan, activity, maxRows, width, accent, now)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
       .filter(n => ![...folded].some(id => n.id.startsWith(`${id}.`)))
-      .map(node => ({ node, line: nodeRow(plan, node, width, accent, marked) }))
+      .map(node => ({ node, line: nodeRow(plan, node, width, accent, marked, folded) }))
   const overflow = (hidden: readonly PlanNode[]): Line => {
     const fin = hidden.filter(n => n.status === 'completed').length
     const wait = hidden.filter(n => n.status === 'pending').length
 
     return fitLine([{ text: `+${hidden.length}개 더 · 완료 ${fin} · 대기 ${wait}`, color: 'inactive' }], width)
   }
+  const budget = maxRows - top.length
+  const body = rowsFor(foldedParents(plan))
+  // Too few rows to scroll in: rows give way instead.
+  if (body.length <= budget || budget < 3) return { lines: [...top, ...fitRows(plan, budget, rowsFor, overflow)], offset: 0, maxOffset: 0 }
+  const room = budget - 1
+  const maxOffset = body.length - room
+  const at = body.findIndex(r => marked.has(r.node.id))
+  const offset = Math.max(0, Math.min(maxOffset, scroll ?? (at < 0 ? 0 : at - Math.floor(room / 2))))
+  const below = maxOffset - offset
+  const hint = [offset > 0 ? `↑ ${offset}줄` : '', below > 0 ? `↓ ${below}줄` : ''].filter(t => t !== '').join(' · ')
+  const lines = [...top, ...body.slice(offset, offset + room).map(r => r.line), fitLine([{ text: `${hint} · 스크롤로 더 보기`, color: 'inactive' }], width)]
 
-  return [...top, ...fitRows(plan, maxRows - top.length, rowsFor, overflow)]
+  return { lines, offset, maxOffset }
 }
+
+export const drawTree = (plan: Plan, activity: Activity, options: TreeOptions): Line[] => layoutTree(plan, activity, options).lines
 
 // One line for the status bar: progress, the step in hand, what Claude is doing.
 export const statusLine = (plan: Plan, activity: Activity): string | undefined => {

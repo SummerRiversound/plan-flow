@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { drawTree, duration, lineText, statusLine } from './tree'
+import { drawTree, duration, layoutTree, lineText, statusLine } from './tree'
 import { cells } from './width'
 
 const ok = (r: PlanResult): Plan => {
@@ -41,20 +41,45 @@ test('the head is the title, then progress as done/total and percent', () => {
   expect(lines[1]).toMatch(/^━+─+  2\/7 · 29%/)
 })
 
-test('rows carry glyph, id and title, a parallel tag, counts on parents and a mark on the current leaf', () => {
+test('rows carry glyph and title without ids, a parallel tag, counts on parents and a mark on the current leaf', () => {
   const lines = texts(sample(), idleActivity(), 40, 60)
-  expect(lines).toContain('├─ ✓ 1 조사')
-  expect(lines.find(l => l.startsWith('├─ ● 2 구현'))?.endsWith('1/5')).toBe(true)
-  expect(lines.find(l => l.includes('2.2 API와 디자인'))).toContain('∥ parallel')
-  expect(lines.find(l => l.includes('2.2.1.1 주소 만들기'))?.endsWith('◂')).toBe(true)
-  expect(lines.find(l => l.includes('3 배포'))?.startsWith('└─ ○')).toBe(true)
+  expect(lines).toContain('├─ ✓ 조사                                                1초')
+  expect(lines.some(l => /\d+(\.\d+)* /.test(l.replace(/^[│├└─ ]+[✓●○■–] /, '')) && /─ [✓●○] \d/.test(l))).toBe(false)
+  expect(lines.find(l => l.startsWith('├─ ● 구현'))?.endsWith('1/5')).toBe(true)
+  expect(lines.find(l => l.includes('API와 디자인'))).toContain('∥ 동시에')
+  expect(lines.find(l => l.includes('주소 만들기'))?.endsWith('◂')).toBe(true)
+  expect(lines.find(l => l.includes('배포'))?.startsWith('└─ ○')).toBe(true)
   // Counts sit flush right.
-  for (const l of lines.filter(l => /\d+\/\d+$/.test(l) && l.includes('─ '))) expect(cells(l)).toBe(60)
+  for (const l of lines.filter(l => /\d+\/\d+( ▸)?$/.test(l) && l.includes('─ '))) expect(cells(l)).toBe(60)
+})
+
+test('only the current path is unfolded; a folded parent says so', () => {
+  const p = ok(setPlan(emptyPlan(), '계획', [{ title: '첫째', children: [{ title: '가' }] }, { title: '둘째', children: [{ title: '나' }, { title: '다' }] }], 0))
+  const lines = texts(ok(nextStep(p, undefined, 1)), idleActivity(), 40, 40)
+  expect(lines.some(l => l.includes('가 ◂'))).toBe(true)
+  expect(lines.some(l => l.includes('나'))).toBe(false)
+  expect(lines.find(l => l.includes('둘째'))?.endsWith('0/2 ▸')).toBe(true)
 })
 
 test('blocked and skipped leaves show why', () => {
   const p = ok(updateNodes(sample(), [{ id: '3', status: 'skipped', note: '다음 주에' }], 9))
-  expect(texts(p, idleActivity(), 40, 60).find(l => l.includes('3 배포'))).toContain('(skipped: 다음 주에)')
+  expect(texts(p, idleActivity(), 40, 60).find(l => l.includes('배포'))).toContain('(skipped: 다음 주에)')
+})
+
+test('a tree taller than its rows shows a window around the current step, and scrolls', () => {
+  const stages = Array.from({ length: 12 }, (_, s) => ({ title: `단계 ${s + 1}` }))
+  let p = ok(setPlan(emptyPlan(), '긴 계획', stages, 0))
+  for (let t = 1; t <= 7; t++) p = ok(nextStep(p, undefined, t))
+  const opts = { maxRows: 9, width: 40, accent: 'claude', now: 0 }
+  const follow = layoutTree(p, idleActivity(), opts)
+  expect(follow.lines).toHaveLength(9)
+  expect(follow.lines.map(lineText).some(l => l.includes('단계 7 ◂'))).toBe(true)
+  expect(follow.maxOffset).toBe(12 - 5)
+  expect(lineText(follow.lines[8] ?? [])).toMatch(/^↑ \d+줄 · ↓ \d+줄 · 스크롤로 더 보기$/)
+  const top = layoutTree(p, idleActivity(), { ...opts, scroll: 0 })
+  expect(lineText(top.lines[3] ?? [])).toContain('단계 1')
+  expect(lineText(top.lines[8] ?? [])).toMatch(/^↓ 7줄/)
+  expect(layoutTree(p, idleActivity(), { ...opts, scroll: 99 }).offset).toBe(7)
 })
 
 test('the activity line follows the progress line', () => {

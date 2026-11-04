@@ -10,19 +10,22 @@ import type { Plan } from './plan'
 import { currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, instruction, parseOp, runOp } from './plan-tool'
 import type { Line } from './tree'
-import { drawTree, statusLine } from './tree'
+import { layoutTree, statusLine } from './tree'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
 const PANE = 'plan-flow'
 const HIDE_AFTER_MS = 5000
 const KEPT_SESSIONS = 20
+// The most rows the tree takes above the prompt; past that it scrolls.
+const BAND_ROWS = 12
 
 const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan())
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
 const gateAtom = atom({ plugin: 'plan-flow', key: 'gate' } as const, { planned: false, denies: 0 })
 const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open: {}, focus: null } as DrawerState)
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
+const scrollAtom = atom({ plugin: 'plan-flow', key: 'scroll' } as const, null as number | null)
 
 type $ = EngineInterface
 type Saved = Record<string, { plan: Plan; savedAt: number }>
@@ -108,6 +111,8 @@ export const register: Register = (on, options) => {
   const enforce = options.enforce === true
   const accent = typeof options.accentColor === 'string' && options.accentColor.trim() !== '' ? options.accentColor.trim() : 'claude'
   let offered = false
+  // The band's window as last drawn, for the next scroll.
+  let band = { offset: 0, maxOffset: 0 }
 
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL_NAME, description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false })
@@ -142,6 +147,8 @@ export const register: Register = (on, options) => {
     if (ran.plan !== before) {
       await update($, planAtom, () => ran.plan)
       await update($, gateAtom, onPlanWritten)
+      // A step moved: the band follows it again.
+      await update($, scrollAtom, () => null)
       if (ran.plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
       await save($, ran.plan)
       await tick($, true)
@@ -222,9 +229,25 @@ export const register: Register = (on, options) => {
     const plan = await read($, planAtom)
     if (await hidden($, plan, autoShow)) return next(e)
     const { Box } = $.ui.resolve(e)
-    const lines = drawTree(plan, await read($, activityAtom), { maxRows: e.props.maxRows, width: e.props.bodyColumns, accent, now: await $.clock.now() })
+    const view = layoutTree(plan, await read($, activityAtom), {
+      maxRows: Math.min(e.props.maxRows, BAND_ROWS),
+      width: e.props.bodyColumns,
+      accent,
+      now: await $.clock.now(),
+      scroll: await read($, scrollAtom),
+    })
+    band = view
 
-    return <Box flexDirection="column">{lines.map(l => row($, e, l, null, () => undefined))}</Box>
+    return <Box flexDirection="column">{view.lines.map(l => row($, e, l, null, () => undefined))}</Box>
+  })
+
+  // The band is capped below the engine's rows, so it scrolls its own window.
+  on('ui.scroll', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (band.maxOffset === 0) return next(e)
+    const to = Math.max(0, Math.min(band.maxOffset, band.offset + e.by))
+    await update($, scrollAtom, () => to)
+
+    return {}
   })
 
   // The drawer.

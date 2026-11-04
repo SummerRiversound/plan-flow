@@ -104,7 +104,7 @@ test('the tree shows above the prompt once a plan exists', async ($, on) => {
   await $.tool.call({ tool: TOOL, ...PLAN })
   await band.redraw()
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: /1 조사/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: / 조사/ })).toBeDefined()
   // A survey holds the band: the tree steps aside.
   await band.redraw({ ...BAND.props, hasSurvey: true })
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeUndefined()

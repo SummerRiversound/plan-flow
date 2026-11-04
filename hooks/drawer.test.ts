@@ -51,7 +51,7 @@ const view = (p: Plan, d: DrawerState = closed, width = 53) => drawerView(p, [],
 test('the pinned head names the plan, its progress and time, then the buttons that fold every box', () => {
   const head = view(sample()).head.map(lineText)
   expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
-  expect(head[1]).toMatch(/█+[▏▎▍▌▋▊▉]?░+ +3\/14 · 21% · 4분 12초$/)
+  expect(head[1]).toMatch(/━+╸?━+ +3\/14 · 21% · 4분 12초$/)
   expect(head.find(l => l.includes('모두 펼치기'))).toContain('모두 접기')
   expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL])
   for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)

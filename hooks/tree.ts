@@ -4,7 +4,7 @@ import type { Activity } from '../types'
 import { activityLabel } from './activity'
 import { fitRows, foldedParents } from './fit'
 import type { Plan, PlanNode, PlanStatus } from './plan'
-import { checksOf, childrenOf, currentLeaf, finishedAt, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
+import { checksOf, childrenOf, currentLeaf, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
@@ -63,19 +63,6 @@ export const fitLine = (line: Line, max: number): Line => {
 
   return out
 }
-
-const pad2 = (n: number): string => String(n).padStart(2, '0')
-
-export const duration = (ms: number): string => {
-  const s = Math.max(0, Math.floor(ms / 1000))
-  if (s < 60) return `${s}초`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}분 ${pad2(s % 60)}초`
-
-  return `${Math.floor(m / 60)}시간 ${pad2(m % 60)}분`
-}
-
-export const elapsed = (plan: Plan, now: number): number => (finishedAt(plan) ?? now) - plan.startedAt
 
 export const counts = (plan: Plan, id: string): string => {
   const under = leavesUnder(plan.nodes, id)
@@ -146,9 +133,7 @@ const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, fo
   if (running) return fitLine(left, width)
   // The step up next while nothing runs.
   if (marked.has(n.id)) return [...fitLine(left, width - 2), { text: ' ◂', color: glyphColor(n) }]
-  const right = hasChildren(plan.nodes, n.id)
-    ? counts(plan, n.id) + (folded.has(n.id) ? ' ▸' : '')
-    : n.status === 'completed' && n.startedAt !== undefined && n.doneAt !== undefined ? duration(n.doneAt - n.startedAt) : ''
+  const right = hasChildren(plan.nodes, n.id) ? counts(plan, n.id) + (folded.has(n.id) ? ' ▸' : '') : ''
   if (right === '') return fitLine(left, width)
   const room = width - cells(right) - 1
   if (room < 8) return fitLine(left, width)
@@ -205,8 +190,6 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
   }
   const pct = total === 0 ? 0 : Math.round((done / total) * 100)
   let label = `  ${done}/${total} · ${pct}%`
-  const time = ` · ${duration(elapsed(plan, now))}`
-  if (cells(label) + cells(time) + 4 <= width) label += time
   if (parked > 0 && cells(label) + 8 + 4 <= width) label += ` · 보관 ${parked}`
   const bar = Math.max(0, Math.min(24, width - cells(label)))
   const title: Line = [{ text: plan.title, bold: true, color: 'text' }]

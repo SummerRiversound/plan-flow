@@ -37,3 +37,4 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — Following keeps the running step in the middle of the drawer, with blank margin above and below the body so that holds near either end ("가운데로 두는건 좋은데 그럴수있으려면 상 하단에 패딩이있어야할듯"). "확인했어요" stays on steps waiting for a check only.
 - 2026-11-04 — The step buttons read "확인 완료" and "논의": the second covers any talk about the step, not only questions ("질문은 질문만해야할것같아서 해당부분에 대해 이야기하는 모든 경우를 담는 버튼명을 골라야할것같은데", "'논의' 로 하자. 확인했어요는 '확인 완료'").
 - 2026-11-04 — Added steps carry no mark; only a reopened step keeps its `↺` ("new 표시를 꼭 보여줄 필요는 없는게 맞는것같아"). This replaces the inverted ` new ` badge.
+- 2026-11-04 — No elapsed times: neither the plan's total nor a step's own ("1시간 12분 이런 진행시간같은게 있는데 이거도 필요없는것같아"). A finished plan's "진행 중으로" goes to its last row ("다 끝났을때 진행중으로를 누르면 마지막 요소로 가야하는데").

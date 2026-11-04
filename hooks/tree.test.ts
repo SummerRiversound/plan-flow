@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { FOLD_BUTTON, FRAME_MS, drawTree, duration, lineText, statusLine } from './tree'
+import { FOLD_BUTTON, FRAME_MS, drawTree, lineText, statusLine } from './tree'
 import { cells } from './width'
 
 const ok = (r: PlanResult): Plan => {
@@ -43,7 +43,8 @@ test('the head is the title, then progress as done/total and percent', () => {
 
 test('rows carry glyph and title without ids, a parallel tag, counts on parents, and no arrow on a running leaf', () => {
   const lines = texts(sample(), idleActivity(), 40, 60)
-  expect(lines).toContain('├─ ✓ 조사                                                1초')
+  // A finished step shows no time it took.
+  expect(lines).toContain('├─ ✓ 조사')
   expect(lines.some(l => /\d+(\.\d+)* /.test(l.replace(/^[│├└─ ]+[✓●○■–] /, '')) && /─ [✓●○] \d/.test(l))).toBe(false)
   expect(lines.find(l => l.startsWith('├─ ● 구현'))?.endsWith('1/5')).toBe(true)
   expect(lines.find(l => l.includes('API와 디자인'))).toContain('∥ 동시에')
@@ -96,13 +97,6 @@ test('a short band gets a one-line head', () => {
   const lines = texts(sample(), working, 4, 60)
   expect(lines[0]).toMatch(/^로그인 기능 추가 +2\/7$/)
   expect(lines.length).toBeLessThanOrEqual(4)
-})
-
-test('durations read in Korean units', () => {
-  expect(duration(48_000)).toBe('48초')
-  expect(duration(123_000)).toBe('2분 03초')
-  expect(duration(3_900_000)).toBe('1시간 05분')
-  expect(duration(0)).toBe('0초')
 })
 
 test('the status line names progress and the step in hand', () => {

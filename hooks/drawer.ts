@@ -8,7 +8,7 @@ import type { Plan, PlanNode } from './plan'
 import { checksOf, childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { drawTree, duration, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
+import { drawTree, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
 
 export type { DrawerState }
@@ -94,7 +94,6 @@ type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; l
 
 const right = (ctx: Ctx, n: PlanNode): Seg | null => {
   if (hasChildren(ctx.plan.nodes, n.id)) return { text: `${count(ctx.plan, n.id)} ${isOpen(ctx.plan, ctx.drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
-  if (n.status === 'completed' && n.startedAt !== undefined && n.doneAt !== undefined) return { text: duration(n.doneAt - n.startedAt), color: 'inactive' }
   if (n.status === 'in_progress') return { text: '진행 중', color: glyphColor(n) }
 
   return null
@@ -449,8 +448,8 @@ export const drawerPage = (v: DrawerView, rows: number, top: number | undefined,
   const blank = Array.from({ length: margin }, (): Line => [])
   const body = [...blank, ...v.body, ...blank]
   const max = body.length - room
-  // Following: the step Claude is on in the middle; with none, the body's first row on top.
-  const t = Math.max(0, Math.min(max, top ?? (v.at === null ? margin : v.at)))
+  // Following: the step Claude is on in the middle; with none (the plan is finished), the body's last row at the bottom.
+  const t = Math.max(0, Math.min(max, top ?? (v.at === null ? max - margin : v.at)))
   const foot: Line =
     top === undefined
       ? [{ text: v.at === null ? ' 휠로 스크롤해요' : ' 진행 중인 단계를 따라가는 중 · 휠로 둘러보면 멈춰요', color: 'inactive' }]

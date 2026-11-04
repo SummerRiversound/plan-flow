@@ -48,10 +48,10 @@ const texts = (p: Plan, d: DrawerState = closed, width = 53): string[] => draw(p
 
 const view = (p: Plan, d: DrawerState = closed, width = 53) => drawerView(p, [], d, idleActivity(), { width, now: 252_000 })
 
-test('the pinned head names the plan, its progress and time, then the buttons that fold every box', () => {
+test('the pinned head names the plan, its progress, then the buttons that fold every box', () => {
   const head = view(sample()).head.map(lineText)
   expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
-  expect(head[1]).toMatch(/━+╸?━+ +3\/14 · 21% · 4분 12초$/)
+  expect(head[1]).toMatch(/━+╸?━+ +3\/14 · 21%$/)
   expect(head.find(l => l.includes('모두 펼치기'))).toContain('모두 접기')
   expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL, VIEW])
   for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
@@ -99,6 +99,17 @@ test('following puts the running step in the middle of the window, even near the
   }
 })
 
+test('following a finished plan shows the end of the body, at the bottom of the window', () => {
+  let done = ok(setPlan(emptyPlan(), '로그인 기능 추가', STEPS, 0))
+  while (done.nodes.some(n => n.status !== 'completed')) done = ok(nextStep(done, undefined, 1_000))
+  const v = view(done, foldAll(done, closed, true))
+  const page = drawerPage(v, 20, undefined, 53)
+  const room = 20 - v.head.length - 2
+  const lastBody = v.body.map(lineText).filter(t => t.trim() !== '').at(-1)
+  expect(page.pinned).toBe(true)
+  expect(lineText(page.lines[v.head.length + room - 1] ?? [])).toBe(lastBody)
+})
+
 test('a body that fits the pane is drawn whole, with no foot', () => {
   const v = view(sample())
   const page = drawerPage(v, 200, undefined, 53)
@@ -111,11 +122,10 @@ test('the running stage is open with the running task, the rest is folded', () =
   expect(lines.find(l => l.includes('● 구현'))).toMatch(/1\/4 ▾ │$/)
   expect(lines.some(l => l.includes('╭ 동시에'))).toBe(true)
   expect(lines.find(l => l.includes('● API'))).toContain('1/3 ▾')
-  expect(lines.find(l => l.includes('✓ 주소 만들기'))).toContain('31초')
+  expect(lines.find(l => l.includes('✓ 주소 만들기'))).toMatch(/주소 만들기 +│$/)
   expect(lines.find(l => l.includes('● 비밀번호 확인'))).toContain('진행 중')
   expect(lines.find(l => l.includes('디자인 다듬기'))).toContain('0/2 ▸')
   expect(lines.some(l => l.includes('색 맞추기'))).toBe(false)
-  expect(lines.find(l => l.includes('✓ 조사'))).toContain('2분 03초')
   expect(lines.find(l => l.includes('○ 배포'))).toContain('0/2 ▸')
 })
 
@@ -198,7 +208,7 @@ test('pressing a folded box unfolds it, pressing again folds it', () => {
   expect(texts(p, folded).some(l => l.includes('로그인 화면'))).toBe(false)
 })
 
-test('a closed box is wide enough for its whole title and time', () => {
+test('a closed box is wide enough for its whole title', () => {
   const steps: PlanInput[] = [{ title: '코드 읽기' }, { title: '진행 부분만 펼치기' }, { title: '화면 확인' }]
   let p = ok(setPlan(emptyPlan(), '서랍', steps, 0))
   p = ok(nextStep(p, undefined, 0))
@@ -206,7 +216,7 @@ test('a closed box is wide enough for its whole title and time', () => {
   p = ok(nextStep(p, undefined, 70_000))
   const flow = drawFlow(p, { open: {}, focus: null }, { width: 50, now: 80_000 })
   const text = flow.lines.map(lineText).join('\n')
-  expect(text).toMatch(/코드 읽기 +1분 05초/)
+  expect(text).toMatch(/코드 읽기 +│/)
   expect(text).toContain('진행 부분만 펼치기')
   expect(text).not.toContain('…')
   expect(flow.cut).toBe(false)

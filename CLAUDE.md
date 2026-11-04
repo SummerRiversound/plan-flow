@@ -36,3 +36,4 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-04 — Flowchart boxes on one axis share one width, and side-by-side boxes split it evenly ("박스들의 크기가 다 제각각이니까 좀 힘든데 최소 너비를 정해주면 좀 보기편해지지않을까싶어", picked from two mockups).
 - 2026-11-04 — Following keeps the running step in the middle of the drawer, with blank margin above and below the body so that holds near either end ("가운데로 두는건 좋은데 그럴수있으려면 상 하단에 패딩이있어야할듯"). "확인했어요" stays on steps waiting for a check only.
 - 2026-11-04 — The step buttons read "확인 완료" and "논의": the second covers any talk about the step, not only questions ("질문은 질문만해야할것같아서 해당부분에 대해 이야기하는 모든 경우를 담는 버튼명을 골라야할것같은데", "'논의' 로 하자. 확인했어요는 '확인 완료'").
+- 2026-11-04 — Added steps carry no mark; only a reopened step keeps its `↺` ("new 표시를 꼭 보여줄 필요는 없는게 맞는것같아"). This replaces the inverted ` new ` badge.

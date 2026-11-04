@@ -49,7 +49,6 @@ const engine = (on: On) => {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: 'ran' }))
   on('ui.focus', () => ({}))
-  on('ui.status', () => ({ value: undefined }))
   on('ui.toast', (_, e) => (toasts.push(e.text), { value: undefined }))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)

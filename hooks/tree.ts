@@ -258,17 +258,3 @@ export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, 
 
   return [...top, ...body.slice(offset, offset + budget).map(r => r.line)]
 }
-
-// One line for the status bar: progress, the step in hand, what Claude is doing.
-export const statusLine = (plan: Plan, activity: Activity): string | undefined => {
-  const words = activityLabel(activity)
-  if (plan.nodes.length === 0) return words
-  const { done, total } = progress(plan)
-  const parts = [t().status.plan(done, total)]
-  const run = runningLeaves(plan)
-  const first = run[0]
-  if (first !== undefined) parts.push(t().status.running(first.title, run.length - 1))
-  if (words !== undefined) parts.push(words)
-
-  return parts.join(' · ')
-}

@@ -27,7 +27,7 @@ export const ANSWER_LIMIT = 4000
 
 export const TOOL_DESCRIPTION = [
   'The plan board for the current task; the person watches it on screen while you work.',
-  'op "set" starts it: a title and the steps, nested as stages, tasks and checkpoints (3 levels at most).',
+  'op "set" starts it: a title and the steps, nested as stages, tasks and checkpoints (3 levels at most): a few stages in order, each holding its tasks, never one flat list.',
   'Each step has a short title and a "detail": one plain sentence on what it does and why, shown under the step while it runs.',
   'Steps that do not depend on each other go under one node with "parallel": true and are worked on together; the step after the group waits for all of them.',
   'op "next" says the running step is done and starts the one after it (give "id" when several run and a particular one finished).',
@@ -98,7 +98,8 @@ export const TOOL_SCHEMA: Schema = {
 // The section the system prompt carries while the tool is offered.
 export const instruction = (tool: string): string =>
   [
-    `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title and its steps.`,
+    `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title and its steps as a hierarchy.`,
+    'Shape it as 2 to 5 stages, the parts of the outcome in order, each holding the tasks that make it up; a task gets checkpoints when it has parts worth seeing. A flat list of steps hides the shape of the work, so group the steps even when the task is small.',
     "Every title is at most 4 words, in the user's language.",
     'Give every step a detail: one plain sentence saying what it does and why, so the person follows without asking; use words the person already uses, never labels coined in this session.',
     'When a step produces something the person may open (a PR, an issue, a commit, an artifact, a doc, a file), attach it to that step with op "update" and "links": the full URL or an absolute path.',
@@ -367,6 +368,11 @@ export const describeBoard = (board: Board): string => {
   return parked.length === 0 ? plan : `${plan}\nParked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total} done)`).join(', ')}`
 }
 
+// A plan of five or more steps with no step holding others reads as a to-do list, not a plan.
+const isFlat = (plan: Plan): boolean => plan.nodes.length >= 5 && plan.nodes.every(n => n.parentId === null)
+export const FLAT_HINT =
+  'These steps sit in one flat list. Group them under 2 to 5 stages and send op "set" again with the same title and the steps nested; steps keep their status.'
+
 // Runs one op: the new plan and the answer, or the refusal with the plan unchanged.
 export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; text: string; notice?: string } | { error: string } => {
   if (op.op === 'show') return { board, text: describeBoard(board) }
@@ -392,8 +398,9 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
               now,
             )
   if ('error' in result) return bad(result.error)
+  const flat = (op.op === 'set' || op.op === 'add') && isFlat(result.board.plan) ? `\n${FLAT_HINT}` : ''
   const ask = finishedAt(result.board.plan) !== null && result.board.plan.summary === undefined ? '\nThe plan is finished: send op "update" with "summary" to close it.' : ''
-  const text = describeBoard(result.board) + ask
+  const text = describeBoard(result.board) + flat + ask
 
   return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

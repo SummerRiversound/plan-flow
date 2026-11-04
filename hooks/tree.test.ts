@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { FOLD_BUTTON, FRAME_MS, drawTree, lineText, statusLine } from './tree'
+import { FOLD_BUTTON, FRAME_MS, drawTree, lineText } from './tree'
 import { cells } from './width'
 import { setLanguage } from './i18n'
 
@@ -101,12 +101,6 @@ test('a short band gets a one-line head', () => {
   const lines = texts(sample(), working, 4, 60)
   expect(lines[0]).toMatch(/^로그인 기능 추가 +2\/7$/)
   expect(lines.length).toBeLessThanOrEqual(4)
-})
-
-test('the status line names progress and the step in hand', () => {
-  expect(statusLine(emptyPlan(), idleActivity())).toBeUndefined()
-  expect(statusLine(emptyPlan(), working)).toBe('작업 중')
-  expect(statusLine(sample(), working)).toBe('계획 2/7 · 주소 만들기 외 1개 진행 중 · 작업 중')
 })
 
 test('a step the latest request reopened carries a mark, one it added does not, and the head counts parked plans', () => {

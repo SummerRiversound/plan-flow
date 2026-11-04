@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { FLAT_HINT, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -171,4 +171,16 @@ test('the op that finishes the last step carries the summary; it is refused whil
   expect(error(last.plan, { op: 'update', summary: { goal: '목적' } })).toContain('summary.result must be text')
   expect(apply(closed.plan, { op: 'update', updates: [{ id: '1', status: 'pending' }] }).plan.summary).toBeUndefined()
   expect(apply(closed.plan, { op: 'add', nodes: [{ title: '배포' }] }).plan.summary).toBeUndefined()
+})
+
+test('a flat list of five or more steps is answered with a hint to group them under stages', () => {
+  const flat = apply(emptyPlan(), { op: 'set', title: '정리', nodes: ['가', '나', '다', '라', '마'].map(title => ({ title })) })
+  expect(flat.text).toContain(FLAT_HINT)
+  const nested = apply(emptyPlan(), { op: 'set', title: '정리', nodes: [{ title: '준비', children: [{ title: '가' }, { title: '나' }] }, { title: '작업', children: [{ title: '다' }, { title: '라' }, { title: '마' }] }] })
+  expect(nested.text).not.toContain(FLAT_HINT)
+  // Resent nested under the same title, the steps keep their status.
+  const done = apply(apply(flat.plan, { op: 'next' }).plan, { op: 'next' }).plan
+  const regrouped = apply(done, { op: 'set', title: '정리', nodes: [{ title: '준비', children: [{ title: '가' }, { title: '나' }] }, { title: '작업', children: [{ title: '다' }, { title: '라' }, { title: '마' }] }] })
+  expect(regrouped.plan.nodes.find(n => n.title === '가')?.status).toBe('completed')
+  expect(instruction('plan')).toContain('2 to 5 stages')
 })

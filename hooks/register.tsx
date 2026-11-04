@@ -14,7 +14,7 @@ import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import { liveSvg } from './gui'
 import type { Line } from './tree'
-import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, fitLine, statusLine } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, fitLine } from './tree'
 import { cells } from './width'
 import { pickLanguage, setLanguage, t } from './i18n'
 
@@ -86,22 +86,15 @@ async function shown($: $, autoShow: boolean): Promise<boolean> {
   return autoShow || (await read($, askedAtom))
 }
 
-// The tree and the status line step aside a while after the last step is done.
+// The tree steps aside a while after the last step is done.
 async function hidden($: $, plan: Plan, autoShow: boolean): Promise<boolean> {
   const done = finishedAt(plan)
 
   return plan.nodes.length === 0 || !(await shown($, autoShow)) || (done !== null && (await $.clock.now()) - done >= HIDE_AFTER_MS)
 }
 
-async function refresh($: $, autoShow: boolean): Promise<void> {
-  const plan = await read($, planAtom)
-  const activity = await read($, activityAtom)
-  $.ui.status((await hidden($, plan, autoShow)) ? undefined : statusLine(plan, activity))
-}
-
-async function act($: $, ev: ActivityEvent, autoShow: boolean): Promise<void> {
+async function act($: $, ev: ActivityEvent): Promise<void> {
   await update($, activityAtom, a => step(a, ev))
-  await refresh($, autoShow)
 }
 
 let ticker: Timer | null = null
@@ -170,7 +163,7 @@ async function demo($: $, arg: string | undefined): Promise<string> {
 let byPerson: string[] = []
 
 // Runs one op on the board, from the plan tool or a press in the drawer, and redraws.
-async function apply($: $, op: PlanOp, autoShow: boolean): Promise<{ text: string } | { error: string }> {
+async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: string }> {
   const before = await read($, planAtom)
   const shelf = await read($, shelfAtom)
   const ran = runOp({ plan: before, shelf }, op, await $.clock.now())
@@ -185,12 +178,8 @@ async function apply($: $, op: PlanOp, autoShow: boolean): Promise<{ text: strin
     await save($, plan, ran.board.shelf)
     await tick($, true)
     if (finishedAt(plan) !== null) {
-      $.clock.after(HIDE_AFTER_MS + 100, () => {
-        $.ui.invalidate('ui.render')
-        void refresh($, autoShow)
-      })
+      $.clock.after(HIDE_AFTER_MS + 100, () => $.ui.invalidate('ui.render'))
     }
-    await refresh($, autoShow)
   }
 
   return { text: ran.text }
@@ -222,7 +211,6 @@ export const register: Register = (on, options) => {
     await update($, shelfAtom, () => mine?.shelf ?? [])
     await update($, activityAtom, () => idleActivity())
     await update($, gateAtom, () => onTurnStart(plan))
-    await refresh($, autoShow)
 
     return next(e)
   })
@@ -251,7 +239,7 @@ export const register: Register = (on, options) => {
     const { tool: _tool, tool_use_id: _id, agentId: _agent, requestMeta: _meta, ...input } = e as Record<string, unknown>
     const parsed = parseOp(input)
     if ('error' in parsed) return { result: parsed.error }
-    const ran = await apply($, parsed.op, autoShow)
+    const ran = await apply($, parsed.op)
 
     return { result: 'error' in ran ? ran.error : ran.text }
   })
@@ -265,28 +253,28 @@ export const register: Register = (on, options) => {
     if (verdict.verdict === 'pause') $.ui.toast(t().pause)
     if (e.agentId !== undefined) return next(e)
     const question = e.tool === 'AskUserQuestion'
-    await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool }, autoShow)
+    await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool })
     try {
       return await next(e)
     } finally {
-      await act($, question ? { type: 'questionClose' } : { type: 'toolEnd', id: e.tool_use_id }, autoShow)
-      await act($, { type: 'permissionEnd' }, autoShow)
+      await act($, question ? { type: 'questionClose' } : { type: 'toolEnd', id: e.tool_use_id })
+      await act($, { type: 'permissionEnd' })
     }
   })
 
   on('classic.PermissionRequest', async ($, e, next) => {
-    if (e.agent_id === undefined) await act($, { type: 'permissionAsk', tool: e.tool_name }, autoShow)
+    if (e.agent_id === undefined) await act($, { type: 'permissionAsk', tool: e.tool_name })
 
     return next(e)
   })
-  on('classic.PreCompact', async ($, e, next) => (await act($, { type: 'compactStart' }, autoShow), next(e)))
-  on('classic.PostCompact', async ($, e, next) => (await act($, { type: 'compactEnd' }, autoShow), next(e)))
+  on('classic.PreCompact', async ($, e, next) => (await act($, { type: 'compactStart' }), next(e)))
+  on('classic.PostCompact', async ($, e, next) => (await act($, { type: 'compactEnd' }), next(e)))
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       const plan = await read($, planAtom)
       await update($, gateAtom, () => onTurnStart(plan))
-      await act($, { type: 'turnStart' }, autoShow)
+      await act($, { type: 'turnStart' })
       await tick($, true)
     }
 
@@ -295,7 +283,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
-      await act($, { type: 'turnEnd', reason: e.reason }, autoShow)
+      await act($, { type: 'turnEnd', reason: e.reason })
       await tick($, false)
     }
 
@@ -311,7 +299,6 @@ export const register: Register = (on, options) => {
       return { text: t().closed }
     }
     const placed = await openDrawer($)
-    await refresh($, autoShow)
 
     return { text: placed ? t().opened : t().openedLater }
   })
@@ -395,7 +382,7 @@ export const register: Register = (on, options) => {
       if (id === CONFIRM && picked !== undefined) {
         if (frame !== undefined) return $.ui.toast(t().demo.untouched)
         byPerson.push(`"${picked.title}" (id ${picked.id}) marked completed: the person checked it.`)
-        void apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] }, autoShow).then(() => update($, drawerAtom, d => ({ ...d, pick: undefined })))
+        void apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] }).then(() => update($, drawerAtom, d => ({ ...d, pick: undefined })))
         return
       }
       // A draft, not a send: the person writes the rest and sends it themselves.

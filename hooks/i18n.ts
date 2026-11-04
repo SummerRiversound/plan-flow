@@ -12,10 +12,6 @@ const en = {
   fold: 'Fold ▴',
   unfold: 'Unfold ▾',
   more: (n: number, done: number, waiting: number) => `+${n} more · ${done} done · ${waiting} waiting`,
-  status: {
-    plan: (done: number, total: number) => `Plan ${done}/${total}`,
-    running: (title: string, others: number) => `${title}${others > 0 ? ` and ${others} more` : ''} running`,
-  },
   activity: {
     working: 'Working',
     tool: (tool: string) => `Running ${tool}`,
@@ -89,10 +85,6 @@ const ko: Strings = {
   fold: '접기 ▴',
   unfold: '펼치기 ▾',
   more: (n, done, waiting) => `+${n}개 더 · 완료 ${done} · 대기 ${waiting}`,
-  status: {
-    plan: (done, total) => `계획 ${done}/${total}`,
-    running: (title, others) => `${title}${others > 0 ? ` 외 ${others}개` : ''} 진행 중`,
-  },
   activity: {
     working: '작업 중',
     tool: tool => `${tool} 실행 중`,

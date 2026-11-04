@@ -6,7 +6,8 @@ import { emptyBoard, setBoard, settle } from './board'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, nextStep, updateNodes } from './plan'
 
-export type Frame = { label: string; board: Board; activity: Activity; now: number }
+// `folded` draws the band folded to its title and progress lines.
+export type Frame = { label: string; board: Board; activity: Activity; now: number; folded?: boolean }
 export type Scenario = { id: string; title: string; frames: Frame[] }
 
 const ok = (r: BoardResult): Board => {
@@ -142,6 +143,7 @@ export const SCENARIOS: Scenario[] = [
       return { label: '다 끝난 계획(입력창 위에서는 5초 뒤 사라짐)', board: b, activity: idle, now: 100_000 }
     })()],
   },
+  { id: 'folded', title: '접은 모습', frames: [{ label: '입력창 위를 제목과 진행 막대만 남기고 접음', board: login(), activity: working, now: 250_000, folded: true }] },
 ]
 
 // Where `/flow demo` stands: a scenario and one of its frames.

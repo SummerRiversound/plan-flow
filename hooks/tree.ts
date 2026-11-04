@@ -185,7 +185,7 @@ const strip = (plan: Plan, bar: number): Line => {
   return out
 }
 
-const head = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0): Line[] => {
+const head = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -200,14 +200,20 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, no
   if (parked > 0 && cells(label) + 8 + 4 <= width) label += ` · 보관 ${parked}`
   const bar = Math.max(0, Math.min(24, width - cells(label)))
   const title: Line = [{ text: plan.title, bold: true, color: 'text' }]
-  // The button that opens the drawer, flush right when the title leaves room.
-  const button = open === undefined || cells(open) + 12 > width ? null : open
+  // Buttons flush right on the title line: fold, then open the drawer; the open button goes first when room runs short.
+  const all = [
+    ...(folded === undefined ? [] : [{ text: folded ? '펼치기 ▾' : '접기 ▴', id: FOLD_BUTTON }]),
+    ...(open === undefined ? [] : [{ text: open, id: OPEN_BUTTON }]),
+  ]
+  const room = (bs: typeof all) => bs.reduce((n, b) => n + cells(b.text) + 2, 0) + 10 <= width
+  const buttons = room(all) ? all : room(all.slice(0, 1)) ? all.slice(0, 1) : []
+  const right: Line = buttons.flatMap((b, i) => [...(i === 0 ? [] : [{ text: '  ' }]), { text: b.text, color: 'text', bold: true, button: b.id }])
   const lines: Line[] = [
-    button === null
+    right.length === 0
       ? fitLine(title, width)
       : (() => {
-          const cut = fitLine(title, width - cells(button) - 1)
-          return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(button)) }, { text: button, color: 'text', bold: true, button: OPEN_BUTTON }]
+          const cut = fitLine(title, width - cells(lineText(right)) - 1)
+          return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(lineText(right))) }, ...right]
         })(),
     fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),
   ]
@@ -225,16 +231,20 @@ export const BAND_ROWS = 12
 
 // The `button` id of the piece that opens the drawer.
 export const OPEN_BUTTON = 'open-flow'
+// The `button` id of the piece that folds the band to its title and progress lines, and back.
+export const FOLD_BUTTON = 'fold-band'
 
 // `scroll` is the first tree row the person scrolled to; absent or null follows the current step.
 // `open` labels a button on the title line that opens the drawer; `parked` counts the plans set aside.
-export type TreeOptions = { maxRows: number; width: number; now: number; scroll?: number | null; open?: string; parked?: number }
+// `folded` shows the fold button, and when true draws only the title and progress lines.
+export type TreeOptions = { maxRows: number; width: number; now: number; scroll?: number | null; open?: string; parked?: number; folded?: boolean }
 // `offset` is the first tree row shown, `maxOffset` the last one a scroll can reach.
 export type TreeView = { lines: Line[]; offset: number; maxOffset: number }
 
-export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, now, scroll = null, open, parked = 0 }: TreeOptions): TreeView => {
+export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, now, scroll = null, open, parked = 0, folded }: TreeOptions): TreeView => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return { lines: [], offset: 0, maxOffset: 0 }
-  const top = head(plan, activity, maxRows, width, now, open, parked)
+  const top = head(plan, activity, maxRows, width, now, open, parked, folded)
+  if (folded === true) return { lines: top.slice(0, 2), offset: 0, maxOffset: 0 }
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
@@ -256,7 +266,7 @@ export const layoutTree = (plan: Plan, activity: Activity, { maxRows, width, now
   const offset = Math.max(0, Math.min(maxOffset, scroll ?? (at < 0 ? 0 : at - Math.floor(room / 2))))
   const below = maxOffset - offset
   const hint = [offset > 0 ? `↑ ${offset}줄` : '', below > 0 ? `↓ ${below}줄` : ''].filter(t => t !== '').join(' · ')
-  const lines = [...top, ...body.slice(offset, offset + room).map(r => r.line), fitLine([{ text: `${hint} · 스크롤로 더 보기`, color: 'inactive' }], width)]
+  const lines = [...top, ...body.slice(offset, offset + room).map(r => r.line), fitLine([{ text: `${hint} · 휠, 또는 클릭 후 ↑↓`, color: 'inactive' }], width)]
 
   return { lines, offset, maxOffset }
 }

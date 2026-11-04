@@ -12,7 +12,7 @@ import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parse
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import type { Line } from './tree'
-import { BAND_ROWS, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -29,6 +29,7 @@ const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
 const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
 const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const scrollAtom = atom({ plugin: 'plan-flow', key: 'scroll' } as const, null as number | null)
+const foldAtom = atom({ plugin: 'plan-flow', key: 'fold' } as const, false)
 
 type $ = EngineInterface
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
@@ -310,11 +311,13 @@ export const register: Register = (on, options) => {
       now: frame?.now ?? (await $.clock.now()),
       scroll: await read($, scrollAtom),
       open: '흐름도 보기 ▸',
+      folded: frame?.folded ?? (await read($, foldAtom)),
       parked: (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length,
     })
     band = view
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
+      if (id === FOLD_BUTTON) void update($, foldAtom, f => !f)
       if (id === DEMO_NEXT) void demo($, 'next')
       if (id === DEMO_PREV) void demo($, 'prev')
       if (id === DEMO_STOP) void demo($, 'stop')

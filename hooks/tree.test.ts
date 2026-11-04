@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { KIND_COLOR, drawTree, duration, layoutTree, legend, lineText, statusLine } from './tree'
+import { FOLD_BUTTON, KIND_COLOR, drawTree, duration, layoutTree, legend, lineText, statusLine } from './tree'
 import { cells } from './width'
 
 const ok = (r: PlanResult): Plan => {
@@ -32,8 +32,8 @@ const sample = (): Plan => {
   return p
 }
 const working: Activity = { phase: 'working', running: [] }
-const texts = (p: Plan, a: Activity, maxRows: number, width: number): string[] =>
-  drawTree(p, a, { maxRows, width, now: 0 }).map(lineText)
+const texts = (p: Plan, a: Activity, maxRows: number, width: number, folded?: boolean): string[] =>
+  drawTree(p, a, { maxRows, width, now: 0, folded }).map(lineText)
 
 test('the head is the title, then progress as done/total and percent', () => {
   const lines = texts(sample(), idleActivity(), 40, 60)
@@ -75,7 +75,7 @@ test('a tree taller than its rows shows a window around the current step, and sc
   expect(follow.lines).toHaveLength(9)
   expect(follow.lines.map(lineText).some(l => l.includes('단계 7 ◂'))).toBe(true)
   expect(follow.maxOffset).toBe(12 - 5)
-  expect(lineText(follow.lines[8] ?? [])).toMatch(/^↑ \d+줄 · ↓ \d+줄 · 스크롤로 더 보기$/)
+  expect(lineText(follow.lines[8] ?? [])).toMatch(/^↑ \d+줄 · ↓ \d+줄 · 휠, 또는 클릭 후 ↑↓$/)
   const top = layoutTree(p, idleActivity(), { ...opts, scroll: 0 })
   expect(lineText(top.lines[3] ?? [])).toContain('단계 1')
   expect(lineText(top.lines[8] ?? [])).toMatch(/^↓ 7줄/)
@@ -172,4 +172,14 @@ test('the legend names only the kinds the plan uses, and wraps instead of cuttin
 test('the progress bar takes the colour of each finished step', () => {
   const head = drawTree(kinded(), working, { maxRows: 40, width: 60, now: 0 })[1] ?? []
   expect(head.find(s => s.text.includes('━'))?.color).toBe(KIND_COLOR.explore)
+})
+
+test('the band folds to its title and progress lines, and its button says which way it goes', () => {
+  const open = texts(sample(), working, 12, 60, false)
+  expect(open[0]).toMatch(/^로그인 기능 추가 +접기 ▴$/)
+  const folded = drawTree(sample(), working, { maxRows: 12, width: 60, now: 0, folded: true })
+  expect(folded.map(lineText)).toHaveLength(2)
+  expect(lineText(folded[0] ?? [])).toMatch(/^로그인 기능 추가 +펼치기 ▾$/)
+  expect(lineText(folded[1] ?? [])).toMatch(/\d+\/\d+ · \d+%/)
+  expect(folded[0]?.find(s => s.text === '펼치기 ▾')?.button).toBe(FOLD_BUTTON)
 })

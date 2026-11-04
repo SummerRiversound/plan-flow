@@ -113,6 +113,8 @@ declare module 'claude-code' {
       pane: boolean
       // The tree row the person scrolled the band to; null follows the current step.
       scroll: number | null
+      // The band folded to its title and progress lines.
+      fold: boolean
     }
   }
 }

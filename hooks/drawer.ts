@@ -57,12 +57,12 @@ export const foldAll = (plan: Plan, drawer: DrawerState, open: boolean): DrawerS
   open: Object.fromEntries(plan.nodes.filter(n => hasChildren(plan.nodes, n.id)).map(n => [n.id, open])),
 })
 
-// The drawer's own buttons and the key that presses each while the drawer holds the focus.
+// The drawer's own buttons, drawn as buttons (`[ 모두 펼치기 ]`) so they read as something to press.
 export const EXPAND_ALL = 'expand-all'
 export const COLLAPSE_ALL = 'collapse-all'
 export const FOLLOW = 'follow'
 export const VIEW = 'view'
-export const HOTKEYS: Readonly<Record<string, string>> = { [EXPAND_ALL]: 'e', [COLLAPSE_ALL]: 'c', [FOLLOW]: 'f', [VIEW]: 'l' }
+export const BOXED: ReadonlySet<string> = new Set([EXPAND_ALL, COLLAPSE_ALL, FOLLOW, VIEW])
 
 type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 
@@ -342,9 +342,9 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
     .filter(l => l.length > 0)
     .map((l): Line => [{ text: ' ' }, ...l])
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
-  // A button row: each button with the `k: ` the engine draws before it, while they fit.
+  // A button row: each button with the `[ ` and ` ]` the engine draws around it, while they fit.
   const buttons = (bs: ReadonlyArray<[string, string]>): Line =>
-    bs.reduce<Line>((l, [id, text]) => (cells(lineText(l)) + 3 + 3 + cells(text) > width ? l : [...l, { text: l.length === 0 ? ' ' : '   ' }, { text, color: 'text', bold: true, button: id }]), [])
+    bs.reduce<Line>((l, [id, text]) => (cells(lineText(l)) + 2 + 4 + cells(text) > width ? l : [...l, { text: l.length === 0 ? ' ' : '  ' }, { text, color: 'text', bold: true, button: id }]), [])
   const leaf = currentLeaf(plan)
   // The step Claude is on, else the nearest row above it that shows.
   const ids = leaf === null ? [] : leaf.id.split('.').map((_, i, parts) => parts.slice(0, parts.length - i).join('.'))

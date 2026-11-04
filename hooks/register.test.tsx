@@ -161,7 +161,12 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', as
     const pane = await $.ui.mount({ ...PANE, surface })
     // The buttons that fold every box, then the boxes in the order they are drawn; the running stage holds the ring.
     expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view', '2', '3'])
-    expect((await pane.find({ type: 'Button', key: 'expand-all' }))?.props.hotkey).toBe('e')
+    // The drawer's own buttons are drawn as buttons, with no hotkey; the boxes stay plain rows.
+    const expand = (await pane.find({ type: 'Button', key: 'expand-all' }))?.props
+    expect(expand?.label).toBe('모두 펼치기')
+    expect(expand?.plain).toBeUndefined()
+    expect(expand?.hotkey).toBeUndefined()
+    expect((await pane.find({ type: 'Button', key: '2' }))?.props.plain).toBe(true)
     // The list button swaps the flowchart for the tree and back.
     await pane.press({ key: 'view' })
     expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['view'])

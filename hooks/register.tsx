@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, HOTKEYS, VIEW, drawerPage, drawerView, foldAll, toggleFold } from './drawer'
+import { BOXED, COLLAPSE_ALL, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, toggleFold } from './drawer'
 import { PAUSE_NOTICE, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
@@ -71,7 +71,7 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
         p.id === undefined ? (
           segs(p.segs)
         ) : (
-          <Button key={p.id} plain hotkey={HOTKEYS[p.id ?? '']} autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
+          <Button key={p.id} plain={BOXED.has(p.id ?? '') ? undefined : true} autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
             {segs(p.segs)}
           </Button>
         ),

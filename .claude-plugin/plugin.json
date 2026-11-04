@@ -1,0 +1,28 @@
+{
+  "name": "plan-flow",
+  "version": "0.1.0",
+  "description": "Draws Claude's current plan inside Claude Code: a live tree above the prompt and a card flowchart in a side drawer (/flow).",
+  "license": "MIT",
+  "keywords": ["plan", "flowchart", "progress", "pane"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoShow": {
+      "type": "boolean",
+      "title": "Show the plan on its own",
+      "description": "Show the plan tree above the prompt as soon as a plan starts; off shows it only after /flow",
+      "default": true
+    },
+    "enforce": {
+      "type": "boolean",
+      "title": "Require a plan first",
+      "description": "Refuse state-changing tools (Edit, Write, Bash, ...) until the task has a plan",
+      "default": false
+    },
+    "accentColor": {
+      "type": "string",
+      "title": "Accent color",
+      "description": "Theme key or color for the running item (for example claude, success, magenta)",
+      "default": "claude"
+    }
+  }
+}

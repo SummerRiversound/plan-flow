@@ -1,0 +1,3 @@
+node_modules/
+# written by the Claude Code engine when it loads the mod
+.claude-plugin/types/

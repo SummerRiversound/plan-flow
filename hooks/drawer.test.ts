@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
-import { COLLAPSE_ALL, EXPAND_ALL, FOLLOW, VIEW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, shelfLines, toggleFold } from './drawer'
+import { ASK, CONFIRM, COLLAPSE_ALL, EXPAND_ALL, FOLLOW, VIEW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, pickStep, shelfLines, toggleFold } from './drawer'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { idleActivity } from './activity'
@@ -131,10 +131,29 @@ test('no line is wider than the drawer, Hangul counted as two cells', () => {
   }
 })
 
-test('every box that folds is a button, in the order the boxes are drawn', () => {
-  expect(draw(sample()).buttons).toEqual(['2', '2.2.1', '2.2.2', '3.1', '3.2', '4'])
-  const opened = toggleFold(sample(), closed, '2.2.2')
-  expect(draw(sample(), opened).buttons).toEqual(['2', '2.2.1', '2.2.2', '3.1', '3.2', '4'])
+test('every row that shows is a button, in the order the rows are drawn', () => {
+  expect(draw(sample()).buttons).toEqual(['1', '2', '2.1', '2.2.1', '2.2.1.1', '2.2.1.2', '2.2.1.3', '2.2.2', '2.3', '3.1', '3.2', '4'])
+  // A folded box's steps are not drawn, so they become buttons once it opens.
+  expect(draw(sample(), toggleFold(sample(), closed, '2.2.2')).buttons).toContain('2.2.2.1')
+})
+
+// Buttons under a step, as the rows read them: `확인했어요` and `질문`.
+const actions = (lines: readonly (readonly { text: string; button?: string }[])[]): string[][] =>
+  lines.map(l => l.flatMap(s => (s.button === CONFIRM || s.button === ASK ? [s.button] : []))).filter(b => b.length > 0)
+
+test('pressing a step picks it: a step waiting for a check offers 확인했어요 and 질문, others only 질문; again lets it go', () => {
+  const p = ok(updateNodes(sample(), [{ id: '2.2.1.1', status: 'needs_check', note: '응답 보기' }], 210_000))
+  const waiting = pickStep(closed, '2.2.1.1')
+  expect(actions(draw(p, waiting).lines)).toEqual([[CONFIRM, ASK]])
+  expect(texts(p, waiting).join('\n')).toContain('[ 확인했어요 ]  [ 질문 ]')
+  expect(actions(draw(p, pickStep(closed, '2.2.1.2')).lines)).toEqual([[ASK]])
+  expect(pickStep(waiting, '2.2.1.1').pick).toBeUndefined()
+  // A box keeps folding when pressed; the drawer still holds its width.
+  expect(actions(draw(p, closed).lines)).toEqual([])
+  for (const w of [53, 40]) for (const l of texts(p, waiting, w)) expect(cells(l)).toBeLessThanOrEqual(w)
+  // The list offers the same buttons under the picked step.
+  expect(actions(view(p, { ...waiting, list: true }).body)).toEqual([[CONFIRM, ASK]])
+  expect(view(p, { ...waiting, list: true }).buttons).toContain('2.2.1.1')
 })
 
 test('pressing a folded box unfolds it, pressing again folds it', () => {

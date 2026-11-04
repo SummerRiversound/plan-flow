@@ -4,10 +4,11 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { BOXED, COLLAPSE_ALL, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, toggleFold } from './drawer'
+import { ASK, BOXED, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, pickStep, toggleFold } from './drawer'
 import { PAUSE_NOTICE, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
-import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, runningLeaves } from './plan'
+import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, runningLeaves } from './plan'
+import type { PlanOp } from './plan-tool'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
@@ -163,6 +164,37 @@ async function demo($: $, arg: string | undefined): Promise<string> {
   return `시연 ${to.scenario + 1}/${SCENARIOS.length}: ${s?.title ?? ''} — ${demoFrame(to)?.label ?? ''}\n/flow demo next 로 다음, /flow demo stop 으로 끝내요.\n${demoList()}`
 }
 
+// What the person changed on the board from the drawer, told to Claude with the next request.
+// shortcut: a module variable, lost on a reload of the mod; move to $.state if that bites.
+let byPerson: string[] = []
+
+// Runs one op on the board, from the plan tool or a press in the drawer, and redraws.
+async function apply($: $, op: PlanOp, autoShow: boolean): Promise<{ text: string } | { error: string }> {
+  const before = await read($, planAtom)
+  const shelf = await read($, shelfAtom)
+  const ran = runOp({ plan: before, shelf }, op, await $.clock.now())
+  if ('error' in ran) return ran
+  if (ran.notice !== undefined) $.ui.toast(ran.notice)
+  if (ran.board.shelf !== shelf) await update($, shelfAtom, () => ran.board.shelf)
+  if (ran.board.plan !== before || ran.board.shelf !== shelf) {
+    const plan = ran.board.plan
+    await update($, planAtom, () => plan)
+    await update($, gateAtom, onPlanWritten)
+    if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
+    await save($, plan, ran.board.shelf)
+    await tick($, true)
+    if (finishedAt(plan) !== null) {
+      $.clock.after(HIDE_AFTER_MS + 100, () => {
+        $.ui.invalidate('ui.render')
+        void refresh($, autoShow)
+      })
+    }
+    await refresh($, autoShow)
+  }
+
+  return { text: ran.text }
+}
+
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const enforce = options.enforce === true
@@ -196,7 +228,8 @@ export const register: Register = (on, options) => {
     if (e.command !== undefined || e.isMeta === true) return next(e)
     const plan = await read($, planAtom)
     if (plan.marks !== undefined) await update($, planAtom, clearMarks)
-    const note = boardNote({ plan, shelf: await read($, shelfAtom) })
+    const note = boardNote({ plan, shelf: await read($, shelfAtom) }, byPerson)
+    byPerson = []
 
     return next(note === undefined ? e : { ...e, context: [...(e.context ?? []), note] })
   })
@@ -207,30 +240,9 @@ export const register: Register = (on, options) => {
     const { tool: _tool, tool_use_id: _id, agentId: _agent, requestMeta: _meta, ...input } = e as Record<string, unknown>
     const parsed = parseOp(input)
     if ('error' in parsed) return { result: parsed.error }
-    const before = await read($, planAtom)
-    const shelf = await read($, shelfAtom)
-    const ran = runOp({ plan: before, shelf }, parsed.op, await $.clock.now())
-    if ('error' in ran) return { result: ran.error }
-    if (ran.notice !== undefined) $.ui.toast(ran.notice)
-    if (ran.board.shelf !== shelf) await update($, shelfAtom, () => ran.board.shelf)
-    if (ran.board.plan !== before || ran.board.shelf !== shelf) {
-      const plan = ran.board.plan
-      await update($, planAtom, () => plan)
-      await update($, gateAtom, onPlanWritten)
-      // A step moved: the band follows it again.
-          if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
-      await save($, plan, ran.board.shelf)
-      await tick($, true)
-      if (finishedAt(plan) !== null) {
-        $.clock.after(HIDE_AFTER_MS + 100, () => {
-          $.ui.invalidate('ui.render')
-          void refresh($, autoShow)
-        })
-      }
-      await refresh($, autoShow)
-    }
+    const ran = await apply($, parsed.op, autoShow)
 
-    return { result: ran.text }
+    return { result: 'error' in ran ? ran.error : ran.text }
   })
 
   // Every other tool: the optional gate, then the activity line.
@@ -367,9 +379,29 @@ export const register: Register = (on, options) => {
     const ids = shown.lines.flatMap(l => l.flatMap(s => (s.button === undefined ? [] : [s.button])))
     const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
     const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id) && ids.includes(id)) ?? null
+    const picked = plan.nodes.find(n => n.id === drawer.pick)
     const press = (id: string) => {
+      if (id === CONFIRM && picked !== undefined) {
+        if (frame !== undefined) return $.ui.toast('시연 화면이라 계획판은 그대로예요')
+        byPerson.push(`"${picked.title}" (id ${picked.id}) marked completed: the person checked it.`)
+        void apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] }, autoShow).then(() => update($, drawerAtom, d => ({ ...d, pick: undefined })))
+        return
+      }
+      // A draft, not a send: the person writes the rest and sends it themselves.
+      if (id === ASK && picked !== undefined) {
+        void $.prompt.fill({ text: `[${picked.title}] `, mode: 'insert' }).then(r => $.ui.toast(r.isFilled ? '입력창에 단계 이름을 넣었어요' : '지금은 입력창에 넣을 수 없어요'))
+        return
+      }
       void update($, drawerAtom, (d): DrawerState =>
-        id === EXPAND_ALL || id === COLLAPSE_ALL ? foldAll(plan, d, id === EXPAND_ALL) : id === FOLLOW ? { ...d, top: undefined } : id === VIEW ? { ...d, list: d.list !== true, top: undefined } : { ...toggleFold(plan, d, id), focus: id },
+        id === EXPAND_ALL || id === COLLAPSE_ALL
+          ? foldAll(plan, d, id === EXPAND_ALL)
+          : id === FOLLOW
+            ? { ...d, top: undefined }
+            : id === VIEW
+              ? { ...d, list: d.list !== true, top: undefined }
+              : hasChildren(plan.nodes, id)
+                ? { ...toggleFold(plan, d, id), focus: id }
+                : pickStep(d, id),
       )
     }
 

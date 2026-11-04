@@ -101,7 +101,8 @@ export const instruction = (tool: string): string =>
 
 // The note each request carries while the board has a plan: where things stand, and the
 // cases to sort the request into before acting.
-export const boardNote = (board: Board): string | undefined => {
+// `byPerson`: what the person changed from the drawer since the last request.
+export const boardNote = (board: Board, byPerson: readonly string[] = []): string | undefined => {
   const parked = board.shelf.filter(s => s.state === 'parked')
   if (board.plan.nodes.length === 0 && parked.length === 0) return undefined
   const lines = ['plan-flow: the board before this request.']
@@ -111,6 +112,7 @@ export const boardNote = (board: Board): string | undefined => {
     const state = hasOpenWork(board.plan) ? (leaf === null ? '' : `, in hand: ${leaf.title} (id ${leaf.id})`) : ', finished'
     lines.push(`In hand: "${board.plan.title}" (${done}/${total} done${state}).`)
   }
+  if (byPerson.length > 0) lines.push(`Changed by the person in the drawer since the last request: ${byPerson.join(' ')}`)
   if (parked.length > 0) lines.push(`Parked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total})`).join(', ')}.`)
   lines.push(
     'Decide what this request does to the board, change the board first, then work:',

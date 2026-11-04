@@ -159,8 +159,8 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', as
   await $.tool.call({ tool: TOOL, op: 'next' })
   for (const surface of ['terminal', 'desktop'] as const) {
     const pane = await $.ui.mount({ ...PANE, surface })
-    // The buttons that fold every box, then the boxes in the order they are drawn; the running stage holds the ring.
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view', '2', '3'])
+    // The buttons that fold every box, then the rows in the order they are drawn; the running stage holds the ring.
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view', '1', '2', '2.1', '2.2', '3'])
     // The drawer's own buttons are drawn as buttons, with no hotkey; the boxes stay plain rows.
     const expand = (await pane.find({ type: 'Button', key: 'expand-all' }))?.props
     expect(expand?.label).toBe('모두 펼치기')
@@ -169,7 +169,7 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', as
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.plain).toBe(true)
     // The list button swaps the flowchart for the tree and back.
     await pane.press({ key: 'view' })
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['view'])
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['view', '1', '2.1', '2.2'])
     await pane.press({ key: 'view' })
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.autoFocus).toBe(true)
     // ↓ moves the ring to the next box; a redraw keeps it there.
@@ -194,6 +194,32 @@ test('a resumed session gets its plan back', async ($, on) => {
   await $.tool.call({ tool: TOOL, ...PLAN })
   await start($)
   expect(String((await $.tool.call({ tool: TOOL, op: 'show' })).result)).toContain('Plan: 로그인 기능 추가')
+})
+
+test('in the drawer, 확인했어요 under a step waiting for a check finishes it and tells Claude; 질문 starts a draft', async ($, on) => {
+  engine(on)
+  let context: readonly string[] = []
+  on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))
+  let draft = ''
+  on('prompt.fill', (_, e) => ((draft = e.text), { isFilled: true }))
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  await $.tool.call({ tool: TOOL, op: 'update', updates: [{ id: '1', status: 'needs_check', note: '화면 보기' }] })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.press({ key: '1' })
+  await pane.press({ key: 'ask' })
+  expect(draft).toBe('[조사] ')
+  await pane.press({ key: 'confirm' })
+  const shown = String((await $.tool.call({ tool: TOOL, op: 'show' })).result)
+  expect(shown).toContain('1 조사 - completed')
+  // What to look at goes with the check.
+  expect(shown).not.toContain('화면 보기')
+  expect(await pane.find({ type: 'Button', key: 'confirm' })).toBeUndefined()
+  await $.prompt.submit({ text: '계속', wait: false, origin: { kind: 'composer' } })
+  expect(context[0]).toContain('"조사" (id 1) marked completed')
+  // Told once: the request after that no longer carries it.
+  await $.prompt.submit({ text: '다음', wait: false, origin: { kind: 'composer' } })
+  expect(context[0]).not.toContain('marked completed')
 })
 
 test('each request carries the board to the model, and a detour parks the plan with a toast', async ($, on) => {

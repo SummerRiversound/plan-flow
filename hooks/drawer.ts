@@ -63,6 +63,21 @@ export const COLLAPSE_ALL = 'collapse-all'
 export const FOLLOW = 'follow'
 export const VIEW = 'view'
 export const BOXED: ReadonlySet<string> = new Set([EXPAND_ALL, COLLAPSE_ALL, FOLLOW, VIEW])
+// Under a picked step: mark it checked, or start a message about it in the prompt box. Their
+// brackets are drawn as text, so the box walls around them count the cells right.
+export const CONFIRM = 'confirm'
+export const ASK = 'ask'
+
+// A press on a step's row picks it (again: lets it go); a box's row folds it as before.
+export const pickStep = (drawer: DrawerState, id: string): DrawerState => ({ ...drawer, pick: drawer.pick === id ? undefined : id, focus: id })
+
+// A row of buttons, `w` cells wide, while they fit; `chrome` is what the engine draws around each (`[ ` and ` ]`).
+const buttonRow = (bs: ReadonlyArray<[string, string]>, w: number, lead = ' ', chrome = 4): Line =>
+  bs.reduce<Line>((l, [id, text]) => (cells(lineText(l)) + (l.length === 0 ? cells(lead) : 2) + chrome + cells(text) > w ? l : [...l, { text: l.length === 0 ? lead : '  ' }, { text, color: 'text', bold: true, button: id }]), [])
+
+// The buttons under the picked step: "확인했어요" only while it waits for the person's check.
+const actionLines = (drawer: DrawerState, n: PlanNode, w: number, lead: string): Line[] =>
+  drawer.pick !== n.id ? [] : [buttonRow([...(n.status === 'needs_check' ? [[CONFIRM, '[ 확인했어요 ]'] as [string, string]] : []), [ASK, '[ 질문 ]']], w, lead, 0)]
 
 type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 
@@ -177,9 +192,10 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
     }
     const parent = hasChildren(ctx.plan.nodes, n.id)
     const content = spread(titleSegs(ctx, n), right(ctx, n), w - cells(indent), ctx, cells(lineText(titleSegs(ctx, n, false))))
-    if (parent) ctx.buttons.push(n.id)
-    rows.push([{ text: indent }, ...(parent ? press(content, n.id) : content)])
+    ctx.buttons.push(n.id)
+    rows.push([{ text: indent }, ...press(content, n.id)])
     for (const d of detailLines(ctx, n, w - cells(indent))) rows.push([{ text: indent }, ...d])
+    if (!parent) for (const a of actionLines(ctx.drawer, n, w - cells(indent), '  ')) rows.push([{ text: indent }, ...a])
     if (parent && isOpen(ctx.plan, ctx.drawer, n.id)) rows.push(...inside(ctx, n.id, w, `${indent}    `))
   }
 
@@ -200,17 +216,15 @@ const box = (ctx: Ctx, n: PlanNode, max: number, tail: boolean): Block => {
   const open = hasChildren(ctx.plan.nodes, n.id) && isOpen(ctx.plan, ctx.drawer, n.id)
   const r = right(ctx, n)
   const natural = cells(lineText(titleSegs(ctx, n))) + (r === null ? 0 : cells(r.text) + 1) + 4
-  const wide = open || detailLines(ctx, n, max).length > 0
+  const wide = open || detailLines(ctx, n, max).length > 0 || ctx.drawer.pick === n.id
   const width = oddFit(wide ? Math.max(MIN_BOX, max - 8) : Math.max(MIN_BOX, natural), max)
   const inner = width - 4
   const edge = { color: n.status === 'in_progress' ? glyphColor(n) : 'inactive' }
   const wall = (row: Line): Line => [{ text: '│ ', ...edge }, ...pad(row, inner), { text: ' │', ...edge }]
-  let head = spread(titleSegs(ctx, n), r, inner, ctx, cells(lineText(titleSegs(ctx, n, false))))
-  if (hasChildren(ctx.plan.nodes, n.id)) {
-    ctx.buttons.push(n.id)
-    head = press(head, n.id)
-  }
-  const lines: Line[] = [[{ text: `╭${'─'.repeat(width - 2)}╮`, ...edge }], wall(head), ...detailLines(ctx, n, inner).map(wall)]
+  const head = press(spread(titleSegs(ctx, n), r, inner, ctx, cells(lineText(titleSegs(ctx, n, false)))), n.id)
+  ctx.buttons.push(n.id)
+  const acts = hasChildren(ctx.plan.nodes, n.id) ? [] : actionLines(ctx.drawer, n, inner, '  ')
+  const lines: Line[] = [[{ text: `╭${'─'.repeat(width - 2)}╮`, ...edge }], wall(head), ...detailLines(ctx, n, inner).map(wall), ...acts.map(wall)]
   if (open) {
     lines.push(wall([{ text: '┄'.repeat(inner), color: 'inactive' }]))
     for (const row of inside(ctx, n.id, inner, '')) lines.push(wall(row))
@@ -342,21 +356,28 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
     .filter(l => l.length > 0)
     .map((l): Line => [{ text: ' ' }, ...l])
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
-  // A button row: each button with the `[ ` and ` ]` the engine draws around it, while they fit.
-  const buttons = (bs: ReadonlyArray<[string, string]>): Line =>
-    bs.reduce<Line>((l, [id, text]) => (cells(lineText(l)) + 2 + 4 + cells(text) > width ? l : [...l, { text: l.length === 0 ? ' ' : '  ' }, { text, color: 'text', bold: true, button: id }]), [])
+  const buttons = (bs: ReadonlyArray<[string, string]>): Line => buttonRow(bs, width)
   const leaf = currentLeaf(plan)
   // The step Claude is on, else the nearest row above it that shows.
   const ids = leaf === null ? [] : leaf.id.split('.').map((_, i, parts) => parts.slice(0, parts.length - i).join('.'))
   const find = (lines: Line[]) => ids.map(id => lines.findIndex(l => l.some(s => s.node === id))).find(i => i >= 0) ?? null
   // Too narrow for the boxes, or the person asked for the list: the tree.
   if (flow.cut || drawer.list === true) {
-    const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now }).slice(top.length + 1)
+    // Each step's row picks it, with its buttons under it, as in the flowchart.
+    const steps: string[] = []
+    const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now })
+      .slice(top.length + 1)
+      .flatMap((l): Line[] => {
+        const n = plan.nodes.find(x => l[0]?.node === x.id)
+        if (n === undefined || hasChildren(plan.nodes, n.id)) return [l]
+        steps.push(n.id)
+        return [press(l, n.id), ...actionLines(drawer, n, width, `${' '.repeat(cells(l[0]?.text ?? '') + 2)}`)]
+      })
     const hint: Line[] = flow.cut ? [fitLine([{ text: ' 창을 넓히면 흐름도로 보여요', color: 'inactive' }], width), []] : [[]]
     const at = find(tree)
     const toggle = flow.cut ? [] : [buttons([[VIEW, '흐름도 보기']])]
 
-    return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...shelved], buttons: [], at: at === null ? null : at + hint.length }
+    return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...shelved], buttons: steps, at: at === null ? null : at + hint.length }
   }
   const tools = buttons([
     [EXPAND_ALL, '모두 펼치기'],

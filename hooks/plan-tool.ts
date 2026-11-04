@@ -3,7 +3,7 @@
 import type { Board, Previous } from './board'
 import { cancelBoard, resumeBoard, setBoard, settle } from './board'
 import type { NodeUpdate, Plan, PlanInput } from './plan'
-import { addNodes, currentLeaf, hasOpenWork, MAX_DETAIL, MAX_LINKS, MAX_NOTE, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
+import { addNodes, closing, currentLeaf, finishedAt, hasOpenWork, MAX_DETAIL, MAX_LINKS, MAX_NOTE, MAX_RESULT, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
 import { clean } from './sanitize'
 
 export const TOOL_NAME = 'plan'
@@ -12,14 +12,16 @@ export type OpName = (typeof OPS)[number]
 
 export type PlanOp =
   | { op: 'set'; title: string; nodes: PlanInput[]; previous?: Previous }
-  | { op: 'next'; id?: string }
-  | { op: 'update'; updates: NodeUpdate[] }
+  | { op: 'next'; id?: string; summary?: SummaryInput }
+  | { op: 'update'; updates: NodeUpdate[]; summary?: SummaryInput }
   | { op: 'add'; parent: string | null; nodes: PlanInput[] }
   | { op: 'remove'; id: string }
   | { op: 'move'; id: string; before?: string }
   | { op: 'resume'; title?: string; previous?: Previous }
   | { op: 'cancel' }
   | { op: 'show' }
+
+export type SummaryInput = { goal: string; result: string }
 
 export const ANSWER_LIMIT = 4000
 
@@ -34,6 +36,7 @@ export const TOOL_DESCRIPTION = [
   'A step with children takes its status from them, so only leaves get a status; status "pending" on a finished step or parent reopens it to redo.',
   'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
   'op "resume" brings back a shelved plan ("title", else the newest parked), op "cancel" drops the plan in hand and brings back the newest parked one.',
+  'With the op that finishes the last step (op "next", or op "update" alone), give "summary": what the plan was for and how that was reached; it closes the plan at the end of the drawer.',
 ].join(' ')
 
 // JSON Schema, written out level by level because it may not use $ref. Groups do not
@@ -62,9 +65,18 @@ export const TOOL_SCHEMA: Schema = {
     nodes: { type: 'array', description: 'Steps, for op set and add', items: stepSchema(5) },
     parent: { type: 'string', description: 'Id to add under, for op add; leave out for the top level' },
     id: { type: 'string', description: 'For op remove: the step to drop. For op move: the step to move. For op next: the running step that finished' },
+    summary: {
+      type: 'object',
+      description: 'For op next or update, with the op that finishes the last step: the plan\'s closing note, in the user\'s language',
+      properties: {
+        goal: { type: 'string', description: `What the plan was for, one sentence (${MAX_DETAIL} characters at most)` },
+        result: { type: 'string', description: `How that was reached: what was made and checked, one or two sentences (${MAX_RESULT} characters at most)` },
+      },
+      required: ['goal', 'result'],
+    },
     updates: {
       type: 'array',
-      description: 'For op update',
+      description: 'For op update; may be left out when only the summary is given',
       items: {
         type: 'object',
         properties: {
@@ -92,6 +104,7 @@ export const instruction = (tool: string): string =>
     'When a step produces something the person may open (a PR, an issue, a commit, an artifact, a doc, a file), attach it to that step with op "update" and "links": the full URL or an absolute path.',
     'Put steps that do not depend on each other under one node with "parallel": true and work on them together (several tool calls or agents in one message).',
     'When a step is done call op "next"; it finishes that step and starts the following one. Use op "update" for blocked or skipped steps, with a note saying why.',
+    'With the op that finishes the last step, give "summary": the goal in one sentence and, in one or two, how it was reached (what was made and checked).',
     'Check your own work right after each change, inside that step (run it, look at it, take the screenshot); never plan a catch-all check step for the end. When a step is done but only the person can confirm it (a device in hand, a sign-in, a taste call), set it to "needs_check" with a note naming what to look at, and move on: it counts as done and shows in a "확인할 것" line. Set it to "completed" when the person confirms, or "pending" to redo it.',
     'While a plan is on the board, each request carries a plan-flow note: follow it to decide what the request does to the board before acting.',
     'The person sees the board drawn on screen, so never describe, list or redraw the plan in your reply.',
@@ -109,7 +122,13 @@ export const boardNote = (board: Board, byPerson: readonly string[] = []): strin
   if (board.plan.nodes.length > 0) {
     const { done, total } = progress(board.plan)
     const leaf = currentLeaf(board.plan)
-    const state = hasOpenWork(board.plan) ? (leaf === null ? '' : `, in hand: ${leaf.title} (id ${leaf.id})`) : ', finished'
+    const state = hasOpenWork(board.plan)
+      ? leaf === null
+        ? ''
+        : `, in hand: ${leaf.title} (id ${leaf.id})`
+      : board.plan.summary === undefined
+        ? ', finished with no summary yet: send op "update" with "summary" to close it'
+        : ', finished'
     lines.push(`In hand: "${board.plan.title}" (${done}/${total} done${state}).`)
   }
   if (byPerson.length > 0) lines.push(`Changed by the person in the drawer since the last request: ${byPerson.join(' ')}`)
@@ -233,6 +252,15 @@ const readPrevious = (raw: Raw): Parsed<Previous | undefined> => {
   return v === 'park' || v === 'cancel' ? { value: v } : bad(`"previous" must be "park" or "cancel", not ${clean(String(v))}`)
 }
 
+const readSummary = (raw: Raw): Parsed<SummaryInput | undefined> => {
+  const v = raw.summary
+  if (v === undefined) return { value: undefined }
+  if (!isObject(v)) return bad(`summary must be an object with a goal and a result, not ${kind(v)}`)
+  if (typeof v.goal !== 'string') return bad(`summary.goal must be text, not ${kind(v.goal)}`)
+
+  return typeof v.result === 'string' ? { value: { goal: v.goal, result: v.result } } : bad(`summary.result must be text, not ${kind(v.result)}`)
+}
+
 // Reads the tool's input, which comes from the model and is checked field by field.
 export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
   if (!isObject(raw)) return bad(`the plan tool takes an object with an "op", not ${kind(raw)}`)
@@ -280,17 +308,21 @@ export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
       return 'error' in nodes ? nodes : { op: { op, parent: parent.value === undefined || parent.value === '' ? null : parent.value, nodes: nodes.value } }
     }
     case 'update': {
-      const updates = readUpdates(raw.updates)
+      const summary = readSummary(raw)
+      if ('error' in summary) return summary
+      const updates = raw.updates === undefined && summary.value !== undefined ? { value: [] } : readUpdates(raw.updates)
 
-      return 'error' in updates ? updates : { op: { op, updates: updates.value } }
+      return 'error' in updates ? updates : { op: { op, updates: updates.value, ...(summary.value === undefined ? {} : { summary: summary.value }) } }
     }
     case 'remove':
       return typeof raw.id === 'string' ? { op: { op, id: raw.id } } : bad('op remove needs the "id" of the step to drop')
     case 'next': {
       const id = optionalText(raw, 'id', '')
       if ('error' in id) return id
+      const summary = readSummary(raw)
+      if ('error' in summary) return summary
 
-      return { op: id.value === undefined || id.value === '' ? { op } : { op, id: id.value } }
+      return { op: { op, ...(id.value === undefined || id.value === '' ? {} : { id: id.value }), ...(summary.value === undefined ? {} : { summary: summary.value }) } }
     }
     case 'show':
       return { op: { op } }
@@ -322,6 +354,8 @@ export const describePlan = (plan: Plan): string => {
     size += 1 + row.length
   }
 
+  if (plan.summary !== undefined) out.push(`Summary: ${plan.summary.goal} / ${plan.summary.result}`)
+
   return out.join('\n')
 }
 
@@ -347,18 +381,19 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
           : settle(
               board,
               op.op === 'next'
-                ? nextStep(plan, op.id, now)
+                ? closing(nextStep(plan, op.id, now), op.summary)
                 : op.op === 'update'
-                  ? updateNodes(plan, op.updates, now)
+                  ? closing(op.updates.length === 0 ? { plan } : updateNodes(plan, op.updates, now), op.summary)
                   : op.op === 'add'
-                    ? addNodes(plan, op.parent, op.nodes, now)
+                    ? closing(addNodes(plan, op.parent, op.nodes, now))
                     : op.op === 'move'
                       ? moveNode(plan, op.id, op.before, now)
-                      : removeNode(plan, op.id, now),
+                      : closing(removeNode(plan, op.id, now)),
               now,
             )
   if ('error' in result) return bad(result.error)
-  const text = describeBoard(result.board)
+  const ask = finishedAt(result.board.plan) !== null && result.board.plan.summary === undefined ? '\nThe plan is finished: send op "update" with "summary" to close it.' : ''
+  const text = describeBoard(result.board) + ask
 
   return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

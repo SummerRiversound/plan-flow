@@ -30,7 +30,11 @@ export type Plan = {
   startedAt: number
   // Steps this request changed: added ('new') or reopened ('redo'); cleared on the next prompt.
   marks?: Record<string, 'new' | 'redo'>
+  // The closing note Claude gives with the op that finishes the last step; dropped when a step reopens.
+  summary?: Summary
 }
+
+export type Summary = { goal: string; result: string }
 
 export type ActivityPhase = 'idle' | 'working' | 'tool' | 'permission' | 'question' | 'compacting' | 'interrupted' | 'error'
 
@@ -75,6 +79,7 @@ declare module 'claude-code' {
         lastChild: Record<string, number>
         startedAt: number
         marks?: Record<string, 'new' | 'redo'>
+        summary?: { goal: string; result: string }
       }
       activity: {
         phase: 'idle' | 'working' | 'tool' | 'permission' | 'question' | 'compacting' | 'interrupted' | 'error'
@@ -100,6 +105,7 @@ declare module 'claude-code' {
           lastChild: Record<string, number>
           startedAt: number
           marks?: Record<string, 'new' | 'redo'>
+          summary?: { goal: string; result: string }
         }
         state: 'parked' | 'cancelled' | 'done'
         at: number

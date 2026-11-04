@@ -5,7 +5,7 @@
 // each piece marked `button` into a Button that folds or unfolds that node.
 import type { DrawerState, Shelved } from '../types'
 import type { Plan, PlanNode } from './plan'
-import { checksOf, childrenOf, currentLeaf, hasChildren, isFinished, progress } from './plan'
+import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
 import { drawTree, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
@@ -190,6 +190,22 @@ const detailLines = (ctx: Ctx, n: PlanNode, w: number): Line[] => {
   return [...detail, ...(picked ? noteLines(n, w, '  ') : []), ...(parent && !open ? [] : linkRow(n.links ?? [], w))]
 }
 
+// A finished plan's closing note as rows `w` cells wide: what it was for, how that was
+// reached, and every link the steps produced.
+const summaryRows = (plan: Plan, w: number): Line[] => {
+  const s = plan.summary
+  if (s === undefined || hasOpenWork(plan)) return []
+  const para = (label: string, t: string): Line[] => wrap(`${label}: ${t}`, w, WHOLE).map((l): Line => [{ text: l, color: 'text' }])
+
+  return [
+    [{ text: '✓', color: 'success' }, { text: ' 완료 정리', color: 'text', bold: true }],
+    [{ text: '┄'.repeat(w), color: 'inactive' }],
+    ...para('목적', s.goal),
+    ...para('결과', s.result),
+    ...linkRow([...new Set(plan.nodes.flatMap(n => n.links ?? []))], w),
+  ]
+}
+
 // The rows inside an open box, `w` cells wide.
 const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] => {
   const rows: Line[] = []
@@ -336,8 +352,9 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = f
   // Every box on the axis is as wide, open or folded, so the stages line up: the drawer less a
   // margin, or wider to keep the longest title whole.
   const span = oddFit(Math.max(MIN_BOX, width - 8, ...stages.filter(n => n.parallel !== true).map(n => natural(ctx, n))), width)
+  const close = summaryRows(plan, span - 4)
   stages.forEach((n, i) => {
-    const last = i === stages.length - 1
+    const last = i === stages.length - 1 && close.length === 0
     if (n.parallel === true) {
       lines.push(...branches(ctx, n, span, axis, i === 0, last))
       if (!last && stages[i + 1]?.parallel !== true) lines.push(arrows([axis]))
@@ -347,6 +364,13 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = f
     const b = box(ctx, n, span, !last)
     for (const l of b.lines) lines.push(place([{ x: axis - (b.width - 1) / 2, line: l }]))
   })
+  // The closing note, last on the axis.
+  if (close.length > 0) {
+    if (stages.at(-1)?.parallel !== true) lines.push(arrows([axis]))
+    const edge = { color: 'inactive' }
+    const rows: Line[] = [[{ text: `╭${'─'.repeat(span - 2)}╮`, ...edge }], ...close.map((r): Line => [{ text: '│ ', ...edge }, ...pad(r, span - 4), { text: ' │', ...edge }]), [{ text: `╰${'─'.repeat(span - 2)}╯`, ...edge }]]
+    for (const l of rows) lines.push(place([{ x: axis - (span - 1) / 2, line: l }]))
+  }
 
   return { lines: lines.map(l => fitLine(l, width)), buttons: ctx.buttons, cut: ctx.cut }
 }
@@ -418,7 +442,10 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
     const at = find(tree)
     const toggle = flow.cut ? [] : [tools([], [VIEW, '흐름도 보기'])]
 
-    return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...shelved], buttons: steps, at: at === null ? null : at + hint.length }
+    const close = summaryRows(plan, width - 2).map((r): Line => [{ text: ' ' }, ...r])
+    const end = close.length === 0 ? [] : [[], ...close]
+
+    return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...end, ...shelved], buttons: steps, at: at === null ? null : at + hint.length }
   }
   const row = tools(
     [

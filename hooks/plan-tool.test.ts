@@ -149,3 +149,22 @@ test('steps carry links: set with the step, added by update without repeats, cle
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['1', '2', '3', '4', '5', '6'] }] })).toMatch(/at most 5 links/)
   expect(instruction('t')).toContain('"links"')
 })
+
+test('the op that finishes the last step carries the summary; it is refused while steps are open and goes when one reopens', () => {
+  const summary = { goal: '로그인 기능을 앱에 붙이기', result: '화면과 API를 만들고 폰에서 확인했어요' }
+  let { plan } = apply(emptyPlan(), SET)
+  plan = apply(plan, { op: 'next' }).plan
+  expect(error(plan, { op: 'next', summary })).toContain('steps are still open')
+  plan = apply(plan, { op: 'next' }).plan
+  plan = apply(plan, { op: 'next' }).plan
+  const last = apply(plan, { op: 'next' })
+  // Finished without one, the answer asks for it.
+  expect(last.text).toContain('send op "update" with "summary"')
+  const closed = apply(last.plan, { op: 'update', summary })
+  expect(closed.plan.summary).toEqual(summary)
+  expect(closed.text).not.toContain('send op "update"')
+  expect(apply(plan, { op: 'next', summary }).plan.summary).toEqual(summary)
+  expect(error(last.plan, { op: 'update', summary: { goal: '목적' } })).toContain('summary.result must be text')
+  expect(apply(closed.plan, { op: 'update', updates: [{ id: '1', status: 'pending' }] }).plan.summary).toBeUndefined()
+  expect(apply(closed.plan, { op: 'add', nodes: [{ title: '배포' }] }).plan.summary).toBeUndefined()
+})

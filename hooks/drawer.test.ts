@@ -110,6 +110,27 @@ test('following a finished plan shows the end of the body, at the bottom of the 
   expect(lineText(page.lines[v.head.length + room - 1] ?? [])).toBe(lastBody)
 })
 
+test('a finished plan ends with its closing note, in the flowchart and the list, following to it', () => {
+  let done = ok(setPlan(emptyPlan(), '로그인 기능 추가', STEPS, 0))
+  while (done.nodes.some(n => n.status !== 'completed')) done = ok(nextStep(done, undefined, 1_000))
+  done = { ...done, summary: { goal: '로그인 기능을 앱에 붙이기', result: '화면과 API, 세션 저장을 만들고 폰에서 로그인부터 다음 화면까지 확인했어요' } }
+  for (const v of [view(done), view(done, { ...closed, list: true })]) {
+    const body = v.body.map(lineText)
+    const at = body.findIndex(l => l.includes('✓ 완료 정리'))
+    expect(at).toBeGreaterThan(0)
+    expect(body.slice(at).join(' ').replace(/[│ ]+/g, ' ')).toContain('결과: 화면과 API, 세션 저장을 만들고 폰에서 로그인부터 다음 화면까지 확인했어요')
+    for (const l of body) expect(cells(l)).toBeLessThanOrEqual(53)
+    const page = drawerPage(v, 20, undefined, 53)
+    expect(page.lines.map(lineText).join('\n')).toContain('결과:')
+  }
+  const flow = view(done).body.map(lineText)
+  const at = flow.findIndex(l => l.includes('✓ 완료 정리'))
+  // Joined to the last stage by an arrow, its walls where the stage boxes' are.
+  expect(flow[at - 2]?.trim()).toBe('▼')
+  expect(flow[at]?.indexOf('│')).toBe(flow.find(l => l.includes('✓ 조사'))?.indexOf('│'))
+  expect(view({ ...done, summary: undefined }).body.map(lineText).join('\n')).not.toContain('완료 정리')
+})
+
 test('a body that fits the pane is drawn whole, with no foot', () => {
   const v = view(sample())
   const page = drawerPage(v, 200, undefined, 53)

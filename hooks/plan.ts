@@ -5,7 +5,7 @@
 // Levels: stage, task, checkpoint. A `parallel` node is a group, not a level of its
 // own: its children sit at the group's level and run at the same time, and the
 // step after the group waits for all of them.
-import type { Plan, PlanNode, PlanStatus } from '../types'
+import type { Plan, PlanNode, PlanStatus, Summary } from '../types'
 import { clean } from './sanitize'
 
 export type { Plan, PlanNode, PlanStatus }
@@ -16,6 +16,7 @@ export const MAX_NODES = 100
 export const MAX_TITLE = 120
 export const MAX_NOTE = 200
 export const MAX_DETAIL = 160
+export const MAX_RESULT = 300
 export const MAX_LINKS = 5
 const MAX_LINK = 2048
 
@@ -447,4 +448,23 @@ export const finishedAt = (plan: Plan): number | null => {
   if (plan.nodes.length === 0 || hasOpenWork(plan)) return null
 
   return Math.max(plan.startedAt, ...leavesOf(plan).map(n => n.doneAt ?? 0))
+}
+
+// The closing note on what an op made of the plan: `summary` is taken only once no step is
+// open, and a note left from before goes when a step opens again.
+export const closing = (r: PlanResult, summary?: { goal: unknown; result: unknown }): PlanResult => {
+  if ('error' in r) return r
+  if (summary === undefined) {
+    if (!hasOpenWork(r.plan) || r.plan.summary === undefined) return r
+    const { summary: _gone, ...plan } = r.plan
+    return { plan }
+  }
+  if (hasOpenWork(r.plan)) return { error: 'a summary goes with the op that finishes the last step, and steps are still open' }
+  const goal = text('summary.goal', summary.goal, MAX_DETAIL, false)
+  if ('error' in goal) return goal
+  const result = text('summary.result', summary.result, MAX_RESULT, false)
+  if ('error' in result) return result
+  const note: Summary = { goal: goal.value, result: result.value }
+
+  return { plan: { ...r.plan, summary: note } }
 }

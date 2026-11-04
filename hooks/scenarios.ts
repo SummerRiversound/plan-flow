@@ -140,7 +140,8 @@ export const SCENARIOS: Scenario[] = [
     title: '모두 완료',
     frames: [(() => {
       const b = steps(ok(setBoard(emptyBoard(), '작은 수정', [{ title: '고치기' }, { title: '확인' }], undefined, 0)), 3, 1_000)
-      return { label: '다 끝난 계획(입력창 위에서는 5초 뒤 사라짐)', board: b, activity: idle, now: 100_000 }
+      const summary = { goal: '로그인 버튼이 눌리지 않던 문제 고치기', result: '버튼을 덮던 투명한 층을 걷어 내고, 폰에서 눌러 다음 화면으로 넘어가는 것까지 확인했어요' }
+      return { label: '다 끝난 계획(입력창 위에서는 5초 뒤 사라짐)', board: { ...b, plan: { ...b.plan, summary } }, activity: idle, now: 100_000 }
     })()],
   },
   { id: 'folded', title: '접은 모습', frames: [{ label: '입력창 위를 제목과 진행 막대만 남기고 접음', board: login(), activity: working, now: 250_000, folded: true }] },

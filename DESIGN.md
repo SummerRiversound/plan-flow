@@ -3,8 +3,8 @@ version: alpha
 name: plan-flow terminal
 description: A plan drawn as a card flowchart inside Claude Code's terminal, quiet except for the one item that is running.
 colors:
-  primary: "#d97757"
-  on-primary: "#1a0f0b"
+  primary: "#2b9be0"
+  on-primary: "#06131c"
   success: "#5cc072"
   error: "#ff6b80"
   text: "#e8e6e3"
@@ -52,9 +52,9 @@ A plan is drawn in two places: a live tree above the prompt, and a card flowchar
 
 ## Colors
 
-The hex values are the dark-theme reference used in the mockups. In code every color is a Claude Code theme key, so light and dark themes follow the user's setting.
+The hex values are the dark-theme reference used in the mockups. In code every color but primary is a Claude Code theme key, so light and dark themes follow the user's setting. Primary is the mod's own sky blue, kept apart from Claude Code's orange; its mid lightness reads on both themes (6.3:1 on the dark surface, 3.1:1 on white).
 
-- **Primary (#d97757, theme key `claude`):** the running stage, task or checkpoint, and nothing else.
+- **Primary (#2b9be0, set in code as a hex; the `accentColor` setting overrides it):** the running stage, task or checkpoint, the progress bar and the drawer button, and nothing else.
 - **Success (#5cc072, `success`):** done marks and done chips.
 - **Error (#ff6b80, `error`):** a failed item and its note.
 - **Muted (#9a968f, `inactive`):** waiting items, box borders, connectors, times.

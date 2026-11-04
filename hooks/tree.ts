@@ -161,6 +161,9 @@ const head = (plan: Plan, activity: Activity, maxRows: number, width: number, ac
   return lines
 }
 
+// The mod's accent: a sky blue of mid lightness, readable on dark and light themes alike.
+export const ACCENT = '#2b9be0'
+
 // The most rows the tree takes above the prompt; past that it scrolls.
 export const BAND_ROWS = 12
 

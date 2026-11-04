@@ -6,8 +6,8 @@ import type { Shot } from '../hooks/snapshot'
 import { shots } from '../hooks/snapshot'
 import { cells } from '../hooks/width'
 
-// Theme keys to DESIGN.md colours; the accent is the theme's `claude`.
-const COLOR: Record<string, string> = { claude: '#d97757', success: '#5cc072', error: '#ff6b80', warning: '#e5b567', inactive: '#9a968f', text: '#e8e6e3' }
+// Theme keys to DESIGN.md colours; a hex (the accent) is drawn as it is.
+const COLOR: Record<string, string> = { success: '#5cc072', error: '#ff6b80', warning: '#e5b567', inactive: '#9a968f', text: '#e8e6e3' }
 
 const esc = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -21,7 +21,7 @@ const pre = (s: Shot): string => {
       line
         .map(seg => {
           const style = [
-            `color:${COLOR[seg.color ?? 'text'] ?? COLOR.text}`,
+            `color:${seg.color?.startsWith('#') === true ? seg.color : (COLOR[seg.color ?? 'text'] ?? COLOR.text)}`,
             seg.bold === true ? 'font-weight:700' : '',
             seg.dim === true ? 'opacity:.6' : '',
             seg.strike === true ? 'text-decoration:line-through' : '',

@@ -12,7 +12,7 @@ import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parse
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, SCENARIOS, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import type { Line } from './tree'
-import { BAND_ROWS, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
+import { ACCENT, BAND_ROWS, OPEN_BUTTON, fitLine, layoutTree, statusLine } from './tree'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -145,7 +145,7 @@ async function demo($: $, arg: string | undefined): Promise<string> {
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const enforce = options.enforce === true
-  const accent = typeof options.accentColor === 'string' && options.accentColor.trim() !== '' ? options.accentColor.trim() : 'claude'
+  const accent = typeof options.accentColor === 'string' && options.accentColor.trim() !== '' ? options.accentColor.trim() : ACCENT
   let offered = false
   // The band's window as last drawn, for the next scroll.
   let band = { offset: 0, maxOffset: 0 }

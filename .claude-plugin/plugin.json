@@ -21,8 +21,8 @@
     "accentColor": {
       "type": "string",
       "title": "Accent color",
-      "description": "Theme key or color for the running item (for example claude, success, magenta)",
-      "default": "claude"
+      "description": "Theme key or color for the running item (for example #2b9be0, claude, magenta)",
+      "default": "#2b9be0"
     }
   }
 }

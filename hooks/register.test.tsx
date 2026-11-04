@@ -226,3 +226,13 @@ test('/flow demo shows canned boards above the prompt and leaves the real plan a
   expect(String((await $.tool.call({ tool: TOOL, op: 'show' })).result)).toContain('Plan: 진짜 계획')
   await band.unmount()
 })
+
+test('the band keeps what another plugin draws above the prompt, under the tree', async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'engine' })).toBeDefined()
+  await band.unmount()
+})

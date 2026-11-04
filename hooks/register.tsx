@@ -277,13 +277,15 @@ export const register: Register = (on, options) => {
   })
 
   // The tree above the prompt.
+  // The band is one slot: what the plugins beneath draw stays, under the tree.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
+    const below = await next(e)
+    if (e.props.hasSurvey) return below
     const at = await read($, demoAtom)
     const frame = at === null ? undefined : demoFrame(at)
     const plan = frame?.board.plan ?? (await read($, planAtom))
-    if (frame === undefined && (await hidden($, plan, autoShow))) return next(e)
-    if ((await read($, paneAtom)) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)) return next(e)
+    if (frame === undefined && (await hidden($, plan, autoShow))) return below
+    if ((await read($, paneAtom)) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)) return below
     const { Box } = $.ui.resolve(e)
     const width = e.props.bodyColumns
     const top: Line[] =
@@ -320,7 +322,12 @@ export const register: Register = (on, options) => {
       if (id === DEMO_STOP) void demo($, 'stop')
     }
 
-    return <Box flexDirection="column">{[...top, ...view.lines].map(l => row($, e, l, null, press))}</Box>
+    return (
+      <Box flexDirection="column">
+        {[...top, ...view.lines].map(l => row($, e, l, null, press))}
+        {below}
+      </Box>
+    )
   })
 
   // The band is capped below the engine's rows, so it scrolls its own window.

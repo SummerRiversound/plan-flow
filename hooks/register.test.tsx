@@ -161,6 +161,54 @@ test('the planner looks again while Claude works, after six calls that change so
   expect(asked).toHaveLength(1)
 })
 
+test('a call that failed reaches the planner marked as failed', KO, async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, () => ({ result: '1 failing', isError: true }) as never)
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'npm test', description: '테스트 돌리기' })
+  await plan($, PLAN)
+  expect(asked[asked.length - 1]).toContain('Claude ran: 테스트 돌리기 (failed)')
+})
+
+test('reading is heard too, and a minute of it makes the planner look again', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await $.tool.call({ tool: 'Read', file_path: '/repo/src/cart.js' } as never)
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(0)
+  await theClock?.advance(60_000)
+  await $.tool.call({ tool: 'Grep', pattern: 'total' } as never)
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toContain('Claude ran: Read cart.js')
+  expect(asked[0]).toContain('Claude ran: Grep total')
+})
+
+test("a subagent's calls reach the planner as the subagent's", KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/src/cart.js', old_string: 'a', new_string: 'b', agentId: 'a1' } as never)
+  await plan($, PLAN)
+  expect(asked[asked.length - 1]).toContain('A subagent ran: Edit cart.js')
+})
+
+test("a background task's notice is not the person's request", KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.prompt.submit({ text: '버그 고쳐줘', wait: false, origin: { kind: 'composer' } })
+  await plan($, PLAN)
+  const notice = '<task-notification>\n<status>completed</status>\n<summary>Agent "Explore cart" finished</summary>\n<result>long report</result>\n</task-notification>'
+  await $.prompt.submit({ text: notice, wait: false, origin: { kind: 'task-notification' } } as never)
+  await plan($, { op: 'next' })
+  const handed = asked[asked.length - 1] ?? ''
+  expect(handed).toContain('The person asked: 버그 고쳐줘')
+  expect(handed).toContain('Claude was told: Agent "Explore cart" finished')
+  expect(handed).not.toContain('long report')
+})
+
 test('a planner call that fails keeps what happened for the next look', KO, async ($, on) => {
   engine(on)
   await start($)

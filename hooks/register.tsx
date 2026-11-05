@@ -13,7 +13,7 @@ import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWor
 import type { PlanOp } from './plan-tool'
 import { runOp } from './plan-tool'
 import type { Happened } from './planner'
-import { GUARDED, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
+import { GUARDED, noticeLine, PERSON, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import { joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
@@ -769,9 +769,12 @@ async function resolveLanguage($: $, option: unknown): Promise<void> {
 const PLANNER_MODEL = 'haiku'
 // State-changing calls in a turn before the planner looks again, so the board moves while Claude works.
 const PLAN_EVERY = 6
+// While Claude only reads, the planner still looks once this long has passed since its last look.
+const LOOK_EVERY_MS = 60_000
 let fresh: Happened[] = []
 let request = ''
 let calls = 0
+let lastLook = 0
 let busy: Promise<void> | null = null
 let queued = false
 let again = false
@@ -787,6 +790,7 @@ async function planOnce($: $): Promise<void> {
   fresh = []
   calls = 0
   if (take.length === 0) return
+  lastLook = await $.clock.now()
   const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
   const head: Happened[] = request === '' || take.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
   const r = await $.model
@@ -845,6 +849,11 @@ export const register: Register = (on, options) => {
   // Each request the person sends: last request's marks go, and the planner hears it. Nothing is added to the request.
   on('prompt.submit', async ($, e, next) => {
     if (e.command !== undefined || e.isMeta === true) return next(e)
+    if (!PERSON.has(e.origin.kind)) {
+      // Its turn ends with an answer, and the planner looks then.
+      fresh = remember(fresh, { kind: 'notice', text: noticeLine(e.text) })
+      return next(e)
+    }
     const plan = await read($, planAtom)
     if (plan.marks !== undefined) await update($, planAtom, clearMarks)
     request = e.text
@@ -854,22 +863,26 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Every tool call: the activity line, and a line for the planner; what Claude gets back is untouched.
+  // Every tool call, a subagent's too: a line for the planner, marked when it failed, and for the
+  // main loop the activity line; what Claude gets back is untouched.
   on('tool.call', async ($, e, next) => {
-    if (e.agentId !== undefined) return next(e)
+    const sub = e.agentId !== undefined
     const question = e.tool === 'AskUserQuestion'
-    await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool })
+    if (!sub) await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool })
     try {
       const out = await next(e)
-      if (out.deny !== undefined || out.isReadOnly === true || !GUARDED.has(e.tool)) return out
-      fresh = remember(fresh, { kind: 'tool', text: toolLine(e.tool, e as unknown as Record<string, unknown>) })
-      calls++
-      if (calls >= PLAN_EVERY) planSoon($)
+      if (out.deny !== undefined || question || e.tool === 'ToolSearch') return out
+      const line = toolLine(e.tool, e as unknown as Record<string, unknown>)
+      fresh = remember(fresh, { kind: sub ? 'subagent' : 'tool', text: out.isError === true ? `${line} (failed)` : line })
+      if (out.isReadOnly !== true && GUARDED.has(e.tool)) calls++
+      if (calls >= PLAN_EVERY || (await $.clock.now()) - lastLook >= LOOK_EVERY_MS) planSoon($)
 
       return out
     } finally {
-      await act($, question ? { type: 'questionClose' } : { type: 'toolEnd', id: e.tool_use_id })
-      await act($, { type: 'permissionEnd' })
+      if (!sub) {
+        await act($, question ? { type: 'questionClose' } : { type: 'toolEnd', id: e.tool_use_id })
+        await act($, { type: 'permissionEnd' })
+      }
     }
   })
 

@@ -203,6 +203,22 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   await pane.unmount()
 })
 
+test('on the desktop app every line between cards says what it is, and cards side by side each fill their half', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, op: 'set', title: '동시에', nodes: [{ title: '갈래', parallel: true, children: [{ title: '왼쪽' }, { title: '오른쪽' }] }, { title: '마무리' }] })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const lines = await pane.findAll({ type: 'Svg' })
+  expect(lines.length).toBeGreaterThanOrEqual(2)
+  // An Svg with no alt is dropped by the app.
+  expect(lines.every(l => typeof l.props.alt === 'string' && l.props.alt !== '')).toBe(true)
+  const halves = (await pane.findAll({ type: 'Box' })).filter(b => b.props.width === '50%')
+  expect(halves).toHaveLength(2)
+  // A column, so the card inside stretches across its half.
+  expect(halves.every(b => b.props.flexDirection === 'column')).toBe(true)
+  await pane.unmount()
+})
+
 test('the terminal drawer keeps the character flowchart', KO, async ($, on) => {
   engine(on)
   await start($)

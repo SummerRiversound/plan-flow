@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.13 — 2026-11-05
+
+### Changed
+
+- On the desktop app and in the editor, the band and the drawer are set in the app's own type instead of monospaced lines. The title is a heading, the goal and details are smaller and muted, the progress bar is a rounded bar with counts beside it, and steps are indented by level.
+- Drawer cards set stage titles in semibold and counts in small type. Tasks that run together sit under a small rounded tag, and links show as chips.
+- The running step on the desktop shows a small turning circle beside its title.
+- The desktop list view is a real indented list whose stages still fold.
+
 ## 0.1.12 — 2026-11-05
 
 ### Changed

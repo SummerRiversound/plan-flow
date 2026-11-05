@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { GateAsk } from './gate'
 import { decide, denyReason, MAX_DENIES, onPlanWritten, onTurnStart, REMINDER } from './gate'
 import { emptyPlan, setPlan } from './plan'
+import { LONG_STEP, idleWatch, longStepNote, onStepPlanWritten, watchStep } from './gate'
 
 const ask: GateAsk = { tool: 'Edit', enforce: true, toolOffered: true, gate: { planned: false, denies: 0 } }
 
@@ -59,4 +60,35 @@ test('the refusal tells the model how to make a plan', () => {
   const text = denyReason('mcp__plan-flow__plan')
   expect(text).toContain('mcp__plan-flow__plan')
   expect(text).toContain('"op":"set"')
+})
+
+test('a step that runs through many changes with the plan unchanged gets one note to split it, and the next step counts afresh', () => {
+  let w = idleWatch()
+  const nudged: number[] = []
+  for (let i = 1; i <= LONG_STEP * 2; i++) {
+    const r = watchStep(w, '2.1')
+    w = r.watch
+    if (r.nudge) nudged.push(i)
+  }
+  expect(nudged).toEqual([LONG_STEP])
+  expect(watchStep(w, '2.2').watch).toEqual({ id: '2.2', changes: 1, nudged: false })
+  expect(watchStep(idleWatch(), null).nudge).toBe(false)
+})
+
+test('writing the plan starts the count again but never notes the same step twice', () => {
+  let w = idleWatch()
+  for (let i = 0; i < LONG_STEP - 1; i++) w = watchStep(w, '1').watch
+  w = onStepPlanWritten(w)
+  expect(watchStep(w, '1').nudge).toBe(false)
+  for (let i = 0; i < LONG_STEP; i++) w = watchStep(w, '1').watch
+  expect(w.nudged).toBe(true)
+  w = onStepPlanWritten(w)
+  let again = false
+  for (let i = 0; i < LONG_STEP * 2; i++) {
+    const r = watchStep(w, '1')
+    w = r.watch
+    again ||= r.nudge
+  }
+  expect(again).toBe(false)
+  expect(longStepNote('1', '조사')).toContain('op "add" (parent "1")')
 })

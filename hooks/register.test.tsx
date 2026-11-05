@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { setLanguage } from './i18n'
 import { NO_PLAN_NOTE } from './plan-tool'
-import { REMINDER } from './gate'
+import { LONG_STEP, REMINDER } from './gate'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
@@ -90,6 +90,19 @@ test('with enforce off, edits run without a plan', KO, async ($, on) => {
   // The first such call with no plan carries one reminder for the model; later ones run bare.
   expect(out.context).toEqual([REMINDER])
   expect((await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })).context).toBeUndefined()
+})
+
+test('a running step that piles up changes gets one note to split it into checkpoints', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  const notes: string[] = []
+  for (let i = 0; i < LONG_STEP + 3; i++) {
+    const out = await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })
+    notes.push((out.context ?? []).join(' '))
+  }
+  expect(notes.filter(n => n.includes('op "add"'))).toHaveLength(1)
+  expect(notes[LONG_STEP - 1]).toContain('조사')
 })
 
 test('a read-only call does not use up the reminder', KO, async ($, on) => {

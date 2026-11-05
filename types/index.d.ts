@@ -115,6 +115,7 @@ declare module 'claude-code' {
         at: number
       }>
       gate: { planned: boolean; denies: number }
+      step: { id: string | null; changes: number; nudged: boolean }
       drawer: { open: Record<string, boolean>; focus: string | null; top?: number; list?: boolean; pick?: string }
       // True once /flow has been run: with autoShow off, the tree waits for it.
       asked: boolean

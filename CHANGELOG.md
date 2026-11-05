@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.8 — 2026-11-05
+
+### Changed
+
+- The band's `접기 ▴` and `흐름도 보기 ▸` are framed buttons like the drawer's (`[ 접기 ▴ ]`), a native button on the desktop app, so they read as something to press. With review-inbox 0.28.1 or later, the band sits above review-inbox's.
+
 ## 0.1.7 — 2026-11-05
 
 ### Changed

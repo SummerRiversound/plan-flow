@@ -54,8 +54,6 @@ export type Shelved = { plan: Plan; state: 'parked' | 'cancelled' | 'done'; at: 
 // The session's board: the plan in hand and the shelf.
 export type Board = { plan: Plan; shelf: Shelved[] }
 
-export type GateState = { planned: boolean; denies: number; reminded?: boolean }
-
 // Folds the person set in the drawer (true open, false closed; absent follows the
 // running item), the box holding the focus ring, and the first body row the person
 // scrolled to (absent: the drawer follows the running step), and whether the person
@@ -118,8 +116,6 @@ declare module 'claude-code' {
         state: 'parked' | 'cancelled' | 'done'
         at: number
       }>
-      gate: { planned: boolean; denies: number }
-      step: { id: string | null; changes: number; nudged: boolean }
       drawer: { open: Record<string, boolean>; focus: string | null; top?: number; list?: boolean; pick?: string }
       // True once /flow has been run: with autoShow off, the tree waits for it.
       asked: boolean

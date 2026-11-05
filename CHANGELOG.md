@@ -2,6 +2,16 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.26 — 2026-11-05
+
+### Changed
+
+- Claude no longer keeps the board. A small model the mod calls itself (Haiku) watches your messages, the calls Claude makes and Claude's answers, and keeps the board from the side. Nothing of plan-flow reaches Claude any more: no `plan` tool, no instruction in the system prompt, no note on your messages or on tool results, so the mod does not change how Claude works.
+
+### Removed
+
+- The `enforce` option, which refused edits until there was a plan.
+
 ## 0.1.25 — 2026-11-05
 
 ### Changed

@@ -2,7 +2,7 @@
 
 **English** | [한국어](README.ko.md)
 
-A [Claude Code](https://claude.com/claude-code) mod that shows the plan Claude is working through, right inside Claude Code. Claude lays the work out as stages, tasks and checkpoints, and you watch it move: a live tree above the prompt while it works, and a flowchart in a side drawer when you want the whole picture.
+A [Claude Code](https://claude.com/claude-code) mod that shows the plan of the work Claude is doing, right inside Claude Code. A small model of the mod's own watches the session from the side and lays the work out as stages, tasks and checkpoints, and you watch it move: a live tree above the prompt while it works, and a flowchart in a side drawer when you want the whole picture.
 
 ![The plan tree above the prompt: stages, the tasks under them, and the running step with what it does](docs/images/en/band.png)
 
@@ -15,7 +15,7 @@ At the prompt of a Claude Code session:
 /plugin install plan-flow@plan-flow
 ```
 
-Then ask Claude for any task that takes more than a couple of steps. It sets up a plan on its own, and the tree appears above the prompt. Type `/flow` to open the flowchart.
+Then ask Claude for any task that takes more than a couple of steps. A plan appears above the prompt within a few seconds and follows the work as it goes. Type `/flow` to open the flowchart.
 
 ## What you see
 
@@ -32,12 +32,12 @@ Then ask Claude for any task that takes more than a couple of steps. It sets up 
 The board follows the work of the whole session, not each message:
 
 - More work on the same task joins the current plan, under the stage it continues; a new stage is added only for a new part of the work.
-- A detour (say, a quick bug fix in the middle) puts the current plan on a shelf, and it comes back when the detour is done. The shelf sits at the bottom of the drawer; press a parked plan to see its steps. When Claude adds a new stage at the end of an unfinished plan, the plan tool asks it whether that work is really a detour.
+- A detour (say, a quick bug fix in the middle) puts the current plan on a shelf, and it comes back when the detour is done. The shelf sits at the bottom of the drawer; press a parked plan to see its steps.
 - Starting over cancels the current plan.
 - A step that has to be redone opens again and is marked `↺`.
-- When the goal keeps changing, or a finished plan keeps taking on more, Claude closes it and starts a new plan, and the finished one stays on the shelf.
+- A new task after a finished plan starts a new plan, and the finished one stays on the shelf.
 
-Claude decides which of these fits each request. When a change you make on the board (a step you checked) matters, Claude hears about it with your next message.
+The mod's planner decides which of these fits, from your messages, the calls Claude makes and Claude's answers. Claude itself never sees the board: nothing is added to what it reads, so the mod does not change how it works.
 
 ## Options
 
@@ -47,7 +47,6 @@ Set them on the install screen, or later in `/config`.
 | --- | --- | --- |
 | `language` | `auto` | The language of the tree, the drawer and the notices: `en` or `ko`. `auto` follows Claude Code's own language setting, then the system locale, then English. |
 | `autoShow` | on | Shows the tree as soon as a plan starts. Off, it shows only after you type `/flow`. |
-| `enforce` | off | Refuses edits, shell commands and subagents until the task has a plan. After three refusals in one turn, it lets the turn go on without one. |
 
 ## Try it without a task
 
@@ -55,11 +54,11 @@ Set them on the install screen, or later in `/config`.
 
 ## What it reads and keeps
 
-The mod writes no files, and its one network call is the version check below. It adds one tool Claude calls, `plan`, and works only through Claude Code's own hooks.
+The mod writes no files and works only through Claude Code's own hooks. It adds no tool, and nothing to what Claude reads.
 
 - **Keeps** the board of your 20 most recent sessions in Claude Code's storage for this mod, so a session that resumes finds its plan again. A board holds the step titles, details, notes and links Claude wrote.
-- **Adds to what Claude reads**: a short instruction on using the board, and a note on each of your messages saying where the plan stands, or that there is none yet. When Claude first changes something in a turn with no plan, one line after that tool's result reminds it to set one. When one step has gone through 8 changes with the plan unchanged, one line asks Claude, once for that step, to split it if it holds parts you would check one by one.
-- **Watches tool calls** to show what Claude is doing (for example `Running Edit`) and for those lines. With `enforce` on, it refuses the tools listed above until there is a plan.
+- **Asks a small model (Haiku) to keep the board**: when you send a message, after every 6 calls that change something, and when Claude answers. It sends the board, your message, one line per such call (what the call says it is for, or the file it touches; never file contents or command output) and the start of Claude's answer. These calls go through Claude Code's own model access, outside the session's cost total, and take a few thousand tokens each, most of them cached.
+- **Watches tool calls** to show what Claude is doing (for example `Running Edit`) and for the lines above. It never changes or refuses a call.
 - **Reads** Claude Code's `language` setting and the `LC_ALL`, `LC_MESSAGES` and `LANG` environment variables, only when `language` is `auto`.
 - **Checks for a newer version**: it lists the folder its installed copy sits in, and once a day reads `.claude-plugin/plugin.json` from this repository on raw.githubusercontent.com. When a newer copy is installed or released, the band's title line says so. Setting `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` skips the network read.
 - **Fills your prompt box** only when you press `Discuss` on a step; nothing is sent until you send it.

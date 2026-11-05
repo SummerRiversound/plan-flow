@@ -1,7 +1,7 @@
 {
   "name": "plan-flow",
   "displayName": "Plan Flow",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "description": "Draws Claude's current plan inside Claude Code: a live tree above the prompt and a card flowchart in a side drawer (/flow).",
   "author": {
     "name": "SummerRiversound",
@@ -38,12 +38,6 @@
       "title": "Show the plan on its own",
       "description": "Show the plan tree above the prompt as soon as a plan starts; off shows it only after /flow",
       "default": true
-    },
-    "enforce": {
-      "type": "boolean",
-      "title": "Require a plan first",
-      "description": "Refuse state-changing tools (Edit, Write, Bash, ...) until the task has a plan",
-      "default": false
     }
   }
 }

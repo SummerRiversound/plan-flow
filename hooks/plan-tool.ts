@@ -3,7 +3,7 @@
 import type { Board, Previous } from './board'
 import { cancelBoard, resumeBoard, setBoard, settle } from './board'
 import type { NodeUpdate, Plan, PlanInput } from './plan'
-import { addNodes, closing, currentLeaf, finishedAt, hasOpenWork, MAX_DETAIL, MAX_LINKS, MAX_NOTE, MAX_RESULT, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes, withGoal } from './plan'
+import { addNodes, closing, finishedAt, hasOpenWork, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes, withGoal } from './plan'
 import { clean } from './sanitize'
 
 export const TOOL_NAME = 'plan'
@@ -39,126 +39,17 @@ export const TOOL_DESCRIPTION = [
   'With the op that finishes the last step (op "next", or op "update" alone), give "summary": what the plan was for and how that was reached; it closes the plan at the end of the drawer.',
 ].join(' ')
 
-// JSON Schema, written out level by level because it may not use $ref. Groups do not
-// count as levels, so the nesting goes deeper than three.
-type Schema = Record<string, unknown>
-const LINKS_HELP = `What the step produced that the person may open: a PR, issue, commit, artifact or doc URL, or an absolute file path (${MAX_LINKS} at most)`
-const stepSchema = (depth: number): Schema => {
-  const properties: Record<string, Schema> = {
-    title: { type: 'string', description: `At most 4 words, in the user's language (${MAX_TITLE} characters at most)` },
-    detail: { type: 'string', description: `One plain sentence: what this step does and why, in words the person already uses (${MAX_DETAIL} characters at most)` },
-    links: { type: 'array', items: { type: 'string' }, description: LINKS_HELP },
-    parallel: { type: 'boolean', description: 'This node groups steps that run at the same time' },
-  }
-  if (depth > 1) properties.children = { type: 'array', items: stepSchema(depth - 1) }
-
-  return { type: 'object', properties, required: ['title'] }
-}
-
-export const TOOL_SCHEMA: Schema = {
-  type: 'object',
-  properties: {
-    op: { type: 'string', enum: [...OPS] },
-    title: { type: 'string', description: 'The task, for op set; the shelved plan, for op resume' },
-    goal: { type: 'string', description: `For op set, and op update when the work widens: one sentence on what the plan's work is for, shown under the title (${MAX_DETAIL} characters at most); empty clears it` },
-    previous: { type: 'string', enum: ['park', 'cancel'], description: 'For op set and resume while the plan in hand has open steps: park it to come back to, or cancel it' },
-    before: { type: 'string', description: 'For op move: the sibling to move in front of; leave out to move last' },
-    nodes: { type: 'array', description: 'Steps, for op set and add', items: stepSchema(5) },
-    parent: { type: 'string', description: 'Id to add under, for op add; leave out for the top level' },
-    id: { type: 'string', description: 'For op remove: the step to drop. For op move: the step to move. For op next: the running step that finished' },
-    summary: {
-      type: 'object',
-      description: 'For op next or update, with the op that finishes the last step: the plan\'s closing note, in the user\'s language',
-      properties: {
-        goal: { type: 'string', description: `What the plan was for, one sentence (${MAX_DETAIL} characters at most)` },
-        result: { type: 'string', description: `How that was reached: what was made and checked, one or two sentences (${MAX_RESULT} characters at most)` },
-      },
-      required: ['goal', 'result'],
-    },
-    updates: {
-      type: 'array',
-      description: 'For op update; may be left out when only the summary or the goal is given',
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'string' },
-          status: { type: 'string', enum: [...STATUSES] },
-          title: { type: 'string' },
-          note: { type: 'string', description: `Why, for blocked or skipped; what to look at, for needs_check (${MAX_NOTE} characters at most); empty clears it` },
-          detail: { type: 'string', description: 'The step\'s one-sentence detail; empty clears it' },
-          links: { type: 'array', items: { type: 'string' }, description: 'Links to add after the step\'s own; an empty list clears them' },
-          parallel: { type: 'boolean' },
-        },
-        required: ['id'],
-      },
-    },
-  },
-  required: ['op'],
-}
-
-// The section the system prompt carries while the tool is offered.
-export const instruction = (tool: string): string =>
-  [
-    `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title, a "goal" and its steps as a hierarchy.`,
-    'The goal is one sentence on what this work is for, so anyone glancing at the board knows what the session is doing; when follow-up work widens it, rewrite it with op "update" and "goal".',
-    'Shape it as 2 to 5 stages, the parts of the outcome in order, each holding the tasks that make it up; a task gets checkpoints when it has parts worth seeing: one for each thing the person checks on its own (each draft, screen or file they open), never one step for several of them. A flat list of steps hides the shape of the work, so group the steps even when the task is small.',
-    "Name stages for what will exist when they are done, in this task's own words, not phases: a name that would fit any other task unchanged (setup, decision record, implement, test, commit, PR, wrap-up) is a phase, so rename it. The repo's routine (an issue comment, a worktree, test-first, a commit, the pull request) goes inside the stage it serves, never a stage of its own. For a delete button, not \"Decision record / Implement / PR\" but \"Each memo shows a button\" (the issue comment, the failing test, the button) then \"Clicking deletes it\" (the wiring, a check in the browser, the PR). When one stage holds more than half of five or more tasks, split it by what each part delivers. A stage holding a single task is just that task: leave it a step with no children.",
-    "Every title is at most 4 words, in the user's language.",
-    'Steps are checkpoints for following where the work stands, not the edits: the deepest level is something the person would recognise as done (a screen works, a test proves it), and the file-by-file changes stay out of the plan.',
-    'Give every step a detail: one plain sentence saying what it does and why, so the person follows without asking; say what it means for the project, with no file names, code or commands, in words the person already uses, never labels coined in this session.',
-    'When a step produces something the person may open (a PR, an issue, a commit, an artifact, a doc, a file), attach it to that step with op "update" and "links": the full URL or an absolute path.',
-    'Put steps that do not depend on each other under one node with "parallel": true and work on them together (several tool calls or agents in one message).',
-    'When a step is done call op "next"; it finishes that step and starts the following one. Use op "update" for blocked or skipped steps, with a note saying why.',
-    'With the op that finishes the last step, give "summary": the goal in one sentence and, in one or two, how it was reached (what was made and checked).',
-    'Check your own work right after each change, inside that step (run it, look at it, take the screenshot); never plan a catch-all check step for the end. When a step is done but only the person can confirm it (a device in hand, a sign-in, a taste call), set it to "needs_check" with a note naming what to look at, and move on: it counts as done and shows on the board as a step to check. Set it to "completed" when the person confirms, or "pending" to redo it.',
-    'While a plan is on the board, each request carries a short plan-flow note on where it stands. Change the board only when the request changes the task, in the same turn as the work, never instead of it: more of the same, or a fix to finished work, goes under the stage it continues (op "add" with that stage as "parent", or status "pending" to reopen a step), and a new top-level stage only for a new part of the outcome; a follow-up after the plan finished stays there for the same outcome, and for a new outcome: op "set" with a new title (the finished plan goes to the shelf); a detour done here before coming back: op "set" with previous "park", and the parked plan returns when the detour finishes; unrelated work: suggest a fresh session first; starting over: previous "cancel"; back to parked work: op "resume"; the person confirms a step to check: status "completed". A question or a quick side job leaves the board alone.',
-    'The person sees the board drawn on screen, so never describe, list or redraw the plan in your reply.',
-    'A plain question needs no plan.',
-    `If the tool is not loaded yet, load it with ToolSearch (query "select:${tool}").`,
-  ].join(' ')
-
-// The note a request carries while the board is empty, so the plan is set before the work starts.
-export const NO_PLAN_NOTE =
-  'plan-flow: the board is empty, so the person sees no plan. If this request takes more than a couple of tool calls, call the plan tool with op "set" before any call that changes something (a worktree, an edit, a write, a command that writes); reading first is fine. A question or a one-step job needs no plan.'
-
-// The top-level stages with ids and status, so a request that continues one lands under it
-// instead of in a new stage at the end.
-const MAX_STAGES_LISTED = 12
-const stagesLine = (plan: Plan): string => {
-  const stages = plan.nodes.filter(n => n.parentId === null)
-  const shown = stages.slice(0, MAX_STAGES_LISTED).map(n => `${n.id} ${n.title} (${n.status})`)
-  const more = stages.length > MAX_STAGES_LISTED ? `, and ${stages.length - MAX_STAGES_LISTED} more` : ''
-
-  return `Stages: ${shown.join(', ')}${more}.`
-}
-
-// The note each request carries while the board has a plan: where things stand, and the
-// cases to sort the request into before acting.
-// `byPerson`: what the person changed from the drawer since the last request.
-export const boardNote = (board: Board, byPerson: readonly string[] = []): string => {
-  const parked = board.shelf.filter(s => s.state === 'parked')
-  if (board.plan.nodes.length === 0 && parked.length === 0) return NO_PLAN_NOTE
-  const lines = ['plan-flow: the board before this request.']
-  if (board.plan.nodes.length > 0) {
-    const { done, total } = progress(board.plan)
-    const leaf = currentLeaf(board.plan)
-    const state = hasOpenWork(board.plan)
-      ? leaf === null
-        ? ''
-        : `, in hand: ${leaf.title} (id ${leaf.id})`
-      : board.plan.summary === undefined
-        ? ', finished with no summary yet: send op "update" with "summary" to close it'
-        : ', finished'
-    const goal = board.plan.goal === undefined ? '' : `, goal "${board.plan.goal}"`
-    lines.push(`In hand: "${board.plan.title}"${goal} (${done}/${total} done${state}).`)
-    lines.push(stagesLine(board.plan))
-  }
-  if (byPerson.length > 0) lines.push(`Changed by the person in the drawer since the last request: ${byPerson.join(' ')}`)
-  if (parked.length > 0) lines.push(`Parked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total})`).join(', ')}.`)
-  lines.push('Change the board only if this request changes the task (the cases are in the system prompt); otherwise just do the work.')
-
-  return lines.join('\n')
-}
+// How a good plan is shaped, for whoever keeps the board.
+export const PLAN_RULES = [
+  'Shape a plan as 2 to 5 stages, the parts of the outcome in order, each holding the tasks that make it up; a task gets checkpoints when it has parts worth seeing: one for each thing the person checks on its own (each draft, screen or file they open), never one step for several of them. A flat list of steps hides the shape of the work, so group the steps even when the task is small.',
+  "Name stages for what will exist when they are done, in this task's own words, not phases: a name that would fit any other task unchanged (setup, decision record, implement, test, commit, PR, wrap-up) is a phase, so rename it. The repo's routine (an issue comment, a worktree, test-first, a commit, the pull request) goes inside the stage it serves, never a stage of its own. When one stage holds more than half of five or more tasks, split it by what each part delivers. A stage holding a single task is just that task: leave it a step with no children.",
+  'Every title is at most 4 words.',
+  'Steps are checkpoints for following where the work stands, not the edits: the deepest level is something the person would recognise as done (a screen works, a test proves it), and the file-by-file changes stay out of the plan.',
+  'Give every step a detail: one plain sentence saying what it does and why, with no file names, code or commands, in words the person already uses.',
+  'The goal is one sentence on what the work is for; rewrite it with op "update" and "goal" when the work widens.',
+  'When a step produced something the person may open (a PR, an issue, a commit, an artifact, a file), attach it with op "update" and "links": the full URL or an absolute path, only as it appears in what happened.',
+  'A step only the person can confirm (a device in hand, a sign-in, a taste call) goes to "needs_check" with a note naming what to look at.',
+].join(' ')
 
 type Raw = Record<string, unknown>
 type Parsed<T> = { value: T } | { error: string }

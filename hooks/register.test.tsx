@@ -179,6 +179,40 @@ test('with autoShow off, nothing shows above the prompt until /flow', { options:
   await band.unmount()
 })
 
+test('on the desktop app the drawer draws each stage as a rounded card joined by lines, and presses still fold, pick and switch to the list', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  await $.tool.call({ tool: TOOL, op: 'next' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
+  // 조사 is running: its card is drawn in text colour, the others muted.
+  expect((await cards()).map(c => c.props.borderColor)).toEqual(['text', 'inactive', 'inactive'])
+  expect((await pane.findAll({ type: 'Svg' })).length).toBeGreaterThanOrEqual(2)
+  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
+  await pane.press({ key: '2' })
+  await pane.redraw()
+  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  await pane.press({ key: '2.1' })
+  await pane.redraw()
+  expect(await pane.find({ type: 'Button', key: 'ask' })).toBeDefined()
+  await pane.press({ key: 'view' })
+  await pane.redraw()
+  expect(await cards()).toHaveLength(0)
+  expect(await pane.find({ type: 'Text', text: /├─/ })).toBeDefined()
+  await pane.unmount()
+})
+
+test('the terminal drawer keeps the character flowchart', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')).toHaveLength(0)
+  expect(await pane.find({ type: 'Text', text: /╭─/ })).toBeDefined()
+  await pane.unmount()
+})
+
 test('/flow opens the drawer and closes it again', KO, async ($, on) => {
   engine(on)
   await start($)

@@ -95,12 +95,15 @@ const actionLines = (drawer: DrawerState, n: PlanNode, w: number, lead: string):
 
 type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
 
-const right = (ctx: Ctx, n: PlanNode): Seg | null => {
-  if (hasChildren(ctx.plan.nodes, n.id)) return { text: `${count(ctx.plan, n.id)} ${isOpen(ctx.plan, ctx.drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
+// What a step shows flush right: a box's done/total and its fold arrow, or a running leaf's "진행 중".
+export const stepRight = (plan: Plan, drawer: DrawerState, n: PlanNode): Seg | null => {
+  if (hasChildren(plan.nodes, n.id)) return { text: `${count(plan, n.id)} ${isOpen(plan, drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
   if (n.status === 'in_progress') return { text: t().running, color: glyphColor(n) }
 
   return null
 }
+
+const right = (ctx: Ctx, n: PlanNode): Seg | null => stepRight(ctx.plan, ctx.drawer, n)
 
 // The note, when asked for, comes last so a box may cut it without cutting the title.
 const titleSegs = (ctx: Ctx, n: PlanNode, withNote = true): Line => {
@@ -156,7 +159,7 @@ export const linkLabel = (link: string): string => {
 }
 
 // Where a press on the link goes: URLs as they are, absolute paths as files; anything else stays plain.
-const hrefOf = (link: string): string | undefined =>
+export const hrefOf = (link: string): string | undefined =>
   /^[a-z]+:\/\//i.test(link) ? link : link.startsWith('/') ? `file://${encodeURI(link)}` : undefined
 
 // One row of links, `↗ PR #12  ↗ 아티팩트`, ending in `+N` for those that do not fit.
@@ -408,24 +411,41 @@ export type DrawerView = { head: Line[]; body: Line[]; buttons: string[]; at: nu
 
 const rule = (width: number): Line => [{ text: ` ${'┄'.repeat(Math.max(0, width - 2))}`, color: 'inactive' }]
 
+// The head's top: the plan's title, goal, progress, steps to check and what Claude is doing.
+export const headTop = (plan: Plan, shelf: readonly Shelved[], activity: Activity, width: number, now: number): Line[] =>
+  planHead(plan, activity, 6, width - 1, now, undefined, shelf.filter(s => s.state === 'parked').length, undefined, undefined, 3)
+    .filter(l => l.length > 0)
+    .map((l): Line => [{ text: ' ' }, ...l])
+
+// The head's button row: `right` (the view switch) flush with the rule's end, so it stays put
+// when the view changes; the others from the left, while they fit before it. The gap grows
+// where the surface draws native buttons.
+const toolRow = (left: ReadonlyArray<[string, string]>, [id, text]: [string, string], width: number): Line => {
+  const r = 4 + cells(text)
+  if (r + 1 > width - 1) return buttonRow([[id, text]], width)
+  const l = buttonRow(left, width - 1 - r - 2)
+  const used = cells(lineText(l)) + 4 * l.filter(s => s.button !== undefined).length
+
+  return [...l, { text: padRight('', width - 1 - r - used), fill: true }, { text, color: 'text', bold: true, button: id }]
+}
+
+// The flowchart's button row: fold every box, and switch to the list.
+export const flowTools = (width: number): Line =>
+  toolRow(
+    [
+      [EXPAND_ALL, t().expandAll],
+      [COLLAPSE_ALL, t().collapseAll],
+    ],
+    [VIEW, t().toList],
+    width,
+  )
+
 export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, { width, now }: FlowOptions): DrawerView => {
   const shelved = shelfLines(shelf, width)
   if (plan.nodes.length === 0) return { head: [], body: [...wrap(t().empty, width - 1, 4).map((text): Line => [{ text, color: 'inactive' }]), ...shelved], buttons: [], at: null }
-  const parked = shelf.filter(s => s.state === 'parked').length
-  const top = planHead(plan, activity, 6, width - 1, now, undefined, parked, undefined, undefined, 3)
-    .filter(l => l.length > 0)
-    .map((l): Line => [{ text: ' ' }, ...l])
+  const top = headTop(plan, shelf, activity, width, now)
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
-  // The head's button row: `right` (the view switch) flush with the rule's end, so it stays put
-  // when the view changes; the others from the left, while they fit before it.
-  const tools = (left: ReadonlyArray<[string, string]>, [id, text]: [string, string]): Line => {
-    const r = 4 + cells(text)
-    if (r + 1 > width - 1) return buttonRow([[id, text]], width)
-    const l = buttonRow(left, width - 1 - r - 2)
-    const used = cells(lineText(l)) + 4 * l.filter(s => s.button !== undefined).length
-
-    return [...l, { text: padRight('', width - 1 - r - used) }, { text, color: 'text', bold: true, button: id }]
-  }
+  const tools = (left: ReadonlyArray<[string, string]>, r: [string, string]): Line => toolRow(left, r, width)
   const leaf = currentLeaf(plan)
   // The step Claude is on, else the nearest row above it that shows.
   const ids = leaf === null ? [] : leaf.id.split('.').map((_, i, parts) => parts.slice(0, parts.length - i).join('.'))
@@ -457,13 +477,7 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
 
     return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...end, ...shelved], buttons: steps, at: at === null ? null : at + hint.length }
   }
-  const row = tools(
-    [
-      [EXPAND_ALL, t().expandAll],
-      [COLLAPSE_ALL, t().collapseAll],
-    ],
-    [VIEW, t().toList],
-  )
+  const row = flowTools(width)
   const at = find(flow.lines)
 
   return { head: [...top, row, rule(width)], body: [[], ...flow.lines, ...shelved], buttons: flow.buttons, at: at === null ? null : at + 1 }

@@ -35,3 +35,37 @@ export const liveSvg = (title: string, cells: number, now: number): { source: st
 
   return { source, width, height: ROW_PX }
 }
+
+// The lines between cards in the drawer: pictures 1200 wide that the surface scales to the
+// drawer's width, so a card's middle sits at a fixed fraction of it. `n` cards side by side
+// share the width evenly.
+const W = 1200
+const H = 48
+const MID = W / 2
+const line = (d: string, h = H): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}" viewBox="0 0 ${W} ${h}">` +
+  '<style>.l{stroke:#c9c5bd}@media (prefers-color-scheme:dark){.l{stroke:#5a5752}}</style>' +
+  `<path class="l" d="${d}" fill="none" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/></svg>`
+
+const middles = (n: number): number[] => [...Array(n).keys()].map(i => Math.round((W * (2 * i + 1)) / (2 * n)))
+
+// Straight down from one card to the next.
+export const trunkSvg = (): string => line(`M${MID} 0 V${H}`)
+
+// From the card above (`trunk`) out to the middle of each card below.
+export const splitSvg = (n: number, trunk: boolean): string => {
+  const xs = middles(n)
+  const bar = n > 1 ? ` M${xs[0]} ${H} V${H / 2} H${xs[n - 1]} V${H}` : ` M${xs[0]} ${H / 2} V${H}`
+  const drops = xs.slice(1, -1).map(x => ` M${x} ${H / 2} V${H}`).join('')
+
+  return line(`${trunk ? `M${MID} 0 V${H / 2}` : ''}${bar}${drops}`.trim())
+}
+
+// From the middle of each card above back to one line (`trunk`: on to the card below).
+export const joinSvg = (n: number, trunk: boolean): string => {
+  const xs = middles(n)
+  const down = xs.map(x => `M${x} 0 V${H / 2}`).join(' ')
+  const bar = n > 1 ? ` M${xs[0]} ${H / 2} H${xs[n - 1]}` : ''
+
+  return line(`${down}${bar}${trunk ? ` M${MID} ${H / 2} V${H}` : ''}`)
+}

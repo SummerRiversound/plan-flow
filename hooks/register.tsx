@@ -18,6 +18,7 @@ import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoLi
 import { joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
 import type { BandRow } from './tree'
+import type { StepRowProps } from './step-row'
 import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, noteText, planHead } from './tree'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Newer, ReleaseCheck } from './version'
@@ -196,13 +197,18 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
         goalRows: 1,
         title: (
           <Box flexDirection="row" alignItems="center" gap="xs">
-            <Button key={FOLD_BUTTON} plain onPress={() => o.onPress(FOLD_BUTTON)}>
-              <Text weight="semibold">
-                {plan.title}
-                <Text color="inactive">{o.folded ? ' ▾' : ' ▴'}</Text>
-              </Text>
-            </Button>
-            <Box flexGrow={1} />
+            {e.surface === 'desktop' && 'Client' in el ? (
+              // The whole title row folds the band, not only its words.
+              <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, mark: null, title: plan.title, strong: true, muted: false, strike: false, redo: false, pill: null, right: { text: o.folded ? '▾' : '▴', color: 'inactive' }, hover: HOVER, edge: EDGE } satisfies StepRowProps} />
+            ) : (
+              <Button key={FOLD_BUTTON} plain onPress={() => o.onPress(FOLD_BUTTON)}>
+                <Text weight="semibold">
+                  {plan.title}
+                  <Text color="inactive">{o.folded ? ' ▾' : ' ▴'}</Text>
+                </Text>
+              </Button>
+            )}
+            {e.surface === 'desktop' ? null : <Box flexGrow={1} />}
             {o.notice === undefined ? null : <Text size="footnote">{o.notice}</Text>}
             <Button key={OPEN_BUTTON} variant="primary" onPress={() => o.onPress(OPEN_BUTTON)}>
               {t().bandOpen}
@@ -223,6 +229,8 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   const el = $.ui.resolve(e)
   const { Box, Text, Button, Link } = el
   const Svg = 'Svg' in el ? el.Svg : null
+  // The editor's table may carry the name, but only the desktop app draws Clients.
+  const Client = e.surface === 'desktop' && 'Client' in el ? el.Client : null
   const live = isLive(activity)
   // Too narrow for the cards side by side, as the terminal judges it: the list, with no switch.
   const narrow = drawFlow(plan, drawer, { width, now }).cut
@@ -254,11 +262,35 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   // the pill, then links and its count at the right edge.
   const line = (s: CardStep, top: boolean, together: boolean) => {
     const spin = s.running && live && !s.parent && Svg !== null
+    const strong = s.running || (top && !isDone(s) && s.status !== 'pending')
+    // Where the surface draws Clients (the desktop app), the whole row is one: a press anywhere on it counts.
+    if (Client !== null) {
+      const props: StepRowProps = {
+        id: s.id,
+        mark: spin ? null : { text: s.glyph.text, color: s.glyph.color ?? 'text' },
+        title: s.title,
+        strong,
+        muted: isDone(s),
+        strike: s.status === 'skipped',
+        redo: s.redo,
+        pill: together ? t().parallel : null,
+        right: s.right === null ? null : { text: s.right.text, color: s.right.color === 'text' || s.right.color === undefined ? 'inactive' : s.right.color },
+        hover: HOVER,
+        edge: EDGE,
+      }
+      return (
+        <Box flexDirection="row" alignItems="center" gap="xs">
+          {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
+          <Client key={`step-${s.id}`} module="./step-row.tsx" props={props} flexGrow={1} />
+          {links(s.links)}
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="row" alignItems="center" gap="xs">
         {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
         <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
-          <Text weight={s.running || (top && !isDone(s) && s.status !== 'pending') ? 'semibold' : undefined} color={isDone(s) ? 'inactive' : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
+          <Text weight={strong ? 'semibold' : undefined} color={isDone(s) ? 'inactive' : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
             {spin ? null : <Text color={s.glyph.color}>{s.glyph.text} </Text>}
             {s.title}
             {s.redo ? ' ↺' : ''}
@@ -528,6 +560,39 @@ async function demo($: $, arg: string | undefined): Promise<string> {
 // What the person changed on the board from the drawer, told to Claude with the next request.
 // shortcut: a module variable, lost on a reload of the mod; move to $.state if that bites.
 let byPerson: string[] = []
+
+// A press in the drawer: a Button's, or a row a desktop draws as a Client.
+async function pressDrawer($: $, id: string): Promise<void> {
+  const at = await read($, demoAtom)
+  const frame = at === null ? undefined : demoFrame(at)
+  const plan = frame?.board.plan ?? (await read($, planAtom))
+  const pick = (await read($, drawerAtom)).pick
+  const picked = plan.nodes.find(n => n.id === pick)
+  if (id === CONFIRM && picked !== undefined) {
+    if (frame !== undefined) return $.ui.toast(t().demo.untouched)
+    byPerson.push(`"${picked.title}" (id ${picked.id}) marked completed: the person checked it.`)
+    await apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] })
+    await update($, drawerAtom, d => ({ ...d, pick: undefined }))
+    return
+  }
+  // A draft, not a send: the person writes the rest and sends it themselves.
+  if (id === ASK && picked !== undefined) {
+    const r = await $.prompt.fill({ text: `[${picked.title}] `, mode: 'insert' })
+    $.ui.toast(r.isFilled ? t().filled : t().notFilled)
+    return
+  }
+  await update($, drawerAtom, (d): DrawerState =>
+    id === EXPAND_ALL || id === COLLAPSE_ALL
+      ? foldAll(plan, d, id === EXPAND_ALL)
+      : id === FOLLOW
+        ? { ...d, top: undefined }
+        : id === VIEW
+          ? { ...d, list: d.list !== true, top: undefined }
+          : hasChildren(plan.nodes, id)
+            ? { ...toggleFold(plan, d, id), focus: id }
+            : pickStep(d, id),
+  )
+}
 
 // Runs one op on the board, from the plan tool or a press in the drawer, and redraws.
 async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: string }> {
@@ -801,31 +866,7 @@ export const register: Register = (on, options) => {
     const ids = shown.lines.flatMap(l => l.flatMap(s => (s.button === undefined ? [] : [s.button])))
     const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
     const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id) && ids.includes(id)) ?? null
-    const picked = plan.nodes.find(n => n.id === drawer.pick)
-    const press = (id: string) => {
-      if (id === CONFIRM && picked !== undefined) {
-        if (frame !== undefined) return $.ui.toast(t().demo.untouched)
-        byPerson.push(`"${picked.title}" (id ${picked.id}) marked completed: the person checked it.`)
-        void apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] }).then(() => update($, drawerAtom, d => ({ ...d, pick: undefined })))
-        return
-      }
-      // A draft, not a send: the person writes the rest and sends it themselves.
-      if (id === ASK && picked !== undefined) {
-        void $.prompt.fill({ text: `[${picked.title}] `, mode: 'insert' }).then(r => $.ui.toast(r.isFilled ? t().filled : t().notFilled))
-        return
-      }
-      void update($, drawerAtom, (d): DrawerState =>
-        id === EXPAND_ALL || id === COLLAPSE_ALL
-          ? foldAll(plan, d, id === EXPAND_ALL)
-          : id === FOLLOW
-            ? { ...d, top: undefined }
-            : id === VIEW
-              ? { ...d, list: d.list !== true, top: undefined }
-              : hasChildren(plan.nodes, id)
-                ? { ...toggleFold(plan, d, id), focus: id }
-                : pickStep(d, id),
-      )
-    }
+    const press = (id: string) => void pressDrawer($, id)
 
     // A surface with real boxes and its own type draws the drawer natively and scrolls it itself.
     if (e.surface !== 'terminal') {
@@ -834,6 +875,26 @@ export const register: Register = (on, options) => {
     }
 
     return <Box flexDirection="column">{shown.lines.map(l => row($, e, l, focus, press))}</Box>
+  })
+
+  // The band's title row, a Client on the desktop app, was pressed: fold or unfold the band.
+  on('ui.message', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const d = e.data
+    if (typeof d === 'object' && d !== null && 'press' in d && d.press === FOLD_BUTTON) {
+      await update($, foldAtom, f => !f)
+      return {}
+    }
+    return next(e)
+  })
+
+  // A row the desktop draws as a Client was pressed.
+  on('ui.message', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const d = e.data
+    if (typeof d === 'object' && d !== null && 'press' in d && typeof d.press === 'string') {
+      await pressDrawer($, d.press)
+      return {}
+    }
+    return next(e)
   })
 
   // The person scrolls the drawer: its body moves under the pinned head and foot, and

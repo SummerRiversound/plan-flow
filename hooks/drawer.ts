@@ -8,7 +8,7 @@ import type { Plan, PlanNode } from './plan'
 import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { drawTree, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
+import { FOLD_BUTTON, OPEN_BUTTON, drawTree, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
 import { t } from './i18n'
 
@@ -63,7 +63,7 @@ export const EXPAND_ALL = 'expand-all'
 export const COLLAPSE_ALL = 'collapse-all'
 export const FOLLOW = 'follow'
 export const VIEW = 'view'
-export const BOXED: ReadonlySet<string> = new Set([EXPAND_ALL, COLLAPSE_ALL, FOLLOW, VIEW])
+export const BOXED: ReadonlySet<string> = new Set([EXPAND_ALL, COLLAPSE_ALL, FOLLOW, VIEW, OPEN_BUTTON, FOLD_BUTTON])
 // Under a picked step: mark it checked, or start a message about it in the prompt box. Their
 // brackets are drawn as text, so the box walls around them count the cells right.
 export const CONFIRM = 'confirm'

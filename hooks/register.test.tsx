@@ -244,18 +244,18 @@ test('on the desktop app the drawer head is set in the app type: a heading title
   await pane.unmount()
 })
 
-test('on the desktop app tasks that run together sit under a small rounded tag, and links are chips', KO, async ($, on) => {
+test('on the desktop app each task that runs with its siblings carries a small 동시에 pill beside its title, at their level, and links are chips', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '같이', parallel: true, children: [{ title: '하나', links: ['https://github.com/o/r/pull/7'] }, { title: '둘' }] }] }] })
+  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '혼자' }, { title: '같이', parallel: true, children: [{ title: '하나', links: ['https://github.com/o/r/pull/7'] }, { title: '둘' }] }] }] })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const tag = (await pane.findAll({ type: 'Box' })).find(b => b.props.borderStyle === 'round' && b.props.alignSelf === 'flex-start')
-  expect(tag).toBeDefined()
-  expect((await pane.find({ type: 'Text', text: /^동시에$/ }))?.props.size).toBe('caption')
-  await pane.press({ key: '1.1.1' })
-  await pane.redraw()
+  // One pill per task that runs together, none on a line of its own.
+  const pills = await pane.findAll({ type: 'Text', text: /^동시에$/ })
+  expect(pills).toHaveLength(2)
+  expect(pills.every(p => p.props.size === 'caption')).toBe(true)
   expect(await pane.find({ type: 'Link' })).toBeDefined()
-  expect((await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round' && b.props.alignSelf === 'flex-start').length).toBeGreaterThanOrEqual(2)
+  // Counts keep their width, so they never break over lines.
+  expect((await pane.findAll({ type: 'Box' })).filter(b => b.props.flexShrink === 0).length).toBeGreaterThanOrEqual(2)
   await pane.unmount()
 })
 

@@ -101,9 +101,11 @@ const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalR
         <Box flexGrow={1} flexDirection="column">
           {Svg === null ? null : <Svg source={progressSvg(hd.slots)} alt={t().progress(hd.done, hd.total)} />}
         </Box>
-        <Text size="footnote" tabular color="inactive">
-          {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
-        </Text>
+        <Box flexShrink={0}>
+          <Text size="footnote" tabular color="inactive">
+            {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
+          </Text>
+        </Box>
       </Box>
       {o.folded === true || hd.checks.length === 0 ? null : (
         <Text size="footnote">
@@ -171,9 +173,11 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
         )}
         <Box flexGrow={1} />
         {parent ? (
-          <Text size="footnote" tabular color="inactive">
-            {`${counts(plan, n.id)}${r.folded ? ' ▸' : ''}`}
-          </Text>
+          <Box flexShrink={0}>
+            <Text size="footnote" tabular color="inactive">
+              {`${counts(plan, n.id)}${r.folded ? ' ▸' : ''}`}
+            </Text>
+          </Box>
         ) : null}
       </Box>
     )
@@ -242,7 +246,13 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       {s.redo ? ' ↺' : ''}
     </Text>
   )
-  const head = (s: CardStep, top: boolean) => {
+  const pill = () =>
+    tag(
+      <Text size="caption" color="inactive">
+        {t().parallel}
+      </Text>,
+    )
+  const head = (s: CardStep, top: boolean, together: boolean) => {
     // The running step turns while Claude works; the mark is a picture, so it sits beside the title's Button.
     const spin = s.running && live && !s.parent && Svg !== null
     return (
@@ -251,18 +261,21 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
           {title(s, top, !spin)}
         </Button>
+        {together ? pill() : null}
         <Box flexGrow={1} />
         {s.right === null ? null : (
-          <Text size="footnote" tabular color={s.right.color}>
-            {s.right.text}
-          </Text>
+          <Box flexShrink={0}>
+            <Text size="footnote" tabular color={s.right.color}>
+              {s.right.text}
+            </Text>
+          </Box>
         )}
       </Box>
     )
   }
-  const stepBlock = (s: CardStep, top: boolean): RenderChildren => (
+  const stepBlock = (s: CardStep, top: boolean, together = false): RenderChildren => (
     <Box flexDirection="column" gap="xs">
-      {head(s, top)}
+      {head(s, top, together)}
       {s.detail === undefined ? null : (
         <Text size="footnote" color="inactive">
           {s.detail}
@@ -285,26 +298,15 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       )}
       {s.children.length === 0 ? null : (
         <Box flexDirection="column" gap="xs" paddingLeft="md">
-          {s.children.map(item)}
+          {s.children.map(c => item(c))}
         </Box>
       )}
     </Box>
   )
-  const together = (child: RenderChildren) => (
-    <Box flexDirection="column" gap="xs">
-      {tag(
-        <Text size="caption" color="inactive">
-          {t().parallel}
-        </Text>,
-      )}
-      <Box flexDirection="column" gap="xs" paddingLeft="sm">
-        {child}
-      </Box>
-    </Box>
-  )
-  const item = (i: CardItem): RenderChildren => (i.kind === 'step' ? stepBlock(i.step, false) : together(i.items.map(item)))
+  // Steps that run together stay at their siblings' level, each marked with the pill.
+  const item = (i: CardItem, together = false): RenderChildren => (i.kind === 'step' ? stepBlock(i.step, false, together) : i.items.map(x => item(x, true)))
   const card = (s: CardStep) => (
-    <Box flexDirection="column" borderStyle="round" borderColor={s.running ? 'text' : 'inactive'} paddingX="sm" paddingY="xs">
+    <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={s.running ? 'text' : 'inactive'} paddingX="sm" paddingY="xs">
       {stepBlock(s, true)}
     </Box>
   )
@@ -336,7 +338,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     const first = i === 0
     const last = i === axis.length - 1
     if (list) {
-      flow.push(a.kind === 'stage' ? stepBlock(a.stage, true) : a.kind === 'split' ? together(a.stages.map(s => stepBlock(s, true))) : summary(a))
+      flow.push(a.kind === 'stage' ? stepBlock(a.stage, true) : a.kind === 'split' ? a.stages.map(s => stepBlock(s, true, true)) : summary(a))
       return
     }
     if (a.kind === 'split') {

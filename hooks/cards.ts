@@ -4,9 +4,11 @@
 // terminal keeps the character flowchart in drawer.ts.
 import type { DrawerState } from '../types'
 import type { Plan, PlanNode, PlanStatus } from './plan'
-import { childrenOf, hasChildren, hasOpenWork, isFinished } from './plan'
+import { checksOf, childrenOf, hasChildren, hasOpenWork, isFinished, leavesOf, progress, runningLeaves } from './plan'
+import type { Activity } from './activity'
+import { activityLabel } from './activity'
 import type { Seg } from './tree'
-import { glyphSeg } from './tree'
+import { glyphColor, glyphSeg, noteText } from './tree'
 import { ASK, CONFIRM, isOpen, stepRight } from './drawer'
 import { t } from './i18n'
 
@@ -90,3 +92,36 @@ export const cardButtons = (axis: readonly AxisItem[]): string[] => {
 
 // Done, waiting for a check, or skipped: drawn dim, as in the character drawer.
 export const isDone = (s: CardStep): boolean => isFinished(s.status) && s.status !== 'needs_check'
+
+// The drawer's head for the same surfaces: title, goal, one progress slot per step in plan
+// order (done, waiting for a check, still to do), the steps to check and what Claude is doing.
+export type ProgressSlot = 'done' | 'check' | 'todo'
+export type CardHead = {
+  title: string
+  goal?: string
+  done: number
+  total: number
+  pct: number
+  parked: number
+  slots: ProgressSlot[]
+  checks: string[]
+  activity?: { text: string; color: string }
+}
+
+export const headOf = (plan: Plan, parked: number, activity: Activity): CardHead => {
+  const { done, total } = progress(plan)
+  const words = activityLabel(activity)
+  const run = runningLeaves(plan)[0]
+
+  return {
+    title: plan.title,
+    ...(plan.goal === undefined ? {} : { goal: plan.goal }),
+    done,
+    total,
+    pct: total === 0 ? 0 : Math.round((done / total) * 100),
+    parked,
+    slots: leavesOf(plan).map(n => (n.status === 'needs_check' ? 'check' : isFinished(n.status) ? 'done' : 'todo')),
+    checks: checksOf(plan).map(n => `${n.title}${noteText(n)}`),
+    ...(words === undefined ? {} : { activity: { text: words, color: activity.phase === 'error' ? 'error' : run === undefined ? 'text' : glyphColor(run) } }),
+  }
+}

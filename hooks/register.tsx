@@ -1,20 +1,20 @@
 // Wiring only: hook events in, the pure modules beside this file decide, state out.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-code'
-import type { DrawerState, Shelved } from '../types'
+import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, flowTools, foldAll, headTop, hrefOf, linkLabel, pickStep, shelfLines, toggleFold } from './drawer'
+import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
 import type { AxisItem, CardItem, CardStep } from './cards'
-import { cardButtons, cardsOf, isDone } from './cards'
+import { cardButtons, cardsOf, headOf, isDone } from './cards'
 import { GUARDED, REMINDER, decide, denyReason, idleWatch, longStepNote, onPlanWritten, onStepPlanWritten, onTurnStart, watchStep } from './gate'
 import type { Plan } from './plan'
-import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, runningLeaves } from './plan'
+import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, progress, runningLeaves } from './plan'
 import type { PlanOp } from './plan-tool'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
-import { joinSvg, liveSvg, splitSvg, trunkSvg } from './gui'
+import { joinSvg, liveSvg, progressSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
 import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, fitLine, isLive } from './tree'
 import { cells } from './width'
@@ -90,59 +90,77 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
   )
 }
 
-// The drawer's flowchart as cards, on a surface that draws real boxes: each stage a rounded
-// card (the running one in text colour), parallel stages side by side, lines between them.
-// A step's title is its Button: a box folds, a step is picked with its buttons under it.
-const cardsBody = ($: $, e: Parameters<$['ui']['resolve']>[0], axis: readonly AxisItem[], focus: string | null, onPress: (id: string) => void, live: boolean, now: number) => {
-  const t2 = $.ui.resolve(e)
-  const { Box, Text, Button, Link } = t2
-  const Svg = 'Svg' in t2 ? t2.Svg : null
-  // The app drops a picture with no alt.
-  const pic = (source: string, key: string) => (Svg === null ? null : <Svg key={key} source={source} alt={t().line} />)
-  const title = (s: CardStep) => (
-    <Text bold={s.running ? true : undefined} dimColor={isDone(s) ? true : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
-      <Text color={s.glyph.color}>{s.glyph.text}</Text> {s.title}
+// The drawer on a surface that draws real boxes and its own type (the desktop app, the
+// editor): a head set in the app's type, then each stage a rounded card (the running one in
+// text colour), parallel stages side by side with lines between them, or the same steps as a
+// plain list. A step's title is its Button: a box folds, a step is picked with its buttons under it.
+type Ev = Parameters<$['ui']['resolve']>[0]
+
+const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, onPress: (id: string) => void, now: number) => {
+  const el = $.ui.resolve(e)
+  const { Box, Text, Button, Link } = el
+  const Svg = 'Svg' in el ? el.Svg : null
+  const live = isLive(activity)
+  const list = drawer.list === true
+  const axis = cardsOf(plan, drawer)
+  const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
+  const ring = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && cardButtons(axis).includes(id)) ?? null
+  const parked = shelf.filter(s => s.state === 'parked')
+
+  // A small rounded tag: tasks that run together, a link.
+  const tag = (child: RenderChildren) => (
+    <Box borderStyle="round" borderColor="inactive" paddingX="xs" alignSelf="flex-start">
+      {child}
+    </Box>
+  )
+  const links = (ls: readonly string[]) =>
+    ls.length === 0 ? null : (
+      <Box flexDirection="row" flexWrap="wrap" gap="xs">
+        {ls.map(l => {
+          const href = hrefOf(l)
+          return tag(<Text size="caption">{href === undefined ? `↗ ${linkLabel(l)}` : <Link href={href}>↗ {linkLabel(l)}</Link>}</Text>)
+        })}
+      </Box>
+    )
+  const title = (s: CardStep, top: boolean, glyph: boolean) => (
+    <Text weight={s.running || top ? 'semibold' : undefined} dimColor={isDone(s) ? true : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
+      {glyph ? <Text color={s.glyph.color}>{s.glyph.text} </Text> : null}
+      {s.title}
       {s.redo ? ' ↺' : ''}
     </Text>
   )
-  const head = (s: CardStep) => {
-    const right = s.right === null ? null : <Text color={s.right.color}>{s.right.text}</Text>
-    // The running step moves by itself as a picture; a picture cannot sit in a Button, so its press is on "진행 중".
-    if (s.running && live && !s.parent && Svg !== null) {
-      const p = liveSvg(s.title, cells(s.title), now)
-      return (
-        <Box flexDirection="row" alignItems="center">
-          <Svg source={p.source} alt={s.title} width={p.width} height={p.height} />
-          <Box flexGrow={1} />
-          <Button key={s.id} plain autoFocus={s.id === focus ? true : undefined} onPress={() => onPress(s.id)}>
-            {s.right?.text ?? ''}
-          </Button>
-        </Box>
-      )
-    }
+  const head = (s: CardStep, top: boolean) => {
+    // The running step turns while Claude works; the mark is a picture, so it sits beside the title's Button.
+    const spin = s.running && live && !s.parent && Svg !== null
     return (
-      <Box flexDirection="row" alignItems="center">
-        <Button key={s.id} plain autoFocus={s.id === focus ? true : undefined} onPress={() => onPress(s.id)}>
-          {title(s)}
+      <Box flexDirection="row" alignItems="center" gap="xs">
+        {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
+        <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
+          {title(s, top, !spin)}
         </Button>
         <Box flexGrow={1} />
-        {right}
+        {s.right === null ? null : (
+          <Text size="footnote" tabular color={s.right.color}>
+            {s.right.text}
+          </Text>
+        )}
       </Box>
     )
   }
-  const stepBlock = (s: CardStep): RenderChildren => (
+  const stepBlock = (s: CardStep, top: boolean): RenderChildren => (
     <Box flexDirection="column" gap="xs">
-      {head(s)}
-      {s.detail === undefined ? null : <Text color="inactive">{s.detail}</Text>}
-      {s.note === undefined ? null : <Text color={s.status === 'blocked' ? 'error' : 'inactive'}>{s.note}</Text>}
-      {s.links.length === 0 ? null : (
-        <Box flexDirection="row" flexWrap="wrap" gap="sm">
-          {s.links.map(l => {
-            const href = hrefOf(l)
-            return href === undefined ? <Text>↗ {linkLabel(l)}</Text> : <Link href={href}>↗ {linkLabel(l)}</Link>
-          })}
-        </Box>
+      {head(s, top)}
+      {s.detail === undefined ? null : (
+        <Text size="footnote" color="inactive">
+          {s.detail}
+        </Text>
       )}
+      {s.note === undefined ? null : (
+        <Text size="footnote" color={s.status === 'blocked' ? 'error' : 'inactive'}>
+          {s.note}
+        </Text>
+      )}
+      {links(s.links)}
       {s.actions.length === 0 ? null : (
         <Box flexDirection="row" gap="xs">
           {s.actions.map(([id, label]) => (
@@ -159,29 +177,58 @@ const cardsBody = ($: $, e: Parameters<$['ui']['resolve']>[0], axis: readonly Ax
       )}
     </Box>
   )
-  const item = (i: CardItem): RenderChildren =>
-    i.kind === 'step' ? (
-      stepBlock(i.step)
-    ) : (
-      <Box flexDirection="column" gap="xs">
-        <Text color="inactive">{t().parallel}</Text>
-        <Box flexDirection="column" gap="xs" paddingLeft="sm">
-          {i.items.map(item)}
-        </Box>
+  const together = (child: RenderChildren) => (
+    <Box flexDirection="column" gap="xs">
+      {tag(
+        <Text size="caption" color="inactive">
+          {t().parallel}
+        </Text>,
+      )}
+      <Box flexDirection="column" gap="xs" paddingLeft="sm">
+        {child}
       </Box>
-    )
-  const card = (s: CardStep) => (
-    <Box flexDirection="column" borderStyle="round" borderColor={s.running ? 'text' : 'inactive'} paddingX="sm" paddingY="xs">
-      {stepBlock(s)}
     </Box>
   )
-  const out: RenderChildren[] = []
+  const item = (i: CardItem): RenderChildren => (i.kind === 'step' ? stepBlock(i.step, false) : together(i.items.map(item)))
+  const card = (s: CardStep) => (
+    <Box flexDirection="column" borderStyle="round" borderColor={s.running ? 'text' : 'inactive'} paddingX="sm" paddingY="xs">
+      {stepBlock(s, true)}
+    </Box>
+  )
+  // The app drops a picture with no alt.
+  const pic = (source: string, key: string) => (Svg === null ? null : <Svg key={key} source={source} alt={t().line} />)
+  const summary = (a: Extract<AxisItem, { kind: 'summary' }>) => {
+    const part = (label: string, text: string) => (
+      <Box flexDirection="column">
+        <Text size="caption" color="inactive">
+          {label}
+        </Text>
+        <Text size="footnote">{text}</Text>
+      </Box>
+    )
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor="inactive" paddingX="sm" paddingY="xs" gap="xs">
+        <Text weight="semibold">
+          <Text color="success">✓</Text> {t().summary.title}
+        </Text>
+        {part(t().summary.goal, a.goal)}
+        {part(t().summary.result, a.result)}
+        {links(a.links)}
+      </Box>
+    )
+  }
+
+  const flow: RenderChildren[] = []
   axis.forEach((a, i) => {
     const first = i === 0
     const last = i === axis.length - 1
+    if (list) {
+      flow.push(a.kind === 'stage' ? stepBlock(a.stage, true) : a.kind === 'split' ? together(a.stages.map(s => stepBlock(s, true))) : summary(a))
+      return
+    }
     if (a.kind === 'split') {
-      out.push(pic(splitSvg(a.stages.length, !first), `split-${i}`))
-      out.push(
+      flow.push(pic(splitSvg(a.stages.length, !first), `split-${i}`))
+      flow.push(
         <Box flexDirection="row">
           {a.stages.map(s => (
             <Box width={`${100 / a.stages.length}%`} flexDirection="column" paddingX="xs">
@@ -190,45 +237,97 @@ const cardsBody = ($: $, e: Parameters<$['ui']['resolve']>[0], axis: readonly Ax
           ))}
         </Box>,
       )
-      out.push(pic(joinSvg(a.stages.length, !last), `join-${i}`))
+      flow.push(pic(joinSvg(a.stages.length, !last), `join-${i}`))
       return
     }
-    if (!first && axis[i - 1]?.kind !== 'split') out.push(pic(trunkSvg(), `trunk-${i}`))
-    if (a.kind === 'stage')
-      out.push(
-        <Box flexDirection="column" paddingX="xs">
-          {card(a.stage)}
-        </Box>,
-      )
-    if (a.kind === 'summary') {
-      out.push(
-        <Box flexDirection="column" marginX="xs" borderStyle="round" borderColor="inactive" paddingX="sm" paddingY="xs" gap="xs">
-          <Text bold>
-            <Text color="success">✓</Text> {t().summary.title}
-          </Text>
-          <Text>
-            <Text bold>{t().summary.goal}</Text> {a.goal}
-          </Text>
-          <Text>
-            <Text bold>{t().summary.result}</Text> {a.result}
-          </Text>
-          {a.links.length === 0 ? null : (
-            <Box flexDirection="row" flexWrap="wrap" gap="sm">
-              {a.links.map(l => {
-                const href = hrefOf(l)
-                return href === undefined ? <Text>↗ {linkLabel(l)}</Text> : <Link href={href}>↗ {linkLabel(l)}</Link>
-              })}
-            </Box>
-          )}
-        </Box>,
-      )
-    }
+    if (!first && axis[i - 1]?.kind !== 'split') flow.push(pic(trunkSvg(), `trunk-${i}`))
+    flow.push(
+      <Box flexDirection="column" paddingX="xs">
+        {a.kind === 'stage' ? card(a.stage) : summary(a)}
+      </Box>,
+    )
   })
 
-  // A gap too, so cards never touch where a surface leaves a line out.
+  const hd = headOf(plan, parked.length, activity)
+  const top =
+    plan.nodes.length === 0 ? (
+      <Text color="inactive">{t().empty}</Text>
+    ) : (
+      <Box flexDirection="column" gap="xs" paddingX="xs">
+        <Text size="heading" weight="semibold">
+          {hd.title}
+        </Text>
+        {hd.goal === undefined ? null : (
+          <Text size="footnote" color="inactive">
+            {hd.goal}
+          </Text>
+        )}
+        <Box flexDirection="row" alignItems="center" gap="sm">
+          <Box flexGrow={1} flexDirection="column">
+            {Svg === null ? null : <Svg source={progressSvg(hd.slots)} alt={t().progress(hd.done, hd.total)} />}
+          </Box>
+          <Text size="footnote" tabular color="inactive">
+            {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
+          </Text>
+        </Box>
+        {hd.checks.length === 0 ? null : (
+          <Text size="footnote">
+            <Text weight="semibold">{t().checks(hd.checks.length).replace(/:\s*$/, '')}</Text> {hd.checks.join(' · ')}
+          </Text>
+        )}
+        {hd.activity === undefined ? null : (
+          <Text size="footnote">
+            <Text color={hd.activity.color}>●</Text> {hd.activity.text}
+          </Text>
+        )}
+        <Box flexDirection="row" alignItems="center" gap="xs">
+          {list ? null : (
+            <Button key={EXPAND_ALL} onPress={() => onPress(EXPAND_ALL)}>
+              {t().expandAll}
+            </Button>
+          )}
+          {list ? null : (
+            <Button key={COLLAPSE_ALL} onPress={() => onPress(COLLAPSE_ALL)}>
+              {t().collapseAll}
+            </Button>
+          )}
+          <Box flexGrow={1} />
+          <Button key={VIEW} onPress={() => onPress(VIEW)}>
+            {list ? t().toFlow : t().toList}
+          </Button>
+        </Box>
+      </Box>
+    )
+
   return (
-    <Box flexDirection="column" gap="xs">
-      {out}
+    <Box flexDirection="column" gap="md">
+      {top}
+      {flow.length === 0 ? null : (
+        <Box flexDirection="column" gap={list ? 'sm' : 'xs'}>
+          {flow}
+        </Box>
+      )}
+      {parked.length === 0 ? null : (
+        <Box flexDirection="column" gap="xs" paddingX="xs">
+          <Text size="footnote" weight="semibold">
+            {t().shelf}
+          </Text>
+          {parked.map(p => {
+            const { done, total } = progress(p.plan)
+            return (
+              <Box flexDirection="row">
+                <Text size="footnote" color="inactive">
+                  ▸ {p.plan.title}
+                </Text>
+                <Box flexGrow={1} />
+                <Text size="footnote" tabular color="inactive">
+                  {`${done}/${total}`}
+                </Text>
+              </Box>
+            )
+          })}
+        </Box>
+      )}
     </Box>
   )
 }
@@ -595,21 +694,10 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // A surface with real boxes draws the flowchart as cards and scrolls it itself; the head stays the band's lines.
-    if (e.surface !== 'terminal' && plan.nodes.length > 0 && drawer.list !== true) {
+    // A surface with real boxes and its own type draws the drawer natively and scrolls it itself.
+    if (e.surface !== 'terminal') {
       page = { top: 0, max: 0, pinned: false }
-      const shelf = frame?.board.shelf ?? (await read($, shelfAtom))
-      const axis = cardsOf(plan, drawer)
-      const ring = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && cardButtons(axis).includes(id)) ?? null
-      const head = [...headTop(plan, shelf, activity, e.props.bodyColumns, now), flowTools(e.props.bodyColumns)]
-
-      return (
-        <Box flexDirection="column" gap="sm">
-          {head.map(l => row($, e, l, null, press, now))}
-          {cardsBody($, e, axis, ring, press, isLive(activity), now)}
-          {shelfLines(shelf, e.props.bodyColumns).map(l => row($, e, l, null, press, now))}
-        </Box>
-      )
+      return nativeDrawer($, e, plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, activity, press, now)
     }
 
     return <Box flexDirection="column">{shown.lines.map(l => row($, e, l, focus, press, now))}</Box>

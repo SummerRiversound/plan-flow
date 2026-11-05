@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { CELL_PX, joinSvg, liveSvg, splitSvg, trunkSvg } from './gui'
+import { CELL_PX, joinSvg, liveSvg, progressSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -34,4 +34,16 @@ test('the lines between cards: a trunk, a split to the middle of each card and a
   expect(joinSvg(2, false)).not.toMatch(/M600 \d+ V\d+$/)
   // The stroke follows the viewer's light or dark scheme.
   expect(trunk).toContain('prefers-color-scheme:dark')
+})
+
+test('the progress bar fills one slot per step in plan order, green for done and plain for waiting on a check', () => {
+  const svg = progressSvg(['done', 'done', 'check', 'todo'])
+  expect(svg).toContain('class="d" x="0" y="0" width="600"')
+  expect(svg).toContain('class="c" x="600" y="0" width="300"')
+  expect(svg.match(/class="[dc]"/g)).toHaveLength(2)
+})
+
+test('the turning mark carries on from where the clock stands instead of starting over', () => {
+  expect(spinSvg(0)).toContain('begin="0.00s"')
+  expect(spinSvg(400)).toContain('begin="-0.40s"')
 })

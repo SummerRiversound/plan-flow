@@ -69,3 +69,43 @@ export const joinSvg = (n: number, trunk: boolean): string => {
 
   return line(`${down}${bar}${trunk ? ` M${MID} ${H / 2} V${H}` : ''}`)
 }
+
+// The drawer head's progress bar: one slot per step in plan order, done in green, waiting
+// for a check in the text colour, the rest a muted track, inside one rounded bar.
+const BAR_H = 14
+export const progressSvg = (slots: ReadonlyArray<'done' | 'check' | 'todo'>): string => {
+  const n = Math.max(1, slots.length)
+  const runs: Array<{ kind: string; from: number; to: number }> = []
+  slots.forEach((k, i) => {
+    const last = runs[runs.length - 1]
+    if (last !== undefined && last.kind === k) last.to = i + 1
+    else runs.push({ kind: k, from: i, to: i + 1 })
+  })
+  const x = (i: number) => Math.round((W * i) / n)
+  const rects = runs
+    .filter(r => r.kind !== 'todo')
+    .map(r => `<rect class="${r.kind === 'done' ? 'd' : 'c'}" x="${x(r.from)}" y="0" width="${x(r.to) - x(r.from)}" height="${BAR_H}"/>`)
+    .join('')
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${BAR_H}" viewBox="0 0 ${W} ${BAR_H}">` +
+    '<style>.t{fill:#e6e3dd}.d{fill:#2f9e5b}.c{fill:#1f1e1d}@media (prefers-color-scheme:dark){.t{fill:#3a3834}.d{fill:#4cc27a}.c{fill:#e8e6e3}}</style>' +
+    `<defs><clipPath id="r"><rect width="${W}" height="${BAR_H}" rx="${BAR_H / 2}"/></clipPath></defs>` +
+    `<g clip-path="url(#r)"><rect class="t" width="${W}" height="${BAR_H}"/>${rects}</g></svg>`
+  )
+}
+
+// The running step on a surface with its own type: only the turning mark, the title stays
+// text beside it in the app's face.
+const SPIN_PX = 14
+export const spinSvg = (now: number): string => {
+  const at = (-((now / 1000) % SPIN_S)).toFixed(2).replace('-0.00', '0.00')
+  const c = SPIN_PX / 2
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${SPIN_PX}" height="${SPIN_PX}" viewBox="0 0 ${SPIN_PX} ${SPIN_PX}">` +
+    '<style>.m{stroke:#1f1e1d}@media (prefers-color-scheme:dark){.m{stroke:#e8e6e3}}</style>' +
+    `<circle class="m" cx="${c}" cy="${c}" r="5" fill="none" stroke-width="2" stroke-dasharray="20 12" stroke-linecap="round">` +
+    `<animateTransform attributeName="transform" type="rotate" from="0 ${c} ${c}" to="360 ${c} ${c}" dur="${SPIN_S}s" begin="${at}s" repeatCount="indefinite"/></circle></svg>`
+  )
+}

@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.11 — 2026-11-05
+
+### Changed
+
+- On the desktop app and in the editor, the drawer's flowchart is drawn with real boxes: each stage a rounded card, the running one in text colour, joined by thin lines that split and join around stages side by side. The terminal drawer is unchanged.
+
 ## 0.1.10 — 2026-11-05
 
 ### Changed

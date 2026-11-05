@@ -2,6 +2,14 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.14 — 2026-11-05
+
+### Fixed
+
+- On the desktop app the count beside the progress bar stays on one line, and cards side by side are the same height.
+- `동시에` is a small pill beside each task that runs with its siblings, instead of a tag on its own line.
+- The desktop list view keeps the character tree again, under the head in the app's type.
+
 ## 0.1.13 — 2026-11-05
 
 ### Changed

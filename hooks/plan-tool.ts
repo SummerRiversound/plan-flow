@@ -435,6 +435,11 @@ export const GOAL_DRIFT_HINT =
 export const FINISHED_ADD_HINT =
   'This plan had finished. Keep the added steps only if they serve the same outcome; for a new outcome, remove them and start a new plan with op "set" under a new title, and the finished plan goes to the shelf as done.'
 
+// A stage added at the top level while the plan still has open work is where a detour gets
+// mistaken for more of the same work, so the answer asks once.
+export const DETOUR_HINT =
+  'You added a new top-level stage while this plan still has open work. Keep it only if it is a new part of this plan\'s outcome. If it is a detour (other work done here before coming back), remove it and send op "set" with previous "park": the parked plan comes back when the detour finishes. If it continues a stage, move it under that stage.'
+
 export const NO_GOAL = 'The plan has no goal: give it one sentence on what the work is for with op "update" and "goal".'
 
 // Runs one op: the new plan and the answer, or the refusal with the plan unchanged.
@@ -471,7 +476,8 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
   const ask = finishedAt(result.board.plan) !== null && result.board.plan.summary === undefined ? '\nThe plan is finished: send op "update" with "summary" to close it.' : ''
   const drift = (result.board.plan.goalEdits ?? 0) >= 2 && (result.board.plan.goalEdits ?? 0) > (plan.goalEdits ?? 0) ? `\n${GOAL_DRIFT_HINT}` : ''
   const grown = op.op === 'add' && plan.nodes.length > 0 && !hasOpenWork(plan) ? `\n${FINISHED_ADD_HINT}` : ''
-  const text = describeBoard(result.board) + flat + named + detail + aim + ask + drift + grown
+  const detour = op.op === 'add' && op.parent === null && hasOpenWork(plan) ? `\n${DETOUR_HINT}` : ''
+  const text = describeBoard(result.board) + flat + named + detail + aim + ask + drift + grown + detour
 
   return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

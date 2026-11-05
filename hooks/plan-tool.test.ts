@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { DETOUR_HINT, FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -173,6 +173,21 @@ test('work added to a finished plan suggests a new plan once, while the plan sti
   expect(added.text).toContain(FINISHED_ADD_HINT)
   expect(apply(added.plan, { op: 'add', nodes: [{ title: '하나 더', detail: 'd' }] }).text).not.toContain(FINISHED_ADD_HINT)
   expect(boardNote({ plan, shelf: [] })).toContain('a new outcome: op "set" with a new title')
+})
+
+test('a new top-level stage on a plan with open work asks whether it is a detour to park; a step under a stage does not', () => {
+  const plan = apply(emptyPlan(), { ...SET, goal: 'g' }).plan
+  expect(apply(plan, { op: 'add', nodes: [{ title: '버그 수정', detail: 'd' }] }).text).toContain(DETOUR_HINT)
+  expect(apply(plan, { op: 'add', parent: '2', nodes: [{ title: '소셜 로그인', detail: 'd' }] }).text).not.toContain(DETOUR_HINT)
+  expect(DETOUR_HINT).toContain('previous "park"')
+})
+
+test('work added to a finished plan gets the new-plan hint, not the detour one', () => {
+  let { plan } = apply(emptyPlan(), { op: 'set', title: 'T', goal: 'g', nodes: [{ title: '조사', detail: 'd' }] })
+  plan = apply(plan, { op: 'update', updates: [{ id: '1', status: 'completed' }], summary: { goal: 'g', result: 'r' } }).plan
+  const text = apply(plan, { op: 'add', nodes: [{ title: '후속', detail: 'd' }] }).text
+  expect(text).toContain(FINISHED_ADD_HINT)
+  expect(text).not.toContain(DETOUR_HINT)
 })
 
 test('steps carry a one-line detail, set with the step or by update, and an empty one clears it', () => {

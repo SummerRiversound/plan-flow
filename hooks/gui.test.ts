@@ -10,13 +10,12 @@ test('the lines between cards: a trunk, a split to the middle of each card and a
   expect(trunk).toMatch(/^<svg [^>]*viewBox="0 0 1200 \d+"/)
   expect(trunk).toContain('M600 0 V')
   // Three cards side by side: their middles at 1/6, 3/6 and 5/6 of the width.
-  const split = splitSvg(3, true)
+  const split = splitSvg(3)
   for (const x of [200, 600, 1000]) expect(split).toMatch(new RegExp(`[MH]${x}( |$|")`))
   expect(split).toContain('M600 0 V')
-  expect(splitSvg(3, false)).not.toContain('M600 0 V')
-  const join = joinSvg(2, true)
+  const join = joinSvg(2)
   for (const x of [300, 900]) expect(join).toContain(`M${x} 0 V`)
-  expect(joinSvg(2, false)).not.toMatch(/M600 \d+ V\d+$/)
+  expect(join).toContain('M600 24 V48')
   // The stroke follows the viewer's light or dark scheme.
   expect(trunk).toContain('prefers-color-scheme:dark')
 })

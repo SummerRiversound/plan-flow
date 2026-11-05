@@ -178,11 +178,25 @@ test('on the desktop app the band is set in the app type: the title folds it, pr
   expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
   // A step one level down sits further in than its stage.
   expect((await band.findAll({ type: 'Box' })).some(b => typeof b.props.paddingLeft === 'number' && b.props.paddingLeft > 0)).toBe(true)
+  // The fold arrow sits right after the title, not at the far end of the row.
+  const title = (await band.find({ type: 'Client', key: 'band-title' }))?.props.props as { after: string | null; right: unknown }
+  expect(title).toMatchObject({ after: '▴', right: null })
   // The whole title row folds the band.
   await band.pointer({ type: 'up', x: 40, y: 0, button: 'left', in: 'band-title' })
   await band.redraw()
   expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
   expect(JSON.stringify(await band.drawn({ in: 'band-title' }))).toContain('로그인 기능 추가')
+  await band.unmount()
+})
+
+test('on the desktop app the band marks steps that run together with a tint, not a bordered box', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }, { title: '끝' }] })
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // The app pads a bordered box itself, which made the tag taller than its row.
+  expect(await band.find({ type: 'Text', text: /^동시에$/ })).toBeDefined()
+  expect((await band.findAll({ type: 'Box' })).some(b => b.props.borderStyle !== undefined)).toBe(false)
   await band.unmount()
 })
 
@@ -237,6 +251,10 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   const guides = (await pane.findAll({ type: 'Client' })).map(c => (c.props.props as { guide: string | null }).guide)
   expect(guides).toHaveLength(3)
   expect(guides.some(g => g !== null && /[├└]─ $/.test(g))).toBe(true)
+  // The picked step's buttons keep the guides beside them, so the tree's lines do not break there.
+  await pane.pointer({ type: 'up', x: 30, y: 0, button: 'left', in: 'step-1' })
+  await pane.redraw()
+  expect(JSON.stringify((await pane.findAll({ type: 'Box' })).find(b => b.key === 'pact-1'))).toContain('"mono":true')
   expect(JSON.stringify(await pane.drawn({ in: 'step-2' }))).toContain('"mono":true')
   expect((await pane.find({ type: 'Text', text: /^로그인 기능 추가$/ }))?.props.size).toBe('heading')
   expect(await pane.find({ type: 'Button', key: 'view' })).toBeDefined()

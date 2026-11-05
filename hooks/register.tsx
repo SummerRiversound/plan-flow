@@ -167,7 +167,8 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
           {plan.marks?.[n.id] === 'redo' ? ' ↺' : ''}
         </Text>
         {n.parallel === true ? (
-          <Box borderStyle="round" borderColor="inactive" paddingX="xs">
+          // A tint, not a border: the app pads a bordered box itself, which would make the tag taller than the row.
+          <Box backgroundColor={EDGE} paddingX="xs">
             <Text size="caption" color="inactive">
               {t().parallel}
             </Text>
@@ -199,7 +200,7 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
           <Box flexDirection="row" alignItems="center" gap="xs">
             {e.surface === 'desktop' && 'Client' in el ? (
               // The whole title row folds the band, not only its words.
-              <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, guide: null, mark: null, title: plan.title, strong: true, muted: false, strike: false, redo: false, pill: null, right: { text: o.folded ? '▾' : '▴', color: 'inactive' }, hover: HOVER, edge: EDGE } satisfies StepRowProps} />
+              <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, guide: null, mark: null, title: plan.title, strong: true, muted: false, strike: false, redo: false, pill: null, after: o.folded ? '▾' : '▴', right: null, hover: HOVER, edge: EDGE } satisfies StepRowProps} />
             ) : (
               <Button key={FOLD_BUTTON} plain onPress={() => o.onPress(FOLD_BUTTON)}>
                 <Text weight="semibold">
@@ -275,6 +276,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         strike: s.status === 'skipped',
         redo: s.redo,
         pill: together ? t().parallel : null,
+        after: null,
         right: s.right === null ? null : { text: s.right.text, color: s.right.color === 'text' || s.right.color === undefined ? 'inactive' : s.right.color },
         hover: HOVER,
         edge: EDGE,
@@ -436,6 +438,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         strike: n.status === 'skipped',
         redo: plan.marks?.[n.id] === 'redo',
         pill: n.parallel === true ? t().parallel : null,
+        after: null,
         right: right === null ? null : { text: right, color: 'inactive' },
         hover: HOVER,
         edge: EDGE,
@@ -463,13 +466,19 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         if (n.detail !== undefined && n.status !== 'in_progress') out.push(sub(`${on}   `, <Text size="footnote" color="inactive">{n.detail}</Text>, `pdetail-${n.id}`))
         const note = noteText(n).trim()
         if (note !== '') out.push(sub(`${on}   `, <Text size="footnote" color={n.status === 'blocked' ? 'error' : 'inactive'}>{note}</Text>, `pnote-${n.id}`))
+        // The guides run on beside the buttons, two rows tall to span them, so the tree's lines do not break.
         out.push(
-          <Box key={`pact-${n.id}`} flexDirection="row" gap="xs" justifyContent="flex-end" marginTop="xs" marginBottom="xs">
-            {[...(n.status === 'needs_check' ? [[CONFIRM, t().confirm.replace(/^\[ (.*) \]$/, '$1')] as const] : []), [ASK, t().discuss.replace(/^\[ (.*) \]$/, '$1')] as const].map(([id, label]) => (
-              <Button key={id} variant="primary" onPress={() => onPress(id)}>
-                {label}
-              </Button>
-            ))}
+          <Box key={`pact-${n.id}`} flexDirection="row" alignItems="center">
+            <Text mono color="inactive">
+              {`${on}\n${on}`}
+            </Text>
+            <Box flexDirection="row" flexGrow={1} gap="xs" justifyContent="flex-end">
+              {[...(n.status === 'needs_check' ? [[CONFIRM, t().confirm.replace(/^\[ (.*) \]$/, '$1')] as const] : []), [ASK, t().discuss.replace(/^\[ (.*) \]$/, '$1')] as const].map(([id, label]) => (
+                <Button key={id} variant="primary" onPress={() => onPress(id)}>
+                  {label}
+                </Button>
+              ))}
+            </Box>
           </Box>,
         )
       }

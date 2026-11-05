@@ -19,6 +19,9 @@ test('with enforcement off, the first state-changing tool in a turn with no plan
   expect(decide({ ...off, agentId: 'sub-1' }).verdict).toBe('allow')
   expect(decide({ ...off, toolOffered: false }).verdict).toBe('allow')
   expect(REMINDER).toContain('op "set"')
+  // A finished plan is not running either, so the reminder must not claim the board is empty.
+  expect(REMINDER).not.toMatch(/has no plan/)
+  expect(REMINDER).toContain("is finished")
 })
 
 test('with enforcement on, a state-changing tool waits for a plan', () => {

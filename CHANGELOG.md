@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.3 — 2026-11-05
+
+### Fixed
+
+- The reminder after Claude's first change no longer says the board has no plan when it holds a finished one; it tells Claude to set a new plan or add steps to the finished one.
+
 ## 0.1.2 — 2026-11-05
 
 ### Changed

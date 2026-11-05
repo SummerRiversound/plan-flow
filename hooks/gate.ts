@@ -18,7 +18,7 @@ export type GateAsk = { tool: string; agentId?: string; enforce: boolean; toolOf
 export type GateVerdict = { verdict: 'allow' | 'deny' | 'pause' | 'remind'; gate: GateState }
 
 export const REMINDER =
-  'plan-flow: this changes something and the board still has no plan, so the person sees nothing. If the task takes more than a couple of tool calls, set the plan now (op "set"); for a one-step job, carry on.'
+  'plan-flow: this changes something while no plan is running (the board is empty or its plan is finished), so the person cannot follow the work. If the task takes more than a couple of tool calls, set the plan now (op "set"), or add the steps to the finished plan when it continues that work (op "add"); for a one-step job, carry on.'
 
 export const decide = (ask: GateAsk): GateVerdict => {
   const { gate } = ask

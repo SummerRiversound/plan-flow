@@ -27,6 +27,8 @@ export type Plan = {
   title: string
   // One sentence on what the work is for, shown under the title.
   goal?: string
+  // How many times the goal was rewritten to a different sentence; the second rewrite suggests a new plan.
+  goalEdits?: number
   nodes: PlanNode[]
   lastChild: Record<string, number>
   startedAt: number
@@ -67,6 +69,7 @@ declare module 'claude-code' {
       plan: {
         title: string
         goal?: string
+        goalEdits?: number
         nodes: Array<{
           id: string
           parentId: string | null
@@ -94,6 +97,7 @@ declare module 'claude-code' {
         plan: {
           title: string
           goal?: string
+          goalEdits?: number
           nodes: Array<{
             id: string
             parentId: string | null

@@ -31,10 +31,11 @@ Then ask Claude for any task that takes more than a couple of steps. It sets up 
 
 The board follows the work of the whole session, not each message:
 
-- More work on the same task joins the current plan as new steps.
+- More work on the same task joins the current plan, under the stage it continues; a new stage is added only for a new part of the work.
 - A detour (say, a quick bug fix in the middle) puts the current plan on a shelf, and it comes back when the detour is done.
 - Starting over cancels the current plan.
 - A step that has to be redone opens again and is marked `↺`.
+- When the goal keeps changing, or a finished plan keeps taking on more, Claude closes it and starts a new plan, and the finished one stays on the shelf.
 
 Claude decides which of these fits each request. When a change you make on the board (a step you checked) matters, Claude hears about it with your next message.
 

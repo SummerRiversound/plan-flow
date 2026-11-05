@@ -121,6 +121,17 @@ export const instruction = (tool: string): string =>
 export const NO_PLAN_NOTE =
   'plan-flow: the board is empty, so the person sees no plan. If this request takes more than a couple of tool calls, call the plan tool with op "set" before any call that changes something (a worktree, an edit, a write, a command that writes); reading first is fine. A question or a one-step job needs no plan.'
 
+// The top-level stages with ids and status, so a request that continues one lands under it
+// instead of in a new stage at the end.
+const MAX_STAGES_LISTED = 12
+const stagesLine = (plan: Plan): string => {
+  const stages = plan.nodes.filter(n => n.parentId === null)
+  const shown = stages.slice(0, MAX_STAGES_LISTED).map(n => `${n.id} ${n.title} (${n.status})`)
+  const more = stages.length > MAX_STAGES_LISTED ? `, and ${stages.length - MAX_STAGES_LISTED} more` : ''
+
+  return `Stages: ${shown.join(', ')}${more}.`
+}
+
 // The note each request carries while the board has a plan: where things stand, and the
 // cases to sort the request into before acting.
 // `byPerson`: what the person changed from the drawer since the last request.
@@ -140,14 +151,16 @@ export const boardNote = (board: Board, byPerson: readonly string[] = []): strin
         : ', finished'
     const goal = board.plan.goal === undefined ? '' : `, goal "${board.plan.goal}"`
     lines.push(`In hand: "${board.plan.title}"${goal} (${done}/${total} done${state}).`)
+    lines.push(stagesLine(board.plan))
   }
   if (byPerson.length > 0) lines.push(`Changed by the person in the drawer since the last request: ${byPerson.join(' ')}`)
   if (parked.length > 0) lines.push(`Parked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total})`).join(', ')}.`)
   lines.push(
     'Decide what this request does to the board, change the board first, then work:',
     '- a question, or a quick side job that does not change the task: leave the board alone;',
-    '- more work for this task, a follow-up after it finished, or a step that turned out bigger: op "add" (under the step it belongs to; a leaf may get children), and op "update" with a new "goal" when it widens what the plan is for;',
-    '- redo finished work: op "update" with status "pending" and a note why;',
+    '- more work for this task, or a step that turned out bigger: put it under the stage it continues (op "add" with that stage or step as "parent"; a leaf may get children), and a new top-level stage only for a new part of the outcome; op "update" with a new "goal" when it widens what the plan is for;',
+    '- redo or touch up finished work: reopen that step (op "update" with status "pending" and a note why), or add the fix under its stage; never as a new stage at the end;',
+    '- a follow-up after the plan finished: the same outcome, op "add" under its stage; a new outcome: op "set" with a new title (the finished plan goes to the shelf as done);',
     '- a different approach, dropped scope or a new order: update titles, op "remove" or status "skipped" with a note, op "move";',
     '- the person is needed before work can go on (sign-in, a decision): status "blocked" with a note;',
     '- the person confirms a step waiting for their check (needs_check): status "completed" (or "pending" with a note if it needs redoing);',
@@ -415,6 +428,13 @@ const routineStages = (plan: Plan): string[] => {
 export const routineHint = (ids: readonly string[]): string =>
   `${ids.length === 1 ? 'Stage' : 'Stages'} ${ids.join(', ')} ${ids.length === 1 ? 'is' : 'are'} named for the routine (setup, decision record, implement, PR), not for what this task produces. Unless that routine is the task itself, rename each for what will exist when it is done, fold the routine into the stage it serves, and send op "set" again with the same title; steps keep their status.`
 
+// A goal rewritten again and again, or a finished plan taking on more, means the board is
+// turning into a log of the session rather than one piece of work.
+export const GOAL_DRIFT_HINT =
+  'The goal has now been rewritten more than once, so this plan may be holding more than one piece of work. If the new work serves a different outcome, close this plan (finish or skip its open steps, give the summary) and start a new one with op "set" under a new title; the finished plan goes to the shelf as done.'
+export const FINISHED_ADD_HINT =
+  'This plan had finished. Keep the added steps only if they serve the same outcome; for a new outcome, remove them and start a new plan with op "set" under a new title, and the finished plan goes to the shelf as done.'
+
 export const NO_GOAL = 'The plan has no goal: give it one sentence on what the work is for with op "update" and "goal".'
 
 // Runs one op: the new plan and the answer, or the refusal with the plan unchanged.
@@ -449,7 +469,9 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
   const detail = bare.length > 0 ? `\n${missingDetail(bare)}` : ''
   const aim = op.op === 'set' && result.board.plan.goal === undefined ? `\n${NO_GOAL}` : ''
   const ask = finishedAt(result.board.plan) !== null && result.board.plan.summary === undefined ? '\nThe plan is finished: send op "update" with "summary" to close it.' : ''
-  const text = describeBoard(result.board) + flat + named + detail + aim + ask
+  const drift = (result.board.plan.goalEdits ?? 0) >= 2 && (result.board.plan.goalEdits ?? 0) > (plan.goalEdits ?? 0) ? `\n${GOAL_DRIFT_HINT}` : ''
+  const grown = op.op === 'add' && plan.nodes.length > 0 && !hasOpenWork(plan) ? `\n${FINISHED_ADD_HINT}` : ''
+  const text = describeBoard(result.board) + flat + named + detail + aim + ask + drift + grown
 
   return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

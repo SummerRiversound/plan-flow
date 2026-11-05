@@ -241,7 +241,7 @@ export const setPlan = (prev: Plan, rawTitle: string, input: readonly PlanInput[
       }
     }
 
-    const kept = same && prev.goal !== undefined ? { goal: prev.goal } : {}
+    const kept = { ...(same && prev.goal !== undefined ? { goal: prev.goal } : {}), ...(same && prev.goalEdits !== undefined ? { goalEdits: prev.goalEdits } : {}) }
 
     return { plan: rollup({ title: title.value, ...kept, nodes: made.nodes, lastChild, startedAt: same ? prev.startedAt : now }) }
   })
@@ -251,9 +251,11 @@ export const withGoal = (r: PlanResult, goal: unknown): PlanResult => {
   if ('error' in r || goal === undefined) return r
   const v = text('the goal', goal, MAX_DETAIL, true)
   if ('error' in v) return v
-  const { goal: _old, ...plan } = r.plan
+  const { goal: old, ...plan } = r.plan
+  if (v.value === '') return { plan }
+  const rewritten = old !== undefined && old !== v.value
 
-  return { plan: v.value === '' ? plan : { ...plan, goal: v.value } }
+  return { plan: { ...plan, goal: v.value, ...(rewritten ? { goalEdits: (plan.goalEdits ?? 0) + 1 } : {}) } }
 }
 
 // New steps go after the last step under `parentId`, in the order given; each added

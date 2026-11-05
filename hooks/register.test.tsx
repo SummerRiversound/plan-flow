@@ -206,14 +206,12 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   await $.tool.call({ tool: TOOL, ...PLAN })
   await $.tool.call({ tool: TOOL, op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round' && b.props.overflow === 'hidden')
+  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => typeof b.key === 'string' && b.key.startsWith('card-'))
   // 조사 is running: its card's edge is stronger than the others'.
   const edges = (await cards()).map(c => String(c.props.borderColor))
   expect(edges).toHaveLength(3)
   expect(edges[1]).toBe(edges[2])
   expect(edges[0]).not.toBe(edges[1])
-  // Each card's title row sits on a faint fill.
-  expect((await pane.findAll({ type: 'Box' })).filter(b => typeof b.props.backgroundColor === 'string').length).toBeGreaterThanOrEqual(3)
   expect((await pane.findAll({ type: 'Svg' })).length).toBeGreaterThanOrEqual(2)
   expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
   await pane.press({ key: '2' })
@@ -224,7 +222,9 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   expect((await pane.findAll({ type: 'Box' })).some(b => b.key === 'row-2.1')).toBe(true)
   await pane.press({ key: '2.1' })
   await pane.redraw()
-  expect(await pane.find({ type: 'Button', key: 'ask' })).toBeDefined()
+  // The step's buttons are the ones to press: primary, at the right, apart from the text.
+  expect((await pane.find({ type: 'Button', key: 'ask' }))?.props.variant).toBe('primary')
+  expect((await pane.findAll({ type: 'Box' })).some(b => b.props.justifyContent === 'flex-end' && b.props.marginTop !== undefined)).toBe(true)
   await pane.press({ key: 'view' })
   await pane.redraw()
   // The list keeps the character tree under the app-type head, and the switch back.
@@ -247,8 +247,8 @@ test('on the desktop app the drawer head is set in the app type: a heading title
   expect((await pane.findAll({ type: 'Svg' })).some(x => /진행/.test(String(x.props.alt)))).toBe(true)
   expect((await pane.find({ type: 'Text', text: /^\d+\/\d+ · \d+%$/ }))?.props.tabular).toBe(true)
   // The running stage's title weighs more; one still to come reads plain. Counts are smaller.
-  expect((await pane.find({ type: 'Text', text: /^조사$/ }))?.props.weight).toBe('semibold')
-  expect((await pane.find({ type: 'Text', text: /^구현$/ }))?.props.weight).toBeUndefined()
+  expect((await pane.find({ type: 'Text', text: /조사$/ }))?.props.weight).toBe('semibold')
+  expect((await pane.find({ type: 'Text', text: /구현$/ }))?.props.weight).toBeUndefined()
   expect((await pane.find({ type: 'Text', text: /^0\/2 ▸$/ }))?.props.size).toBe('footnote')
   await pane.unmount()
 })

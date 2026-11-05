@@ -4,7 +4,7 @@ import type { EngineInterface, Register, RenderChildren, Space, Timer } from 'cl
 import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
+import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
 import type { AxisItem, CardItem, CardStep } from './cards'
 import type { CardHead } from './cards'
 import { cardButtons, cardsOf, headOf, isDone } from './cards'
@@ -18,7 +18,7 @@ import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoLi
 import { joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
 import type { BandRow } from './tree'
-import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, lineText, noteText, planHead } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, noteText, planHead } from './tree'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
@@ -45,8 +45,7 @@ type $ = EngineInterface
 type Ev = Parameters<$['ui']['resolve']>[0]
 
 // Neutral greys at low opacity for the desktop app and the editor: one value reads on the
-// light and the dark theme, where no theme key gives a card's fill or a faint edge.
-const FILL = '#8080800f'
+// light and the dark theme, where no theme key gives a faint edge or a pointer highlight.
 const HOVER = '#8080801a'
 const EDGE = '#80808033'
 const EDGE_RUN = '#80808080'
@@ -225,7 +224,9 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   const { Box, Text, Button, Link } = el
   const Svg = 'Svg' in el ? el.Svg : null
   const live = isLive(activity)
-  const list = drawer.list === true
+  // Too narrow for the cards side by side, as the terminal judges it: the list, with no switch.
+  const narrow = drawFlow(plan, drawer, { width, now }).cut
+  const list = drawer.list === true || narrow
   const axis = cardsOf(plan, drawer)
   const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
   const ring = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && cardButtons(axis).includes(id)) ?? null
@@ -249,39 +250,33 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         })}
       </Box>
     )
-  const glyph = (s: CardStep) => {
-    // The running step turns while Claude works; the mark is a picture, so it sits beside the title's Button.
-    if (s.running && live && !s.parent && Svg !== null) return <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} />
+  // A step's row: its mark and title as a plain button (the turning mark, a picture, beside it),
+  // the pill, then links and its count at the right edge.
+  const line = (s: CardStep, top: boolean, together: boolean) => {
+    const spin = s.running && live && !s.parent && Svg !== null
     return (
-      <Box flexShrink={0}>
-        <Text color={s.glyph.color} size={s.parent && s.status !== 'completed' ? 'caption' : undefined}>
-          {s.glyph.text}
-        </Text>
+      <Box flexDirection="row" alignItems="center" gap="xs">
+        {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
+        <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
+          <Text weight={s.running || (top && !isDone(s) && s.status !== 'pending') ? 'semibold' : undefined} color={isDone(s) ? 'inactive' : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
+            {spin ? null : <Text color={s.glyph.color}>{s.glyph.text} </Text>}
+            {s.title}
+            {s.redo ? ' ↺' : ''}
+          </Text>
+        </Button>
+        {together ? pill() : null}
+        <Box flexGrow={1} />
+        {links(s.links)}
+        {s.right === null ? null : (
+          <Box flexShrink={0}>
+            <Text size="footnote" tabular color={s.right.color === 'text' ? 'inactive' : s.right.color}>
+              {s.right.text}
+            </Text>
+          </Box>
+        )}
       </Box>
     )
   }
-  // A step's row: its mark, its title as a plain button, the pill, then links and its count at the right.
-  const line = (s: CardStep, top: boolean, together: boolean) => (
-    <Box flexDirection="row" alignItems="center" gap="sm">
-      {glyph(s)}
-      <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
-        <Text weight={s.running || (top && !isDone(s) && s.status !== 'pending') ? 'semibold' : undefined} color={isDone(s) ? 'inactive' : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
-          {s.title}
-          {s.redo ? ' ↺' : ''}
-        </Text>
-      </Button>
-      {together ? pill() : null}
-      <Box flexGrow={1} />
-      {links(s.links)}
-      {s.right === null ? null : (
-        <Box flexShrink={0}>
-          <Text size="footnote" tabular color={s.right.color === 'text' ? 'inactive' : s.right.color}>
-            {s.right.text}
-          </Text>
-        </Box>
-      )}
-    </Box>
-  )
   // What shows under a step's row: its detail and note, the picked step's buttons, its open steps.
   const under = (s: CardStep, inset: Space | undefined, nested: boolean): RenderChildren[] => [
     s.detail === undefined ? null : (
@@ -298,10 +293,11 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         </Text>
       </Box>
     ),
+    // The step's own buttons: apart from the text above them, at the right, drawn as the actions to press.
     s.actions.length === 0 ? null : (
-      <Box flexDirection="row" gap="xs" paddingLeft={inset}>
+      <Box flexDirection="row" gap="xs" justifyContent="flex-end" marginTop="sm">
         {s.actions.map(([id, label]) => (
-          <Button key={id} onPress={() => onPress(id)}>
+          <Button key={id} variant="primary" onPress={() => onPress(id)}>
             {label}
           </Button>
         ))}
@@ -324,22 +320,14 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   )
   // A hairline between the rows of a card's body.
   const rule = (key: string) => (Svg === null ? null : <Svg key={key} source={ruleSvg()} alt={t().divider} height={1} />)
-  // A stage: a rounded card whose title row sits on a faint fill, its open steps below it, one hairline between each.
+  // A stage: a rounded card, its title row across the top, then a hairline and its open steps, one hairline between each.
+  // The app pads a bordered Box itself, so a fill inside it would float short of the edges: the card has none.
   const card = (s: CardStep) => {
-    const body = [
-      ...under({ ...s, children: [] }, undefined, false),
-      ...flat(s.children).flatMap(([c, together], i) => [i === 0 && s.detail === undefined && s.note === undefined ? null : rule(`rule-${c.id}`), step(c, together, false)]),
-    ].filter(x => x !== null)
+    const body = [...under({ ...s, children: [] }, undefined, false), ...flat(s.children).flatMap(([c, together]) => [rule(`rule-${c.id}`), step(c, together, false)])].filter(x => x !== null)
     return (
-      <Box key={`card-${s.id}`} flexDirection="column" flexGrow={1} borderStyle="round" borderColor={s.running ? EDGE_RUN : EDGE} overflow="hidden">
-        <Box key={`head-${s.id}`} paddingX="md" paddingY="sm" backgroundColor={FILL} hover={{ backgroundColor: HOVER }}>
-          {line(s, true, false)}
-        </Box>
-        {body.length === 0 ? null : (
-          <Box flexDirection="column" paddingX="md" paddingY="sm">
-            {body}
-          </Box>
-        )}
+      <Box key={`card-${s.id}`} flexDirection="column" flexGrow={1} borderStyle="round" borderColor={s.running ? EDGE_RUN : EDGE} paddingX="sm" paddingY="xs" gap="xs">
+        {line(s, true, false)}
+        {body}
       </Box>
     )
   }
@@ -355,24 +343,20 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       </Box>
     )
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={EDGE} overflow="hidden">
-        <Box paddingX="md" paddingY="sm" backgroundColor={FILL}>
-          <Text weight="semibold">
-            <Text color="success">✓</Text> {t().summary.title}
-          </Text>
-        </Box>
-        <Box flexDirection="column" paddingX="md" paddingY="sm" gap="sm">
-          {part(t().summary.goal, a.goal)}
-          {part(t().summary.result, a.result)}
-          {links(a.links)}
-        </Box>
+      <Box flexDirection="column" borderStyle="round" borderColor={EDGE} paddingX="sm" paddingY="xs" gap="sm">
+        <Text weight="semibold">
+          <Text color="success">✓</Text> {t().summary.title}
+        </Text>
+        {part(t().summary.goal, a.goal)}
+        {part(t().summary.result, a.result)}
+        {links(a.links)}
       </Box>
     )
   }
 
   // The list keeps the character tree, whose guides show the levels best; only the head is in the app's type.
   // Its rows already end in the wrap-up and the parked plans.
-  const tree = list ? drawerView(plan, shelf, drawer, activity, { width, now }).body.filter(l => lineText(l).trim() !== t().narrow) : []
+  const tree = list ? drawerView(plan, shelf, drawer, activity, { width, now }).body : []
   const flow: RenderChildren[] = []
   if (!list) axis.forEach((a, i) => {
     const first = i === 0

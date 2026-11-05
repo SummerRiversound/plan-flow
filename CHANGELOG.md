@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.9 — 2026-11-05
+
+### Changed
+
+- The band folds and unfolds by pressing its title, which ends in a muted `▴` or `▾`; the fold buttons are gone. `[ 흐름도 보기 ▸ ]` sits alone at the right edge of the title line as a primary button, in the accent colour in the terminal and the app's primary button on the desktop.
+
 ## 0.1.8 — 2026-11-05
 
 ### Changed

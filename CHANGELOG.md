@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.1 — 2026-11-05
+
+### Changed
+
+- The closing note sets its labels (Goal, Result, Links) in one column, wraps each text under its own start and leaves a blank row between parts.
+- Claude is nudged to set a plan: each request on an empty board carries a short note, and when Claude first changes something in a turn with no plan, one line after that tool's result reminds it. Nothing is refused unless `enforce` is on.
+- Stages are named for what will exist when they are done; setup and wrap-up steps go inside the stage they serve, and a stage holding a single task stays a plain step.
+- Steps set without a detail are named back to Claude so it fills them in.
+
 ## 0.1.0 — 2026-11-04
 
 First release.

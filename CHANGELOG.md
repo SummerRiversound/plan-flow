@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.10 — 2026-11-05
+
+### Changed
+
+- A step no longer quietly holds several things you check one by one: the instruction asks Claude for one checkpoint per thing you check on its own, and a step that goes through 8 changes with the plan unchanged gets one note asking Claude to split it.
+
 ## 0.1.9 — 2026-11-05
 
 ### Changed

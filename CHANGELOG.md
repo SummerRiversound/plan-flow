@@ -2,6 +2,13 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.24 — 2026-11-05
+
+### Fixed
+
+- On the desktop app the band's `동시에` tag keeps its row height, and the fold arrow sits right after the plan title.
+- In the desktop list view the tree lines run on beside a picked step's buttons.
+
 ## 0.1.23 — 2026-11-05
 
 ### Fixed

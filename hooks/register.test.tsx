@@ -219,10 +219,10 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   expect(await pane.find({ type: 'Button', key: 'ask' })).toBeDefined()
   await pane.press({ key: 'view' })
   await pane.redraw()
-  // The list on the desktop app is a real list too: no cards, no character drawing, and the switch back.
+  // The list keeps the character tree under the app-type head, and the switch back.
   expect(await cards()).toHaveLength(0)
-  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
-  expect((await pane.findAll({ type: 'Text' })).some(x => x.props.mono === true)).toBe(false)
+  expect(await pane.find({ type: 'Text', text: /├─/ })).toBeDefined()
+  expect((await pane.find({ type: 'Text', text: /^로그인 기능 추가$/ }))?.props.size).toBe('heading')
   expect(await pane.find({ type: 'Button', key: 'view' })).toBeDefined()
   await pane.unmount()
 })
@@ -324,8 +324,7 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.plain).toBe(true)
     // The list button swaps the flowchart for the tree and back.
     await pane.press({ key: 'view' })
-    // The terminal's list presses steps only; the desktop app's list still folds its stages.
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(surface === 'terminal' ? ['view', '1', '2.1', '2.2'] : ['view', '1', '2', '2.1', '2.2', '3'])
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['view', '1', '2.1', '2.2'])
     await pane.press({ key: 'view' })
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.autoFocus).toBe(true)
     // ↓ moves the ring to the next box; a redraw keeps it there.

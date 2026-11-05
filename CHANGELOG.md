@@ -2,6 +2,16 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.25 — 2026-11-05
+
+### Changed
+
+- The note Claude reads with each request only says where the board stands; the cases to sort a request into sit once in the system prompt, with nothing telling Claude to update the board before working or to ask first. In a side-by-side run this cut Haiku sessions from 121 to 72 seconds.
+
+### Added
+
+- Press a parked plan at the bottom of the drawer to see its steps; press again to close it.
+
 ## 0.1.24 — 2026-11-05
 
 ### Fixed

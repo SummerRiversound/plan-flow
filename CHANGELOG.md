@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.27 — 2026-11-05
+
+### Changed
+
+- The board keeps up with what is in progress: the planner hears which calls failed, so a failed test no longer marks its step done; it hears reads and searches and looks once a minute while Claude only investigates; it hears a subagent's calls; and a background task's notice no longer counts as your request.
+
 ## 0.1.26 — 2026-11-05
 
 ### Changed

@@ -56,6 +56,23 @@ test('the goal is set with the plan, kept when the plan is resent, rewritten or 
   expect(error(plan, { op: 'update', goal: 'ㄱ'.repeat(161) })).toMatch(/goal is longer than 160/)
 })
 
+test('update renames the plan once its subject is known, keeping its steps and goal', () => {
+  let plan = apply(emptyPlan(), { ...SET, title: '현재 PR 머지', goal: '현재 PR을 머지하기' }).plan
+  plan = apply(plan, { op: 'update', updates: [{ id: '1', status: 'completed' }] }).plan
+  const { plan: renamed, text } = apply(plan, { op: 'update', title: '로그인 PR 머지', goal: '로그인 기능 PR을 머지하기' })
+  expect(renamed.title).toBe('로그인 PR 머지')
+  expect(renamed.goal).toBe('로그인 기능 PR을 머지하기')
+  expect(renamed.nodes).toEqual(plan.nodes)
+  expect(text.split('\n')[0]).toBe('Plan: 로그인 PR 머지 (1/3 done)')
+  expect(error(plan, { op: 'update', title: '' })).toMatch(/plan title is empty/)
+  expect(error(plan, { op: 'update', title: 3 })).toMatch(/title must be text/)
+})
+
+test('the planner is told to name the work by its subject, not by "current" or a bare number', () => {
+  expect(PLANNER_SYSTEM).toMatch(/never "this" or "current"/)
+  expect(TOOL_DESCRIPTION).toMatch(/its "title" renames the plan/)
+})
+
 test('next and update change statuses by id', () => {
   let { plan } = apply(emptyPlan(), SET)
   plan = apply(plan, { op: 'next' }, 1).plan

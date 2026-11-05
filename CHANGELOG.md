@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.28 — 2026-11-06
+
+### Changed
+
+- A plan's title and goal name the work by its subject, not "the current PR" or a bare number, so a glance at the board tells one session from another. When the request only says "this" or "current", the planner renames the plan once the work shows what it is about.
+
 ## 0.1.27 — 2026-11-05
 
 ### Changed

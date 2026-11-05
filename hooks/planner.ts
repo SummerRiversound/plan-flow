@@ -54,7 +54,7 @@ const OP_SHAPES = [
   '{"op":"set","title":"…","goal":"…","previous"?:"park"|"cancel","nodes":[STEP, …]}',
   'where STEP is {"title":"…","detail":"…","parallel"?:true,"links"?:["…"],"children"?:[STEP, …]};',
   '{"op":"next","id"?:"…","summary"?:{"goal":"…","result":"…"}};',
-  `{"op":"update","updates":[{"id":"…","status"?:"${STATUSES.join('"|"')}","title"?:"…","detail"?:"…","note"?:"…","links"?:["…"]}],"goal"?:"…","summary"?:{"goal":"…","result":"…"}};`,
+  `{"op":"update","updates":[{"id":"…","status"?:"${STATUSES.join('"|"')}","title"?:"…","detail"?:"…","note"?:"…","links"?:["…"]}],"goal"?:"…","title"?:"…","summary"?:{"goal":"…","result":"…"}};`,
   '{"op":"add","parent"?:"…","nodes":[STEP, …]}; {"op":"remove","id":"…"}; {"op":"move","id":"…","before"?:"…"}; {"op":"resume","title"?:"…"}; {"op":"cancel"}.',
   'Ids are the ones the board shows. New steps start pending: a status changes only through op "next" or op "update".',
 ].join(' ')

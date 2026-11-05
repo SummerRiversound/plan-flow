@@ -182,7 +182,7 @@ test('the running stage is open with the running task, the rest is folded', () =
   expect(lines.find(l => l.includes('● 구현'))).toMatch(/1\/4 ▾ │$/)
   expect(lines.some(l => l.includes('╭ 동시에'))).toBe(true)
   expect(lines.find(l => l.includes('● API'))).toContain('1/3 ▾')
-  expect(lines.find(l => l.includes('✓ 주소 만들기'))).toMatch(/주소 만들기 +│$/)
+  expect(lines.find(l => l.includes('✓ 주소 만들기'))).toMatch(/주소 만들기 +│ │$/)
   expect(lines.find(l => l.includes('● 비밀번호 확인'))).toContain('진행 중')
   expect(lines.find(l => l.includes('디자인 다듬기'))).toContain('0/2 ▸')
   expect(lines.some(l => l.includes('색 맞추기'))).toBe(false)
@@ -398,4 +398,49 @@ test('an empty drawer wraps its message to the drawer width instead of running p
   expect(body.length).toBeGreaterThan(1)
   expect(body.every(l => cells(l) <= 30)).toBe(true)
   expect(body.join(' ')).toContain('여러 단계가 필요한 요청을 보내면')
+})
+
+test('tasks that run together sit in a closed box: each row inside starts and ends on its border, a long note wrapping inside it, at every width', () => {
+  let p = ok(
+    setPlan(
+      emptyPlan(),
+      '시험',
+      [
+        {
+          title: '검증된 시험 PR',
+          children: [
+            { title: '리뷰', parallel: true, children: [{ title: '결함 리뷰', detail: '시험이 실제로 실패할 수 있는지, 빠진 경우가 있는지 찾아요.' }, { title: '스펙 리뷰' }] },
+            { title: '지적 반영' },
+          ],
+        },
+      ],
+      0,
+    ),
+  )
+  p = ok(updateNodes(p, [{ id: '1.1.1', status: 'in_progress' }, { id: '1.1.2', status: 'completed', note: 'P3 다섯 건만 나왔어요. 도우미 위치, 파일 설명, 문장 다듬기, 이슈 본문 갱신이에요.' }], 1))
+  for (const width of [50, 60, 74, 90]) {
+    const lines = drawerView(p, [], { open: {}, focus: null, pick: '1.1.2' }, idleActivity(), { width, now: 0 }).body.map(lineText)
+    const top = lines.findIndex(l => l.includes('╭ 동시에'))
+    const bottom = lines.findIndex((l, i) => i > top && /╰─+╯/.test(l))
+    expect(top).toBeGreaterThan(-1)
+    expect(bottom).toBeGreaterThan(top)
+    const left = cells(lines[top]?.slice(0, lines[top]?.indexOf('╭')) ?? '')
+    const right = cells(lines[top]?.slice(0, lines[top]?.indexOf('╮')) ?? '')
+    expect(right).toBeGreaterThan(left)
+    for (const l of lines.slice(top + 1, bottom)) {
+      const cs = [...l]
+      // The cell at the box's left edge and the one at its right edge are both its border.
+      const at = (cell: number) => {
+        let c = 0
+        for (const ch of cs) {
+          if (c === cell) return ch
+          c += cells(ch)
+        }
+        return ''
+      }
+      expect(at(left)).toBe('│')
+      expect(at(right)).toBe('│')
+    }
+    expect(lines.every(l => cells(l) <= width)).toBe(true)
+  }
 })

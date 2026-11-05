@@ -226,9 +226,14 @@ const inside = (ctx: Ctx, parentId: string, w: number, indent: string): Line[] =
     if (n.parallel === true) {
       const border = { color: 'inactive' }
       const room = w - cells(indent)
-      rows.push([{ text: indent }, { text: `╭ ${t().parallel} ${'─'.repeat(Math.max(0, room - 3 - cells(t().parallel)))}`, ...border }])
-      for (const row of inside(ctx, n.id, room - 2, '')) rows.push([{ text: indent }, { text: '│ ', ...border }, ...row])
-      rows.push([{ text: indent }, { text: `╰${'─'.repeat(Math.max(0, room - 1))}`, ...border }])
+      // A closed box, so its rows read as one group and a long note wraps inside it.
+      const inner = room - 4
+      rows.push([{ text: indent }, { text: `╭ ${t().parallel} ${'─'.repeat(Math.max(0, room - 4 - cells(t().parallel)))}╮`, ...border }])
+      for (const row of inside(ctx, n.id, inner, '')) {
+        const fitted = fitLine(row, inner)
+        rows.push([{ text: indent }, { text: '│ ', ...border }, ...fitted, { text: `${padRight('', inner - cells(lineText(fitted)))} │`, ...border }])
+      }
+      rows.push([{ text: indent }, { text: `╰${'─'.repeat(Math.max(0, room - 2))}╯`, ...border }])
       continue
     }
     const parent = hasChildren(ctx.plan.nodes, n.id)

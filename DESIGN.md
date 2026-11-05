@@ -79,7 +79,7 @@ None. Hierarchy comes from nesting boxes, not shadows.
 - **Step rows by status:** a finished step's title steps back dim (its `✓` stays green), a step still to come reads in plain text colour, the running step is bold with its motion; the eye goes from "now" to "next", not to what is behind. In the band and the drawer alike.
 - **Progress bar:** up to 24 cells of one heavy line, each half cell a stretch of leaves in plan order: `━` in green where done, `╸` or `╺` for a half cell (text colour for a step waiting on a check), the same `━` dim and muted for the rest. One line weight along the whole bar.
 - **Change marks:** a step the latest request reopened ends in a bold `↺`; a step it added carries no mark.
-- **Parallel group:** `╭ 동시에` header line inside a box, holding the tasks that run at the same time.
+- **Parallel group:** a closed muted box inside a stage box, `╭ 동시에 ─╮` on top and `╰─╯` under it, holding the tasks that run at the same time; every row inside, a long note included, wraps within its borders.
 - **Link row:** under a step whose row shows (a leaf, or an open box), one row of short names in text colour, each a hyperlink: `↗ PR #42  ↗ 아티팩트  ↗ LoginPage.tsx`, ending in muted `+N` for links that do not fit. The drawer only; the band above the prompt stays as it is.
 - **Check line:** under the progress bar (band) or the head (drawer), bold `◐ 확인할 것 N:` then each step waiting for the person's check with its note, joined by ` · `; absent when there are none, and folded away with the band.
 - **Connectors:** `┬`/`┴` on box edges, `▼` into the next box, `╭─┴─╮` for a split and `╰─┬─╯` for a join.

@@ -18,22 +18,22 @@ const middles = (n: number): number[] => [...Array(n).keys()].map(i => Math.roun
 // Straight down from one card to the next.
 export const trunkSvg = (): string => line(`M${MID} 0 V${H}`)
 
-// From the card above (`trunk`) out to the middle of each card below.
-export const splitSvg = (n: number, trunk: boolean): string => {
+// From the card above out to the middle of each card below.
+export const splitSvg = (n: number): string => {
   const xs = middles(n)
   const bar = n > 1 ? ` M${xs[0]} ${H} V${H / 2} H${xs[n - 1]} V${H}` : ` M${xs[0]} ${H / 2} V${H}`
   const drops = xs.slice(1, -1).map(x => ` M${x} ${H / 2} V${H}`).join('')
 
-  return line(`${trunk ? `M${MID} 0 V${H / 2}` : ''}${bar}${drops}`.trim())
+  return line(`M${MID} 0 V${H / 2}${bar}${drops}`)
 }
 
-// From the middle of each card above back to one line (`trunk`: on to the card below).
-export const joinSvg = (n: number, trunk: boolean): string => {
+// From the middle of each card above back to one line, on to the card below.
+export const joinSvg = (n: number): string => {
   const xs = middles(n)
   const down = xs.map(x => `M${x} 0 V${H / 2}`).join(' ')
   const bar = n > 1 ? ` M${xs[0]} ${H / 2} H${xs[n - 1]}` : ''
 
-  return line(`${down}${bar}${trunk ? ` M${MID} ${H / 2} V${H}` : ''}`)
+  return line(`${down}${bar} M${MID} ${H / 2} V${H}`)
 }
 
 // The drawer head's progress bar: one slot per step in plan order, done in green, waiting

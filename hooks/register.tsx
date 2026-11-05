@@ -484,7 +484,8 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     const first = i === 0
     const last = i === axis.length - 1
     if (a.kind === 'split') {
-      flow.push(pic(splitSvg(a.stages.length, !first), `split-${i}`))
+      // Lines only between cards: none above a first group or under a last one.
+      if (!first) flow.push(pic(splitSvg(a.stages.length), `split-${i}`))
       flow.push(
         <Box flexDirection="row">
           {a.stages.map(s => (
@@ -494,7 +495,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
           ))}
         </Box>,
       )
-      flow.push(pic(joinSvg(a.stages.length, !last), `join-${i}`))
+      if (!last) flow.push(pic(joinSvg(a.stages.length), `join-${i}`))
       return
     }
     if (!first && axis[i - 1]?.kind !== 'split') flow.push(pic(trunkSvg(), `trunk-${i}`))

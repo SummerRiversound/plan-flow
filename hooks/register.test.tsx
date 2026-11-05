@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import { joinSvg, splitSvg } from './gui'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { setLanguage } from './i18n'
@@ -310,6 +311,17 @@ test('on the desktop app every line between cards says what it is, and cards sid
   expect(halves).toHaveLength(2)
   // A column, so the card inside stretches across its half.
   expect(halves.every(b => b.props.flexDirection === 'column')).toBe(true)
+  await pane.unmount()
+})
+
+test('on the desktop app no line hangs off the flowchart: no split above a first group, no join under a last one', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, op: 'set', title: '동시에', nodes: [{ title: '갈래', parallel: true, children: [{ title: '왼쪽' }, { title: '오른쪽' }] }, { title: '가운데' }, { title: '끝', parallel: true, children: [{ title: 'ㄱ' }, { title: 'ㄴ' }] }] })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // The lines between cards, top to bottom: the join under the first group, then the split above the last.
+  const lines = (await pane.findAll({ type: 'Svg' })).filter(l => l.props.alt === '단계 사이 연결선').map(l => l.props.source)
+  expect(lines).toEqual([joinSvg(2), splitSvg(2)])
   await pane.unmount()
 })
 

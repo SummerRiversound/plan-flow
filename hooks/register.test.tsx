@@ -177,10 +177,11 @@ test('on the desktop app the band is set in the app type: the title folds it, pr
   expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
   // A step one level down sits further in than its stage.
   expect((await band.findAll({ type: 'Box' })).some(b => typeof b.props.paddingLeft === 'number' && b.props.paddingLeft > 0)).toBe(true)
-  await band.press({ key: 'fold-band' })
+  // The whole title row folds the band.
+  await band.pointer({ type: 'up', x: 40, y: 0, button: 'left', in: 'band-title' })
   await band.redraw()
   expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
-  expect(await band.find({ type: 'Text', text: /^로그인 기능 추가/ })).toBeDefined()
+  expect(JSON.stringify(await band.drawn({ in: 'band-title' }))).toContain('로그인 기능 추가')
   await band.unmount()
 })
 
@@ -206,25 +207,28 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   await $.tool.call({ tool: TOOL, ...PLAN })
   await $.tool.call({ tool: TOOL, op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round' && b.props.overflow === 'hidden')
+  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => typeof b.key === 'string' && b.key.startsWith('card-'))
   // 조사 is running: its card's edge is stronger than the others'.
   const edges = (await cards()).map(c => String(c.props.borderColor))
   expect(edges).toHaveLength(3)
   expect(edges[1]).toBe(edges[2])
   expect(edges[0]).not.toBe(edges[1])
-  // Each card's title row sits on a faint fill.
-  expect((await pane.findAll({ type: 'Box' })).filter(b => typeof b.props.backgroundColor === 'string').length).toBeGreaterThanOrEqual(3)
   expect((await pane.findAll({ type: 'Svg' })).length).toBeGreaterThanOrEqual(2)
-  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
-  await pane.press({ key: '2' })
+  const rows = async () => (await pane.findAll({ type: 'Client' })).map(c => c.key)
+  expect(await rows()).not.toContain('step-2.1')
+  // A click anywhere on a stage's row unfolds it.
+  await pane.pointer({ type: 'up', x: 30, y: 0, button: 'left', in: 'step-2' })
   await pane.redraw()
-  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  expect(await rows()).toContain('step-2.1')
   // An open card's rows are split by hairlines.
   expect((await pane.findAll({ type: 'Svg' })).some(x => x.props.alt === '구분선' && x.props.height === 1)).toBe(true)
   expect((await pane.findAll({ type: 'Box' })).some(b => b.key === 'row-2.1')).toBe(true)
-  await pane.press({ key: '2.1' })
+  // Enter on a step's row picks it.
+  await pane.key({ key: 'return', in: 'step-2.1' })
   await pane.redraw()
-  expect(await pane.find({ type: 'Button', key: 'ask' })).toBeDefined()
+  // The step's buttons are the ones to press: primary, at the right, apart from the text.
+  expect((await pane.find({ type: 'Button', key: 'ask' }))?.props.variant).toBe('primary')
+  expect((await pane.findAll({ type: 'Box' })).some(b => b.props.justifyContent === 'flex-end' && b.props.marginTop !== undefined)).toBe(true)
   await pane.press({ key: 'view' })
   await pane.redraw()
   // The list keeps the character tree under the app-type head, and the switch back.
@@ -235,29 +239,29 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   await pane.unmount()
 })
 
-test('on the desktop app the drawer head is set in the app type: a heading title, a progress bar picture and counts that hold their width', KO, async ($, on) => {
+test('in the editor the drawer head is set in the app type: a heading title, a progress bar picture and counts that hold their width', KO, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, ...PLAN })
   await $.tool.call({ tool: TOOL, op: 'next' })
-  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   const texts = await pane.findAll({ type: 'Text' })
   expect(texts.some(x => x.props.mono === true)).toBe(false)
   expect((await pane.find({ type: 'Text', text: /^로그인 기능 추가$/ }))?.props.size).toBe('heading')
   expect((await pane.findAll({ type: 'Svg' })).some(x => /진행/.test(String(x.props.alt)))).toBe(true)
   expect((await pane.find({ type: 'Text', text: /^\d+\/\d+ · \d+%$/ }))?.props.tabular).toBe(true)
   // The running stage's title weighs more; one still to come reads plain. Counts are smaller.
-  expect((await pane.find({ type: 'Text', text: /^조사$/ }))?.props.weight).toBe('semibold')
-  expect((await pane.find({ type: 'Text', text: /^구현$/ }))?.props.weight).toBeUndefined()
+  expect((await pane.find({ type: 'Text', text: /조사$/ }))?.props.weight).toBe('semibold')
+  expect((await pane.find({ type: 'Text', text: /구현$/ }))?.props.weight).toBeUndefined()
   expect((await pane.find({ type: 'Text', text: /^0\/2 ▸$/ }))?.props.size).toBe('footnote')
   await pane.unmount()
 })
 
-test('on the desktop app each task that runs with its siblings carries a small 동시에 pill beside its title, at their level, and links sit at the end of the row', KO, async ($, on) => {
+test('in the editor each task that runs with its siblings carries a small 동시에 pill beside its title, at their level, and links sit at the end of the row', KO, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '혼자' }, { title: '같이', parallel: true, children: [{ title: '하나', links: ['https://github.com/o/r/pull/7'] }, { title: '둘' }] }] }] })
-  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   // One pill per task that runs together, none on a line of its own.
   const pills = await pane.findAll({ type: 'Text', text: /^동시에$/ })
   expect(pills).toHaveLength(2)
@@ -265,6 +269,28 @@ test('on the desktop app each task that runs with its siblings carries a small �
   expect(await pane.find({ type: 'Link' })).toBeDefined()
   // Counts keep their width, so they never break over lines.
   expect((await pane.findAll({ type: 'Box' })).filter(b => b.props.flexShrink === 0).length).toBeGreaterThanOrEqual(2)
+  await pane.unmount()
+})
+
+test('on the desktop app each step row is one Client: the mark, the title, the pill and the count in one pressable row that lights under the pointer', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }] }, { title: '끝', children: [{ title: '마무리' }] }] })
+  await $.tool.call({ tool: TOOL, op: 'next' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // No Button for a row: every row is a Client named after its step.
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view'])
+  const clients = await pane.findAll({ type: 'Client' })
+  expect(clients.map(c => c.key)).toEqual(['step-1', 'step-1.1', 'step-1.2.1', 'step-1.2.2', 'step-2'])
+  const props = (key: string) => clients.find(c => c.key === key)?.props.props as { strong: boolean; pill: string | null; right: { text: string } | null }
+  expect(props('step-1')).toMatchObject({ strong: true, right: { text: '0/3 ▾' } })
+  expect(props('step-2')).toMatchObject({ strong: false, right: { text: '0/1 ▸' } })
+  expect([props('step-1.2.1')?.pill, props('step-1.2.2')?.pill, props('step-1.1')?.pill]).toEqual(['동시에', '동시에', null])
+  // The row draws its own title and count, and fills under the pointer.
+  expect(JSON.stringify(await pane.drawn({ in: 'step-2' }))).toContain('0/1 ▸')
+  expect(JSON.stringify(await pane.drawn({ in: 'step-2' }))).not.toContain('backgroundColor')
+  await pane.pointer({ type: 'enter', x: 0, y: 0, in: 'step-2' })
+  expect(JSON.stringify(await pane.drawn({ in: 'step-2' }))).toContain('backgroundColor')
   await pane.unmount()
 })
 
@@ -321,7 +347,8 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
   await $.tool.call({ tool: TOOL, ...PLAN })
   await $.tool.call({ tool: TOOL, op: 'next' })
   await $.tool.call({ tool: TOOL, op: 'next' })
-  for (const surface of ['terminal', 'desktop'] as const) {
+  // The surfaces whose rows are Buttons; the desktop app's rows are Clients, tested on their own.
+  for (const surface of ['terminal', 'vscode'] as const) {
     const pane = await $.ui.mount({ ...PANE, surface })
     // The buttons that fold every box, then the rows in the order they are drawn; the running stage holds the ring.
     expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view', '1', '2', '2.1', '2.2', '3'])

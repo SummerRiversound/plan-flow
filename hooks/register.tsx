@@ -6,18 +6,19 @@ import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
 import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
 import type { AxisItem, CardItem, CardStep } from './cards'
+import type { CardHead } from './cards'
 import { cardButtons, cardsOf, headOf, isDone } from './cards'
 import { GUARDED, REMINDER, decide, denyReason, idleWatch, longStepNote, onPlanWritten, onStepPlanWritten, onTurnStart, watchStep } from './gate'
-import type { Plan } from './plan'
-import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, progress, runningLeaves } from './plan'
+import type { Plan, PlanNode } from './plan'
+import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, isFinished, progress, runningLeaves } from './plan'
 import type { PlanOp } from './plan-tool'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
-import { joinSvg, liveSvg, progressSvg, spinSvg, splitSvg, trunkSvg } from './gui'
+import { joinSvg, progressSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
-import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, fitLine, isLive } from './tree'
-import { cells } from './width'
+import type { BandRow } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, noteText, planHead } from './tree'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
@@ -41,32 +42,19 @@ const foldAtom = atom({ plugin: 'plan-flow', key: 'fold' } as const, false)
 const newerAtom = atom({ plugin: 'plan-flow', key: 'newer' } as const, null as Newer | null)
 
 type $ = EngineInterface
+type Ev = Parameters<$['ui']['resolve']>[0]
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 
 // Draws one line of pieces; the pieces marked with a node id become that node's fold Button.
-// Every piece is monospaced, so the cell counts the lines are built on hold off the terminal too.
-const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: string | null, onPress: (id: string) => void, now: number) => {
-  const t = $.ui.resolve(e)
-  const { Box, Text, Button, Link } = t
-  // A surface that draws pictures animates the running step itself; the terminal gets the frame drawn now.
-  const Svg = e.surface !== 'terminal' && 'Svg' in t ? t.Svg : null
-  const text = (s: Line[number]) => (
-    <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined}>
-      {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
-    </Text>
-  )
-  // A gap that grows on surfaces drawing native buttons, whose widths the cell count cannot know.
-  const piece = (s: Line[number]) => (s.fill === true && e.surface !== 'terminal' ? <Box flexGrow={1} /> : text(s))
-  const segs = (ss: Line) => {
-    if (Svg === null) return ss.map(piece)
-    const title = ss.filter(s => s.live === 'title').map(s => s.text).join('').trimStart()
-    return ss.flatMap(s => {
-      if (s.live === 'title') return []
-      if (s.live !== 'mark') return [piece(s)]
-      const pic = liveSvg(title, cells(title), now)
-      return [<Svg source={pic.source} alt={title} width={pic.width} height={pic.height} />]
-    })
-  }
+// The terminal's lines (and a demo's bar); surfaces with their own type draw natively.
+const row = ($: $, e: Ev, line: Line, focus: string | null, onPress: (id: string) => void) => {
+  const { Box, Text, Button, Link } = $.ui.resolve(e)
+  const segs = (ss: Line) =>
+    ss.map(s => (
+      <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined}>
+        {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
+      </Text>
+    ))
   const parts: Array<{ id?: string; segs: Line }> = []
   for (const s of line) {
     const last = parts[parts.length - 1]
@@ -94,7 +82,132 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
 // editor): a head set in the app's type, then each stage a rounded card (the running one in
 // text colour), parallel stages side by side with lines between them, or the same steps as a
 // plain list. A step's title is its Button: a box folds, a step is picked with its buttons under it.
-type Ev = Parameters<$['ui']['resolve']>[0]
+// The head the native drawer and band share: the title row, the goal, the progress bar and
+// counts, then (unless folded) the steps to check and what Claude is doing, then `tools`.
+const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalRows: number; folded?: boolean; tools?: RenderChildren }) => {
+  const el = $.ui.resolve(e)
+  const { Box, Text } = el
+  const Svg = 'Svg' in el ? el.Svg : null
+
+  return (
+    <Box flexDirection="column" gap="xs" paddingX="xs">
+      {o.title}
+      {hd.goal === undefined ? null : (
+        <Text size="footnote" color="inactive" wrap={o.goalRows === 1 ? 'truncate-end' : undefined}>
+          {hd.goal}
+        </Text>
+      )}
+      <Box flexDirection="row" alignItems="center" gap="sm">
+        <Box flexGrow={1} flexDirection="column">
+          {Svg === null ? null : <Svg source={progressSvg(hd.slots)} alt={t().progress(hd.done, hd.total)} />}
+        </Box>
+        <Text size="footnote" tabular color="inactive">
+          {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
+        </Text>
+      </Box>
+      {o.folded === true || hd.checks.length === 0 ? null : (
+        <Text size="footnote">
+          <Text weight="semibold">{t().checks(hd.checks.length).replace(/:\s*$/, '')}</Text> {hd.checks.join(' · ')}
+        </Text>
+      )}
+      {o.folded === true || hd.activity === undefined ? null : (
+        <Text size="footnote">
+          <Text color={hd.activity.color}>●</Text> {hd.activity.text}
+        </Text>
+      )}
+      {o.tools ?? null}
+    </Box>
+  )
+}
+
+// The band above the prompt on a surface with its own type: the shared head, its title the
+// fold Button, the flowchart Button flush right, then the tree's rows, each step in by its level.
+const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: boolean; parked: number; notice?: string; budget: number; width: number; now: number; onPress: (id: string) => void }) => {
+  const el = $.ui.resolve(e)
+  const { Box, Text, Button } = el
+  const Svg = 'Svg' in el ? el.Svg : null
+  const live = isLive(activity)
+  const rows = o.folded ? [] : bandRows(plan, activity, o.budget, o.width, o.now)
+  const depth = (n: PlanNode) => n.id.split('.').length - 1
+  const row = (r: BandRow): RenderChildren => {
+    if (r.kind === 'more')
+      return (
+        <Text size="footnote" color="inactive">
+          {r.text}
+        </Text>
+      )
+    if (r.kind === 'detail')
+      return (
+        <Box paddingLeft={depth(r.node) * 2 + 3}>
+          <Text size="footnote" color="inactive">
+            {r.text}
+          </Text>
+        </Box>
+      )
+    const n = r.node
+    const parent = hasChildren(plan.nodes, n.id)
+    const spin = n.status === 'in_progress' && !parent && live && Svg !== null
+    const done = isFinished(n.status) && n.status !== 'needs_check'
+    const glyph = glyphSeg(n)
+    const note = noteText(n)
+    return (
+      <Box key={n.id} flexDirection="row" alignItems="center" gap="xs" paddingLeft={depth(n) * 2}>
+        {spin ? <Svg source={spinSvg(o.now)} alt={t().running} width={14} height={14} /> : <Text color={glyph.color}>{glyph.text}</Text>}
+        <Text weight={r.line.some(s => s.bold === true) || n.status === 'in_progress' ? 'semibold' : undefined} dimColor={done ? true : undefined} strikethrough={n.status === 'skipped' ? true : undefined} wrap="truncate-end">
+          {n.title}
+          {plan.marks?.[n.id] === 'redo' ? ' ↺' : ''}
+        </Text>
+        {n.parallel === true ? (
+          <Box borderStyle="round" borderColor="inactive" paddingX="xs">
+            <Text size="caption" color="inactive">
+              {t().parallel}
+            </Text>
+          </Box>
+        ) : null}
+        {note === '' ? null : (
+          <Text size="footnote" color={n.status === 'blocked' ? 'error' : 'inactive'} wrap="truncate-end">
+            {note.trim()}
+          </Text>
+        )}
+        <Box flexGrow={1} />
+        {parent ? (
+          <Text size="footnote" tabular color="inactive">
+            {`${counts(plan, n.id)}${r.folded ? ' ▸' : ''}`}
+          </Text>
+        ) : null}
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" gap="xs">
+      {nativeHead($, e, headOf(plan, o.parked, activity), {
+        folded: o.folded,
+        goalRows: 1,
+        title: (
+          <Box flexDirection="row" alignItems="center" gap="xs">
+            <Button key={FOLD_BUTTON} plain onPress={() => o.onPress(FOLD_BUTTON)}>
+              <Text weight="semibold">
+                {plan.title}
+                <Text color="inactive">{o.folded ? ' ▾' : ' ▴'}</Text>
+              </Text>
+            </Button>
+            <Box flexGrow={1} />
+            {o.notice === undefined ? null : <Text size="footnote">{o.notice}</Text>}
+            <Button key={OPEN_BUTTON} variant="primary" onPress={() => o.onPress(OPEN_BUTTON)}>
+              {t().bandOpen}
+            </Button>
+          </Box>
+        ),
+      })}
+      {rows.length === 0 ? null : (
+        <Box flexDirection="column" paddingX="xs">
+          {rows.map(row)}
+        </Box>
+      )}
+    </Box>
+  )
+}
 
 const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, onPress: (id: string) => void, now: number) => {
   const el = $.ui.resolve(e)
@@ -248,55 +361,36 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     )
   })
 
-  const hd = headOf(plan, parked.length, activity)
   const top =
     plan.nodes.length === 0 ? (
       <Text color="inactive">{t().empty}</Text>
     ) : (
-      <Box flexDirection="column" gap="xs" paddingX="xs">
-        <Text size="heading" weight="semibold">
-          {hd.title}
-        </Text>
-        {hd.goal === undefined ? null : (
-          <Text size="footnote" color="inactive">
-            {hd.goal}
+      nativeHead($, e, headOf(plan, parked.length, activity), {
+        title: (
+          <Text size="heading" weight="semibold">
+            {plan.title}
           </Text>
-        )}
-        <Box flexDirection="row" alignItems="center" gap="sm">
-          <Box flexGrow={1} flexDirection="column">
-            {Svg === null ? null : <Svg source={progressSvg(hd.slots)} alt={t().progress(hd.done, hd.total)} />}
-          </Box>
-          <Text size="footnote" tabular color="inactive">
-            {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
-          </Text>
-        </Box>
-        {hd.checks.length === 0 ? null : (
-          <Text size="footnote">
-            <Text weight="semibold">{t().checks(hd.checks.length).replace(/:\s*$/, '')}</Text> {hd.checks.join(' · ')}
-          </Text>
-        )}
-        {hd.activity === undefined ? null : (
-          <Text size="footnote">
-            <Text color={hd.activity.color}>●</Text> {hd.activity.text}
-          </Text>
-        )}
-        <Box flexDirection="row" alignItems="center" gap="xs">
-          {list ? null : (
-            <Button key={EXPAND_ALL} onPress={() => onPress(EXPAND_ALL)}>
-              {t().expandAll}
-            </Button>
-          )}
-          {list ? null : (
-            <Button key={COLLAPSE_ALL} onPress={() => onPress(COLLAPSE_ALL)}>
-              {t().collapseAll}
-            </Button>
-          )}
-          <Box flexGrow={1} />
-          <Button key={VIEW} onPress={() => onPress(VIEW)}>
-            {list ? t().toFlow : t().toList}
-          </Button>
-        </Box>
-      </Box>
+        ),
+        goalRows: 3,
+        tools: (
+            <Box flexDirection="row" alignItems="center" gap="xs">
+              {list ? null : (
+                <Button key={EXPAND_ALL} onPress={() => onPress(EXPAND_ALL)}>
+                  {t().expandAll}
+                </Button>
+              )}
+              {list ? null : (
+                <Button key={COLLAPSE_ALL} onPress={() => onPress(COLLAPSE_ALL)}>
+                  {t().collapseAll}
+                </Button>
+              )}
+              <Box flexGrow={1} />
+              <Button key={VIEW} onPress={() => onPress(VIEW)}>
+                {list ? t().toFlow : t().toList}
+              </Button>
+            </Box>
+        ),
+      })
     )
 
   return (
@@ -623,14 +717,17 @@ export const register: Register = (on, options) => {
             ),
             fitLine([{ text: frame.label, color: 'inactive' }], width),
           ]
-    const view = drawTree(plan, frame?.activity ?? (await read($, activityAtom)), {
+    const activity = frame?.activity ?? (await read($, activityAtom))
+    const parked = (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length
+    const notice = frame === undefined ? await read($, newerAtom).then(n => (n === null ? undefined : t().newer(n))) : undefined
+    const view = drawTree(plan, activity, {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
       width,
       now,
       open: t().bandOpen,
       folded: frame?.folded ?? (await read($, foldAtom)),
-      parked: (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length,
-      notice: frame === undefined ? await read($, newerAtom).then(n => (n === null ? undefined : t().newer(n))) : undefined,
+      parked,
+      notice,
     })
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
@@ -640,9 +737,22 @@ export const register: Register = (on, options) => {
       if (id === DEMO_STOP) void demo($, 'stop')
     }
 
+    // A surface with its own type draws the band natively; a demo's bar stays as lines over it.
+    if (e.surface !== 'terminal') {
+      const folded = frame?.folded ?? (await read($, foldAtom))
+      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice).length
+      return (
+        <Box flexDirection="column" gap="xs">
+          {top.map(l => row($, e, l, null, press))}
+          {nativeBand($, e, plan, activity, { folded, parked, ...(notice === undefined ? {} : { notice }), budget, width, now, onPress: press })}
+          {below}
+        </Box>
+      )
+    }
+
     return (
       <Box flexDirection="column">
-        {[...top, ...view].map(l => row($, e, l, null, press, now))}
+        {[...top, ...view].map(l => row($, e, l, null, press))}
         {below}
       </Box>
     )
@@ -700,7 +810,7 @@ export const register: Register = (on, options) => {
       return nativeDrawer($, e, plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, activity, press, now)
     }
 
-    return <Box flexDirection="column">{shown.lines.map(l => row($, e, l, focus, press, now))}</Box>
+    return <Box flexDirection="column">{shown.lines.map(l => row($, e, l, focus, press))}</Box>
   })
 
   // The person scrolls the drawer: its body moves under the pinned head and foot, and

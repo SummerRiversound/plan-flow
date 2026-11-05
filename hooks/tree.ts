@@ -10,7 +10,7 @@ import { t } from './i18n'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
 // `live` marks the running step's turning mark and swept title, which a surface that draws pictures animates itself.
-export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title'; node?: string; fill?: true }
+export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title'; node?: string }
 export type Line = Seg[]
 
 // How long one frame of the running step's motion lasts.
@@ -227,7 +227,7 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
       : (() => {
           const used = cells(lineText(right)) + frame(chosen)
           const cut = title(width - used - 1)
-          return [...cut, { text: padRight('', width - cells(lineText(cut)) - used), fill: true as const }, ...right]
+          return [...cut, { text: padRight('', width - cells(lineText(cut)) - used) }, ...right]
         })(),
     ...goalLines(plan, width, goalRows),
     fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),
@@ -255,28 +255,44 @@ export const FOLD_BUTTON = 'fold-band'
 // `folded` shows the fold button, and when true draws only the title and progress lines.
 // `notice` says a newer plan-flow is installed or out, on the title line.
 export type TreeOptions = { maxRows: number; width: number; now: number; open?: string; parked?: number; folded?: boolean; notice?: string }
-export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice }: TreeOptions): Line[] => {
-  if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
-  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice)
-  if (folded === true) return top.slice(0, 2 + goalLines(plan, width, 1).length)
+// The tree's rows under the head, in `budget` rows: each a step, a running step's detail, or a
+// line counting the steps left out. Each keeps its drawn line and what it stands for, so a
+// surface with its own type can draw the same rows its own way.
+export type BandRow =
+  | { kind: 'step'; node: PlanNode; folded: boolean; line: Line }
+  | { kind: 'detail'; node: PlanNode; text: string; line: Line }
+  | { kind: 'more'; text: string; line: Line }
+
+export const bandRows = (plan: Plan, activity: Activity, budget: number, width: number, now: number): BandRow[] => {
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
       .filter(n => ![...folded].some(id => n.id.startsWith(`${id}.`)))
-      .flatMap(node => [nodeRow(plan, node, width, marked, folded, isLive(activity), now), ...detailRows(plan, node, width, marked)].map(line => ({ node, line })))
-  const overflow = (hidden: readonly PlanNode[]): Line => {
+      .flatMap((node): Array<{ node: PlanNode; line: BandRow }> => [
+        { node, line: { kind: 'step', node, folded: folded.has(node.id), line: nodeRow(plan, node, width, marked, folded, isLive(activity), now) } },
+        ...detailRows(plan, node, width, marked).map(line => ({ node, line: { kind: 'detail' as const, node, text: line[1]?.text ?? '', line } })),
+      ])
+  const overflow = (hidden: readonly PlanNode[]): BandRow => {
     const fin = hidden.filter(n => n.status === 'completed').length
     const wait = hidden.filter(n => n.status === 'pending').length
+    const text = t().more(hidden.length, fin, wait)
 
-    return fitLine([{ text: t().more(hidden.length, fin, wait), color: 'inactive' }], width)
+    return { kind: 'more', text, line: fitLine([{ text, color: 'inactive' }], width) }
   }
-  const budget = maxRows - top.length
   const body = rowsFor(foldedParents(plan))
   // Too few rows for a window: rows give way instead.
-  if (body.length <= budget || budget < 3) return [...top, ...fitRows(plan, budget, rowsFor, overflow)]
+  if (body.length <= budget || budget < 3) return fitRows(plan, budget, rowsFor, overflow)
   // A window around the current step; the drawer has the rest.
   const at = body.findIndex(r => marked.has(r.node.id))
   const offset = Math.max(0, Math.min(body.length - budget, at < 0 ? 0 : at - Math.floor(budget / 2)))
 
-  return [...top, ...body.slice(offset, offset + budget).map(r => r.line)]
+  return body.slice(offset, offset + budget).map(r => r.line)
+}
+
+export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice }: TreeOptions): Line[] => {
+  if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
+  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice)
+  if (folded === true) return top.slice(0, 2 + goalLines(plan, width, 1).length)
+
+  return [...top, ...bandRows(plan, activity, maxRows - top.length, width, now).map(r => r.line)]
 }

@@ -201,14 +201,12 @@ test('the notice says what to run: a reload for an installed update, an update f
   setLanguage('ko')
 })
 
-test('the band ends its title line in the flowchart button, the one framed button, with a gap that stretches and room for the frame', () => {
+test('the band ends its title line in the flowchart button, the one framed button, with room for the frame', () => {
   setLanguage('ko')
   for (const width of [40, 60, 90]) {
     const line = drawTree(sample(), working, { maxRows: 12, width, now: 0, open: t().bandOpen, folded: false })[0] ?? []
     expect(line[line.length - 1]).toMatchObject({ text: t().bandOpen, button: OPEN_BUTTON })
     expect(line.filter(s => BOXED.has(s.button ?? '')).map(s => s.button)).toEqual([OPEN_BUTTON])
-    // On a surface with native buttons the gap grows, so the button sits at the right edge there too.
-    expect(line.some(s => s.fill === true)).toBe(true)
     // The engine draws `[ ` and ` ]` around the framed button.
     expect(cells(lineText(line)) + 4).toBeLessThanOrEqual(width)
   }

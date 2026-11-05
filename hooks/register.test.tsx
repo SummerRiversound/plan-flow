@@ -163,6 +163,27 @@ test('pressing the band title folds it and pressing again unfolds it, and the fl
   await band.unmount()
 })
 
+test('on the desktop app the band is set in the app type: the title folds it, progress is a picture, steps step in by level, and the flowchart button is primary', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  await $.tool.call({ tool: TOOL, op: 'next' })
+  await $.tool.call({ tool: TOOL, op: 'next' })
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await band.findAll({ type: 'Text' })).some(x => x.props.mono === true)).toBe(false)
+  expect((await band.findAll({ type: 'Text' })).some(x => /[├└│]/.test(String(x.props.children)))).toBe(false)
+  expect((await band.findAll({ type: 'Svg' })).some(x => /진행/.test(String(x.props.alt)))).toBe(true)
+  expect((await band.find({ type: 'Button', key: 'open-flow' }))?.props.variant).toBe('primary')
+  expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  // A step one level down sits further in than its stage.
+  expect((await band.findAll({ type: 'Box' })).some(b => typeof b.props.paddingLeft === 'number' && b.props.paddingLeft > 0)).toBe(true)
+  await band.press({ key: 'fold-band' })
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /^로그인 기능 추가/ })).toBeDefined()
+  await band.unmount()
+})
+
 test('with autoShow off, nothing shows above the prompt until /flow', { options: { autoShow: false, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)

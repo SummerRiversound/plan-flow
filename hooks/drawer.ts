@@ -412,25 +412,24 @@ export type DrawerView = { head: Line[]; body: Line[]; buttons: string[]; at: nu
 const rule = (width: number): Line => [{ text: ` ${'┄'.repeat(Math.max(0, width - 2))}`, color: 'inactive' }]
 
 // The head's top: the plan's title, goal, progress, steps to check and what Claude is doing.
-export const headTop = (plan: Plan, shelf: readonly Shelved[], activity: Activity, width: number, now: number): Line[] =>
+const headTop = (plan: Plan, shelf: readonly Shelved[], activity: Activity, width: number, now: number): Line[] =>
   planHead(plan, activity, 6, width - 1, now, undefined, shelf.filter(s => s.state === 'parked').length, undefined, undefined, 3)
     .filter(l => l.length > 0)
     .map((l): Line => [{ text: ' ' }, ...l])
 
 // The head's button row: `right` (the view switch) flush with the rule's end, so it stays put
-// when the view changes; the others from the left, while they fit before it. The gap grows
-// where the surface draws native buttons.
+// when the view changes; the others from the left, while they fit before it.
 const toolRow = (left: ReadonlyArray<[string, string]>, [id, text]: [string, string], width: number): Line => {
   const r = 4 + cells(text)
   if (r + 1 > width - 1) return buttonRow([[id, text]], width)
   const l = buttonRow(left, width - 1 - r - 2)
   const used = cells(lineText(l)) + 4 * l.filter(s => s.button !== undefined).length
 
-  return [...l, { text: padRight('', width - 1 - r - used), fill: true }, { text, color: 'text', bold: true, button: id }]
+  return [...l, { text: padRight('', width - 1 - r - used) }, { text, color: 'text', bold: true, button: id }]
 }
 
 // The flowchart's button row: fold every box, and switch to the list.
-export const flowTools = (width: number): Line =>
+const flowTools = (width: number): Line =>
   toolRow(
     [
       [EXPAND_ALL, t().expandAll],

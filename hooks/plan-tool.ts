@@ -111,7 +111,7 @@ export const instruction = (tool: string): string =>
     'When a step is done call op "next"; it finishes that step and starts the following one. Use op "update" for blocked or skipped steps, with a note saying why.',
     'With the op that finishes the last step, give "summary": the goal in one sentence and, in one or two, how it was reached (what was made and checked).',
     'Check your own work right after each change, inside that step (run it, look at it, take the screenshot); never plan a catch-all check step for the end. When a step is done but only the person can confirm it (a device in hand, a sign-in, a taste call), set it to "needs_check" with a note naming what to look at, and move on: it counts as done and shows on the board as a step to check. Set it to "completed" when the person confirms, or "pending" to redo it.',
-    'While a plan is on the board, each request carries a plan-flow note: follow it to decide what the request does to the board before acting.',
+    'While a plan is on the board, each request carries a short plan-flow note on where it stands. Change the board only when the request changes the task, in the same turn as the work, never instead of it: more of the same, or a fix to finished work, goes under the stage it continues (op "add" with that stage as "parent", or status "pending" to reopen a step), and a new top-level stage only for a new part of the outcome; a follow-up after the plan finished stays there for the same outcome, and for a new outcome: op "set" with a new title (the finished plan goes to the shelf); a detour done here before coming back: op "set" with previous "park", and the parked plan returns when the detour finishes; unrelated work: suggest a fresh session first; starting over: previous "cancel"; back to parked work: op "resume"; the person confirms a step to check: status "completed". A question or a quick side job leaves the board alone.',
     'The person sees the board drawn on screen, so never describe, list or redraw the plan in your reply.',
     'A plain question needs no plan.',
     `If the tool is not loaded yet, load it with ToolSearch (query "select:${tool}").`,
@@ -155,21 +155,7 @@ export const boardNote = (board: Board, byPerson: readonly string[] = []): strin
   }
   if (byPerson.length > 0) lines.push(`Changed by the person in the drawer since the last request: ${byPerson.join(' ')}`)
   if (parked.length > 0) lines.push(`Parked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total})`).join(', ')}.`)
-  lines.push(
-    'Decide what this request does to the board, change the board first, then work:',
-    '- a question, or a quick side job that does not change the task: leave the board alone;',
-    '- more work for this task, or a step that turned out bigger: put it under the stage it continues (op "add" with that stage or step as "parent"; a leaf may get children), and a new top-level stage only for a new part of the outcome; op "update" with a new "goal" when it widens what the plan is for;',
-    '- redo or touch up finished work: reopen that step (op "update" with status "pending" and a note why), or add the fix under its stage; never as a new stage at the end;',
-    '- a follow-up after the plan finished: the same outcome, op "add" under its stage; a new outcome: op "set" with a new title (the finished plan goes to the shelf as done);',
-    '- a different approach, dropped scope or a new order: update titles, op "remove" or status "skipped" with a note, op "move";',
-    '- the person is needed before work can go on (sign-in, a decision): status "blocked" with a note;',
-    '- the person confirms a step waiting for their check (needs_check): status "completed" (or "pending" with a note if it needs redoing);',
-    '- a detour that shares this context: op "set" with previous "park"; the parked plan comes back when the detour finishes;',
-    '- unrelated work: first suggest doing it in a fresh session and ask; if the person stays here, op "set" with previous "park";',
-    '- start over: op "set" with previous "cancel";',
-    '- back to parked work: op "resume".',
-    'When the request reads as more than one of these, ask the person before changing the board.',
-  )
+  lines.push('Change the board only if this request changes the task (the cases are in the system prompt); otherwise just do the work.')
 
   return lines.join('\n')
 }

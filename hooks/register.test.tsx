@@ -231,9 +231,12 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   expect((await pane.findAll({ type: 'Box' })).some(b => b.props.justifyContent === 'flex-end' && b.props.marginTop !== undefined)).toBe(true)
   await pane.press({ key: 'view' })
   await pane.redraw()
-  // The list keeps the character tree under the app-type head, and the switch back.
+  // The list keeps the tree's guides at each row's start, monospaced, under the app-type head, and the switch back.
   expect(await cards()).toHaveLength(0)
-  expect(await pane.find({ type: 'Text', text: /├─/ })).toBeDefined()
+  const guides = (await pane.findAll({ type: 'Client' })).map(c => (c.props.props as { guide: string | null }).guide)
+  expect(guides).toHaveLength(3)
+  expect(guides.some(g => g !== null && /[├└]─ $/.test(g))).toBe(true)
+  expect(JSON.stringify(await pane.drawn({ in: 'step-2' }))).toContain('"mono":true')
   expect((await pane.find({ type: 'Text', text: /^로그인 기능 추가$/ }))?.props.size).toBe('heading')
   expect(await pane.find({ type: 'Button', key: 'view' })).toBeDefined()
   await pane.unmount()
@@ -360,7 +363,8 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.plain).toBe(true)
     // The list button swaps the flowchart for the tree and back.
     await pane.press({ key: 'view' })
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['view', '1', '2.1', '2.2'])
+    // The terminal's list presses steps; the editor's draws every row as a Button.
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(surface === 'terminal' ? ['view', '1', '2.1', '2.2'] : ['view', '1', '2', '2.1', '2.2', '3'])
     await pane.press({ key: 'view' })
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.autoFocus).toBe(true)
     // ↓ moves the ring to the next box; a redraw keeps it there.

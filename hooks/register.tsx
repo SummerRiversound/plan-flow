@@ -199,7 +199,7 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
           <Box flexDirection="row" alignItems="center" gap="xs">
             {e.surface === 'desktop' && 'Client' in el ? (
               // The whole title row folds the band, not only its words.
-              <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, mark: null, title: plan.title, strong: true, muted: false, strike: false, redo: false, pill: null, right: { text: o.folded ? '▾' : '▴', color: 'inactive' }, hover: HOVER, edge: EDGE } satisfies StepRowProps} />
+              <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, guide: null, mark: null, title: plan.title, strong: true, muted: false, strike: false, redo: false, pill: null, right: { text: o.folded ? '▾' : '▴', color: 'inactive' }, hover: HOVER, edge: EDGE } satisfies StepRowProps} />
             ) : (
               <Button key={FOLD_BUTTON} plain onPress={() => o.onPress(FOLD_BUTTON)}>
                 <Text weight="semibold">
@@ -267,6 +267,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     if (Client !== null) {
       const props: StepRowProps = {
         id: s.id,
+        guide: null,
         mark: spin ? null : { text: s.glyph.text, color: s.glyph.color ?? 'text' },
         title: s.title,
         strong,
@@ -386,9 +387,98 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     )
   }
 
-  // The list keeps the character tree, whose guides show the levels best; only the head is in the app's type.
-  // Its rows already end in the wrap-up and the parked plans.
-  const tree = list ? drawerView(plan, shelf, drawer, activity, { width, now }).body : []
+  // The list keeps the tree's guides, which show the levels best, monospaced at each row's start so they
+  // line up; the rest of a row is in the app's type, and the whole row is pressable where Clients draw.
+  const listRows = (): RenderChildren[] => {
+    const out: RenderChildren[] = []
+    const sub = (guide: string, child: RenderChildren, key: string) => (
+      <Box key={key} flexDirection="row">
+        <Text mono color="inactive">
+          {guide}
+        </Text>
+        {child}
+      </Box>
+    )
+    if (narrow)
+      out.push(
+        <Text size="footnote" color="inactive">
+          {t().narrow}
+        </Text>,
+      )
+    for (const r of bandRows(plan, activity, plan.nodes.length * 4 + 4, width, now)) {
+      if (r.kind === 'more') {
+        out.push(
+          <Text size="footnote" color="inactive">
+            {r.text}
+          </Text>,
+        )
+        continue
+      }
+      const guide = r.line[0]?.text ?? ''
+      // Under a step, the guides go on down past it.
+      const on = guide.replace(/├─ $/, '│  ').replace(/└─ $/, '   ')
+      if (r.kind === 'detail') {
+        out.push(sub(`${guide}`, <Text size="footnote" color="inactive">{r.text}</Text>, `detail-${r.node.id}`))
+        continue
+      }
+      const n = r.node
+      const parent = hasChildren(plan.nodes, n.id)
+      const spin = n.status === 'in_progress' && !parent && live && Svg !== null
+      const glyph = glyphSeg(n)
+      const right = parent ? `${counts(plan, n.id)}${r.folded ? ' ▸' : ''}` : n.status === 'in_progress' ? t().running : null
+      const props: StepRowProps = {
+        id: n.id,
+        guide,
+        mark: spin ? null : { text: glyph.text, color: glyph.color ?? 'text' },
+        title: n.title,
+        strong: r.line.some(x => x.bold === true) || n.status === 'in_progress',
+        muted: isFinished(n.status) && n.status !== 'needs_check',
+        strike: n.status === 'skipped',
+        redo: plan.marks?.[n.id] === 'redo',
+        pill: n.parallel === true ? t().parallel : null,
+        right: right === null ? null : { text: right, color: 'inactive' },
+        hover: HOVER,
+        edge: EDGE,
+      }
+      out.push(
+        <Box key={`list-${n.id}`} flexDirection="row" alignItems="center" gap="xs">
+          {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
+          {Client !== null ? (
+            <Client key={`step-${n.id}`} module="./step-row.tsx" props={props} flexGrow={1} />
+          ) : (
+            <Button key={n.id} plain autoFocus={n.id === ring ? true : undefined} onPress={() => onPress(n.id)}>
+              <Text>
+                <Text mono color="inactive">
+                  {guide}
+                </Text>
+                <Text color={glyph.color}>{glyph.text} </Text>
+                {n.title}
+              </Text>
+            </Button>
+          )}
+        </Box>,
+      )
+      // A picked step shows its whole detail, its note and its buttons under it.
+      if (drawer.pick === n.id && !parent) {
+        if (n.detail !== undefined && n.status !== 'in_progress') out.push(sub(`${on}   `, <Text size="footnote" color="inactive">{n.detail}</Text>, `pdetail-${n.id}`))
+        const note = noteText(n).trim()
+        if (note !== '') out.push(sub(`${on}   `, <Text size="footnote" color={n.status === 'blocked' ? 'error' : 'inactive'}>{note}</Text>, `pnote-${n.id}`))
+        out.push(
+          <Box key={`pact-${n.id}`} flexDirection="row" gap="xs" justifyContent="flex-end" marginTop="xs" marginBottom="xs">
+            {[...(n.status === 'needs_check' ? [[CONFIRM, t().confirm.replace(/^\[ (.*) \]$/, '$1')] as const] : []), [ASK, t().discuss.replace(/^\[ (.*) \]$/, '$1')] as const].map(([id, label]) => (
+              <Button key={id} variant="primary" onPress={() => onPress(id)}>
+                {label}
+              </Button>
+            ))}
+          </Box>,
+        )
+      }
+    }
+    const end = axis.find(a => a.kind === 'summary')
+    if (end !== undefined && end.kind === 'summary') out.push(<Box marginTop="sm">{summary(end)}</Box>)
+    return out
+  }
+  const tree = list ? listRows() : []
   const flow: RenderChildren[] = []
   if (!list) axis.forEach((a, i) => {
     const first = i === 0
@@ -455,8 +545,12 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
           {flow}
         </Box>
       )}
-      {tree.length === 0 ? null : <Box flexDirection="column">{tree.map(l => row($, e, l, ring, onPress))}</Box>}
-      {list || parked.length === 0 ? null : (
+      {tree.length === 0 ? null : (
+        <Box flexDirection="column" paddingX="xs">
+          {tree}
+        </Box>
+      )}
+      {parked.length === 0 ? null : (
         <Box flexDirection="column" gap="xs" paddingX="xs">
           <Text size="footnote" weight="semibold">
             {t().shelf}

@@ -18,7 +18,7 @@ import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoLi
 import { joinSvg, progressSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
 import type { BandRow } from './tree'
-import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, noteText, planHead } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, lineText, noteText, planHead } from './tree'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
@@ -101,9 +101,11 @@ const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalR
         <Box flexGrow={1} flexDirection="column">
           {Svg === null ? null : <Svg source={progressSvg(hd.slots)} alt={t().progress(hd.done, hd.total)} />}
         </Box>
-        <Text size="footnote" tabular color="inactive">
-          {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
-        </Text>
+        <Box flexShrink={0}>
+          <Text size="footnote" tabular color="inactive">
+            {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
+          </Text>
+        </Box>
       </Box>
       {o.folded === true || hd.checks.length === 0 ? null : (
         <Text size="footnote">
@@ -171,9 +173,11 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
         )}
         <Box flexGrow={1} />
         {parent ? (
-          <Text size="footnote" tabular color="inactive">
-            {`${counts(plan, n.id)}${r.folded ? ' ▸' : ''}`}
-          </Text>
+          <Box flexShrink={0}>
+            <Text size="footnote" tabular color="inactive">
+              {`${counts(plan, n.id)}${r.folded ? ' ▸' : ''}`}
+            </Text>
+          </Box>
         ) : null}
       </Box>
     )
@@ -209,7 +213,7 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
   )
 }
 
-const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, onPress: (id: string) => void, now: number) => {
+const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, onPress: (id: string) => void, now: number, width: number) => {
   const el = $.ui.resolve(e)
   const { Box, Text, Button, Link } = el
   const Svg = 'Svg' in el ? el.Svg : null
@@ -242,7 +246,13 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       {s.redo ? ' ↺' : ''}
     </Text>
   )
-  const head = (s: CardStep, top: boolean) => {
+  const pill = () =>
+    tag(
+      <Text size="caption" color="inactive">
+        {t().parallel}
+      </Text>,
+    )
+  const head = (s: CardStep, top: boolean, together: boolean) => {
     // The running step turns while Claude works; the mark is a picture, so it sits beside the title's Button.
     const spin = s.running && live && !s.parent && Svg !== null
     return (
@@ -251,18 +261,21 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
           {title(s, top, !spin)}
         </Button>
+        {together ? pill() : null}
         <Box flexGrow={1} />
         {s.right === null ? null : (
-          <Text size="footnote" tabular color={s.right.color}>
-            {s.right.text}
-          </Text>
+          <Box flexShrink={0}>
+            <Text size="footnote" tabular color={s.right.color}>
+              {s.right.text}
+            </Text>
+          </Box>
         )}
       </Box>
     )
   }
-  const stepBlock = (s: CardStep, top: boolean): RenderChildren => (
+  const stepBlock = (s: CardStep, top: boolean, together = false): RenderChildren => (
     <Box flexDirection="column" gap="xs">
-      {head(s, top)}
+      {head(s, top, together)}
       {s.detail === undefined ? null : (
         <Text size="footnote" color="inactive">
           {s.detail}
@@ -285,26 +298,15 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       )}
       {s.children.length === 0 ? null : (
         <Box flexDirection="column" gap="xs" paddingLeft="md">
-          {s.children.map(item)}
+          {s.children.map(c => item(c))}
         </Box>
       )}
     </Box>
   )
-  const together = (child: RenderChildren) => (
-    <Box flexDirection="column" gap="xs">
-      {tag(
-        <Text size="caption" color="inactive">
-          {t().parallel}
-        </Text>,
-      )}
-      <Box flexDirection="column" gap="xs" paddingLeft="sm">
-        {child}
-      </Box>
-    </Box>
-  )
-  const item = (i: CardItem): RenderChildren => (i.kind === 'step' ? stepBlock(i.step, false) : together(i.items.map(item)))
+  // Steps that run together stay at their siblings' level, each marked with the pill.
+  const item = (i: CardItem, together = false): RenderChildren => (i.kind === 'step' ? stepBlock(i.step, false, together) : i.items.map(x => item(x, true)))
   const card = (s: CardStep) => (
-    <Box flexDirection="column" borderStyle="round" borderColor={s.running ? 'text' : 'inactive'} paddingX="sm" paddingY="xs">
+    <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={s.running ? 'text' : 'inactive'} paddingX="sm" paddingY="xs">
       {stepBlock(s, true)}
     </Box>
   )
@@ -331,14 +333,13 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     )
   }
 
+  // The list keeps the character tree, whose guides show the levels best; only the head is in the app's type.
+  // Its rows already end in the wrap-up and the parked plans.
+  const tree = list ? drawerView(plan, shelf, drawer, activity, { width, now }).body.filter(l => lineText(l).trim() !== t().narrow) : []
   const flow: RenderChildren[] = []
-  axis.forEach((a, i) => {
+  if (!list) axis.forEach((a, i) => {
     const first = i === 0
     const last = i === axis.length - 1
-    if (list) {
-      flow.push(a.kind === 'stage' ? stepBlock(a.stage, true) : a.kind === 'split' ? together(a.stages.map(s => stepBlock(s, true))) : summary(a))
-      return
-    }
     if (a.kind === 'split') {
       flow.push(pic(splitSvg(a.stages.length, !first), `split-${i}`))
       flow.push(
@@ -397,11 +398,12 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     <Box flexDirection="column" gap="md">
       {top}
       {flow.length === 0 ? null : (
-        <Box flexDirection="column" gap={list ? 'sm' : 'xs'}>
+        <Box flexDirection="column" gap="xs">
           {flow}
         </Box>
       )}
-      {parked.length === 0 ? null : (
+      {tree.length === 0 ? null : <Box flexDirection="column">{tree.map(l => row($, e, l, ring, onPress))}</Box>}
+      {list || parked.length === 0 ? null : (
         <Box flexDirection="column" gap="xs" paddingX="xs">
           <Text size="footnote" weight="semibold">
             {t().shelf}
@@ -807,7 +809,7 @@ export const register: Register = (on, options) => {
     // A surface with real boxes and its own type draws the drawer natively and scrolls it itself.
     if (e.surface !== 'terminal') {
       page = { top: 0, max: 0, pinned: false }
-      return nativeDrawer($, e, plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, activity, press, now)
+      return nativeDrawer($, e, plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, activity, press, now, e.props.bodyColumns)
     }
 
     return <Box flexDirection="column">{shown.lines.map(l => row($, e, l, focus, press))}</Box>

@@ -44,7 +44,8 @@ const StepRow: ClientModule<StepRowProps, { over: boolean }> = (p, surface) => {
         {p.redo ? ' ↺' : ''}
       </Text>
       {p.pill === null ? null : (
-        <Box borderStyle="round" borderColor={p.edge} paddingX="xs" flexShrink={0}>
+        // A tint, not a border: the app pads a bordered box itself, which would make the pill taller than the row.
+        <Box backgroundColor={p.edge} paddingX="xs" flexShrink={0}>
           <Text size="caption" color="inactive">
             {p.pill}
           </Text>

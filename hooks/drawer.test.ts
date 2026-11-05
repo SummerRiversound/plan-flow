@@ -301,6 +301,17 @@ test('parked plans are listed under the flowchart', () => {
   expect(shelfLines([], 40)).toEqual([])
 })
 
+test('a parked plan row is pressable and opens to the steps of the plan with their marks; pressed again it closes', () => {
+  const parked = { plan: sample(), state: 'parked' as const, at: 0 }
+  const closed = shelfLines([parked], 40)
+  expect(closed[2]?.some(s => s.button === 'shelf-0')).toBe(true)
+  expect(closed).toHaveLength(3)
+  const open = shelfLines([parked], 40, { 'shelf-0': true }).map(lineText)
+  expect(open[2]).toMatch(/^ ▾ 로그인 기능 추가/)
+  for (const n of sample().nodes) expect(open.some(l => l.includes(n.title))).toBe(true)
+  expect(drawerView(sample(), [parked], { open: {}, focus: null }, idleActivity(), { width: 60, now: 0 }).buttons).toContain('shelf-0')
+})
+
 test('an open box and the running step show their details; folded and finished ones do not', () => {
   const p = ok(setPlan(emptyPlan(), 'T', [
     { title: '조사', detail: '끝난 단계 설명' },

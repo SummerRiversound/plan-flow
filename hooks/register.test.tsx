@@ -200,6 +200,28 @@ test('on the desktop app the band marks steps that run together with a tint, not
   await band.unmount()
 })
 
+test('a parked plan opens in the drawer to show its steps, on the desktop app and in the terminal', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  await $.tool.call({ tool: TOOL, op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
+  // The whole row opens it, like any other row.
+  await pane.pointer({ type: 'up', x: 30, y: 0, button: 'left', in: 'shelf-0' })
+  await pane.redraw()
+  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  await pane.pointer({ type: 'up', x: 30, y: 0, button: 'left', in: 'shelf-0' })
+  await pane.redraw()
+  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
+  await pane.unmount()
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await term.press({ key: 'shelf-0' })
+  await term.redraw()
+  expect(await term.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  await term.unmount()
+})
+
 test('with autoShow off, nothing shows above the prompt until /flow', { options: { autoShow: false, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)

@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.12 — 2026-11-05
+
+### Changed
+
+- On the desktop app the lines between the drawer's cards show, cards side by side each fill their half, and every card lines up with the ones above and below.
+
 ## 0.1.11 — 2026-11-05
 
 ### Changed

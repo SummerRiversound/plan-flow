@@ -1,6 +1,6 @@
 // Wiring only: hook events in, the pure modules beside this file decide, state out.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren, Space, Timer } from 'claude-code'
 import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
@@ -15,7 +15,7 @@ import type { PlanOp } from './plan-tool'
 import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
-import { joinSvg, progressSvg, spinSvg, splitSvg, trunkSvg } from './gui'
+import { joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
 import type { BandRow } from './tree'
 import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, lineText, noteText, planHead } from './tree'
@@ -43,6 +43,13 @@ const newerAtom = atom({ plugin: 'plan-flow', key: 'newer' } as const, null as N
 
 type $ = EngineInterface
 type Ev = Parameters<$['ui']['resolve']>[0]
+
+// Neutral greys at low opacity for the desktop app and the editor: one value reads on the
+// light and the dark theme, where no theme key gives a card's fill or a faint edge.
+const FILL = '#8080800f'
+const HOVER = '#8080801a'
+const EDGE = '#80808033'
+const EDGE_RUN = '#80808080'
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 
 // Draws one line of pieces; the pieces marked with a node id become that node's fold Button.
@@ -224,92 +231,118 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   const ring = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && cardButtons(axis).includes(id)) ?? null
   const parked = shelf.filter(s => s.state === 'parked')
 
-  // A small rounded tag: tasks that run together, a link.
-  const tag = (child: RenderChildren) => (
-    <Box borderStyle="round" borderColor="inactive" paddingX="xs" alignSelf="flex-start">
-      {child}
+  // The pill beside a task that runs with its siblings.
+  const pill = () => (
+    <Box borderStyle="round" borderColor={EDGE} paddingX="xs" flexShrink={0}>
+      <Text size="caption" color="inactive">
+        {t().parallel}
+      </Text>
     </Box>
   )
+  // Links sit at the end of their step's row as small underlined names.
   const links = (ls: readonly string[]) =>
     ls.length === 0 ? null : (
-      <Box flexDirection="row" flexWrap="wrap" gap="xs">
+      <Box flexDirection="row" flexWrap="wrap" gap="sm" flexShrink={1}>
         {ls.map(l => {
           const href = hrefOf(l)
-          return tag(<Text size="caption">{href === undefined ? `↗ ${linkLabel(l)}` : <Link href={href}>↗ {linkLabel(l)}</Link>}</Text>)
+          return <Text size="caption">{href === undefined ? `↗ ${linkLabel(l)}` : <Link href={href}>↗ {linkLabel(l)}</Link>}</Text>
         })}
       </Box>
     )
-  const title = (s: CardStep, top: boolean, glyph: boolean) => (
-    <Text weight={s.running || top ? 'semibold' : undefined} dimColor={isDone(s) ? true : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
-      {glyph ? <Text color={s.glyph.color}>{s.glyph.text} </Text> : null}
-      {s.title}
-      {s.redo ? ' ↺' : ''}
-    </Text>
-  )
-  const pill = () =>
-    tag(
-      <Text size="caption" color="inactive">
-        {t().parallel}
-      </Text>,
-    )
-  const head = (s: CardStep, top: boolean, together: boolean) => {
+  const glyph = (s: CardStep) => {
     // The running step turns while Claude works; the mark is a picture, so it sits beside the title's Button.
-    const spin = s.running && live && !s.parent && Svg !== null
+    if (s.running && live && !s.parent && Svg !== null) return <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} />
     return (
-      <Box flexDirection="row" alignItems="center" gap="xs">
-        {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
-        <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
-          {title(s, top, !spin)}
-        </Button>
-        {together ? pill() : null}
-        <Box flexGrow={1} />
-        {s.right === null ? null : (
-          <Box flexShrink={0}>
-            <Text size="footnote" tabular color={s.right.color}>
-              {s.right.text}
-            </Text>
+      <Box flexShrink={0}>
+        <Text color={s.glyph.color} size={s.parent && s.status !== 'completed' ? 'caption' : undefined}>
+          {s.glyph.text}
+        </Text>
+      </Box>
+    )
+  }
+  // A step's row: its mark, its title as a plain button, the pill, then links and its count at the right.
+  const line = (s: CardStep, top: boolean, together: boolean) => (
+    <Box flexDirection="row" alignItems="center" gap="sm">
+      {glyph(s)}
+      <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
+        <Text weight={s.running || (top && !isDone(s) && s.status !== 'pending') ? 'semibold' : undefined} color={isDone(s) ? 'inactive' : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
+          {s.title}
+          {s.redo ? ' ↺' : ''}
+        </Text>
+      </Button>
+      {together ? pill() : null}
+      <Box flexGrow={1} />
+      {links(s.links)}
+      {s.right === null ? null : (
+        <Box flexShrink={0}>
+          <Text size="footnote" tabular color={s.right.color === 'text' ? 'inactive' : s.right.color}>
+            {s.right.text}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  )
+  // What shows under a step's row: its detail and note, the picked step's buttons, its open steps.
+  const under = (s: CardStep, inset: Space | undefined, nested: boolean): RenderChildren[] => [
+    s.detail === undefined ? null : (
+      <Box paddingLeft={inset}>
+        <Text size="footnote" color="inactive">
+          {s.detail}
+        </Text>
+      </Box>
+    ),
+    s.note === undefined ? null : (
+      <Box paddingLeft={inset}>
+        <Text size="footnote" color={s.status === 'blocked' ? 'error' : 'inactive'}>
+          {s.note}
+        </Text>
+      </Box>
+    ),
+    s.actions.length === 0 ? null : (
+      <Box flexDirection="row" gap="xs" paddingLeft={inset}>
+        {s.actions.map(([id, label]) => (
+          <Button key={id} onPress={() => onPress(id)}>
+            {label}
+          </Button>
+        ))}
+      </Box>
+    ),
+    s.children.length === 0 ? null : (
+      <Box flexDirection="column" paddingLeft="lg">
+        {flat(s.children).map(([c, together]) => step(c, together, nested))}
+      </Box>
+    ),
+  ]
+  // Steps that run together stay at their siblings' level, each marked with the pill.
+  const flat = (is: readonly CardItem[], together = false): Array<[CardStep, boolean]> => is.flatMap((i): Array<[CardStep, boolean]> => (i.kind === 'step' ? [[i.step, together]] : flat(i.items, true)))
+  // A step inside a card: a row that lights under the pointer, with what shows under it.
+  const step = (s: CardStep, together: boolean, nested: boolean): RenderChildren => (
+    <Box key={`row-${s.id}`} flexDirection="column" gap="xs" paddingY={nested ? undefined : 'xs'} hover={{ backgroundColor: HOVER }}>
+      {line(s, false, together)}
+      {under(s, 'lg', true)}
+    </Box>
+  )
+  // A hairline between the rows of a card's body.
+  const rule = (key: string) => (Svg === null ? null : <Svg key={key} source={ruleSvg()} alt={t().divider} height={1} />)
+  // A stage: a rounded card whose title row sits on a faint fill, its open steps below it, one hairline between each.
+  const card = (s: CardStep) => {
+    const body = [
+      ...under({ ...s, children: [] }, undefined, false),
+      ...flat(s.children).flatMap(([c, together], i) => [i === 0 && s.detail === undefined && s.note === undefined ? null : rule(`rule-${c.id}`), step(c, together, false)]),
+    ].filter(x => x !== null)
+    return (
+      <Box key={`card-${s.id}`} flexDirection="column" flexGrow={1} borderStyle="round" borderColor={s.running ? EDGE_RUN : EDGE} overflow="hidden">
+        <Box key={`head-${s.id}`} paddingX="md" paddingY="sm" backgroundColor={FILL} hover={{ backgroundColor: HOVER }}>
+          {line(s, true, false)}
+        </Box>
+        {body.length === 0 ? null : (
+          <Box flexDirection="column" paddingX="md" paddingY="sm">
+            {body}
           </Box>
         )}
       </Box>
     )
   }
-  const stepBlock = (s: CardStep, top: boolean, together = false): RenderChildren => (
-    <Box flexDirection="column" gap="xs">
-      {head(s, top, together)}
-      {s.detail === undefined ? null : (
-        <Text size="footnote" color="inactive">
-          {s.detail}
-        </Text>
-      )}
-      {s.note === undefined ? null : (
-        <Text size="footnote" color={s.status === 'blocked' ? 'error' : 'inactive'}>
-          {s.note}
-        </Text>
-      )}
-      {links(s.links)}
-      {s.actions.length === 0 ? null : (
-        <Box flexDirection="row" gap="xs">
-          {s.actions.map(([id, label]) => (
-            <Button key={id} onPress={() => onPress(id)}>
-              {label}
-            </Button>
-          ))}
-        </Box>
-      )}
-      {s.children.length === 0 ? null : (
-        <Box flexDirection="column" gap="xs" paddingLeft="md">
-          {s.children.map(c => item(c))}
-        </Box>
-      )}
-    </Box>
-  )
-  // Steps that run together stay at their siblings' level, each marked with the pill.
-  const item = (i: CardItem, together = false): RenderChildren => (i.kind === 'step' ? stepBlock(i.step, false, together) : i.items.map(x => item(x, true)))
-  const card = (s: CardStep) => (
-    <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={s.running ? 'text' : 'inactive'} paddingX="sm" paddingY="xs">
-      {stepBlock(s, true)}
-    </Box>
-  )
   // The app drops a picture with no alt.
   const pic = (source: string, key: string) => (Svg === null ? null : <Svg key={key} source={source} alt={t().line} />)
   const summary = (a: Extract<AxisItem, { kind: 'summary' }>) => {
@@ -322,13 +355,17 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       </Box>
     )
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="inactive" paddingX="sm" paddingY="xs" gap="xs">
-        <Text weight="semibold">
-          <Text color="success">✓</Text> {t().summary.title}
-        </Text>
-        {part(t().summary.goal, a.goal)}
-        {part(t().summary.result, a.result)}
-        {links(a.links)}
+      <Box flexDirection="column" borderStyle="round" borderColor={EDGE} overflow="hidden">
+        <Box paddingX="md" paddingY="sm" backgroundColor={FILL}>
+          <Text weight="semibold">
+            <Text color="success">✓</Text> {t().summary.title}
+          </Text>
+        </Box>
+        <Box flexDirection="column" paddingX="md" paddingY="sm" gap="sm">
+          {part(t().summary.goal, a.goal)}
+          {part(t().summary.result, a.result)}
+          {links(a.links)}
+        </Box>
       </Box>
     )
   }

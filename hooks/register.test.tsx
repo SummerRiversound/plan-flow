@@ -163,6 +163,27 @@ test('pressing the band title folds it and pressing again unfolds it, and the fl
   await band.unmount()
 })
 
+test('on the desktop app the band is set in the app type: the title folds it, progress is a picture, steps step in by level, and the flowchart button is primary', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  await $.tool.call({ tool: TOOL, op: 'next' })
+  await $.tool.call({ tool: TOOL, op: 'next' })
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await band.findAll({ type: 'Text' })).some(x => x.props.mono === true)).toBe(false)
+  expect((await band.findAll({ type: 'Text' })).some(x => /[├└│]/.test(String(x.props.children)))).toBe(false)
+  expect((await band.findAll({ type: 'Svg' })).some(x => /진행/.test(String(x.props.alt)))).toBe(true)
+  expect((await band.find({ type: 'Button', key: 'open-flow' }))?.props.variant).toBe('primary')
+  expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  // A step one level down sits further in than its stage.
+  expect((await band.findAll({ type: 'Box' })).some(b => typeof b.props.paddingLeft === 'number' && b.props.paddingLeft > 0)).toBe(true)
+  await band.press({ key: 'fold-band' })
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /^로그인 기능 추가/ })).toBeDefined()
+  await band.unmount()
+})
+
 test('with autoShow off, nothing shows above the prompt until /flow', { options: { autoShow: false, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)
@@ -185,7 +206,7 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   await $.tool.call({ tool: TOOL, ...PLAN })
   await $.tool.call({ tool: TOOL, op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
+  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round' && b.props.paddingY !== undefined)
   // 조사 is running: its card is drawn in text colour, the others muted.
   expect((await cards()).map(c => c.props.borderColor)).toEqual(['text', 'inactive', 'inactive'])
   expect((await pane.findAll({ type: 'Svg' })).length).toBeGreaterThanOrEqual(2)
@@ -198,8 +219,43 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   expect(await pane.find({ type: 'Button', key: 'ask' })).toBeDefined()
   await pane.press({ key: 'view' })
   await pane.redraw()
+  // The list on the desktop app is a real list too: no cards, no character drawing, and the switch back.
   expect(await cards()).toHaveLength(0)
-  expect(await pane.find({ type: 'Text', text: /├─/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  expect((await pane.findAll({ type: 'Text' })).some(x => x.props.mono === true)).toBe(false)
+  expect(await pane.find({ type: 'Button', key: 'view' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('on the desktop app the drawer head is set in the app type: a heading title, a progress bar picture and counts that hold their width', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  await $.tool.call({ tool: TOOL, op: 'next' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const texts = await pane.findAll({ type: 'Text' })
+  expect(texts.some(x => x.props.mono === true)).toBe(false)
+  expect((await pane.find({ type: 'Text', text: /^로그인 기능 추가$/ }))?.props.size).toBe('heading')
+  expect((await pane.findAll({ type: 'Svg' })).some(x => /진행/.test(String(x.props.alt)))).toBe(true)
+  expect((await pane.find({ type: 'Text', text: /^\d+\/\d+ · \d+%$/ }))?.props.tabular).toBe(true)
+  // Stage titles weigh more than the steps under them; counts and details are smaller.
+  expect((await pane.find({ type: 'Text', text: /구현/ }))?.props.weight).toBe('semibold')
+  expect((await pane.find({ type: 'Text', text: /^0\/2 ▸$/ }))?.props.size).toBe('footnote')
+  await pane.unmount()
+})
+
+test('on the desktop app tasks that run together sit under a small rounded tag, and links are chips', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '같이', parallel: true, children: [{ title: '하나', links: ['https://github.com/o/r/pull/7'] }, { title: '둘' }] }] }] })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const tag = (await pane.findAll({ type: 'Box' })).find(b => b.props.borderStyle === 'round' && b.props.alignSelf === 'flex-start')
+  expect(tag).toBeDefined()
+  expect((await pane.find({ type: 'Text', text: /^동시에$/ }))?.props.size).toBe('caption')
+  await pane.press({ key: '1.1.1' })
+  await pane.redraw()
+  expect(await pane.find({ type: 'Link' })).toBeDefined()
+  expect((await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round' && b.props.alignSelf === 'flex-start').length).toBeGreaterThanOrEqual(2)
   await pane.unmount()
 })
 
@@ -268,7 +324,8 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.plain).toBe(true)
     // The list button swaps the flowchart for the tree and back.
     await pane.press({ key: 'view' })
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['view', '1', '2.1', '2.2'])
+    // The terminal's list presses steps only; the desktop app's list still folds its stages.
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(surface === 'terminal' ? ['view', '1', '2.1', '2.2'] : ['view', '1', '2', '2.1', '2.2', '3'])
     await pane.press({ key: 'view' })
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.autoFocus).toBe(true)
     // ↓ moves the ring to the next box; a redraw keeps it there.

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
 import type { CardItem, CardStep } from './cards'
-import { cardsOf } from './cards'
+import { cardsOf, headOf } from './cards'
 import { ASK, CONFIRM } from './drawer'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
@@ -95,4 +95,15 @@ test('a finished plan with a summary ends in the closing note', () => {
   p = { ...p, summary: { goal: '로그인되게 한다', result: '화면과 API를 만들고 확인했다' } }
   const last = cardsOf(p, closed).at(-1)
   expect(last).toMatchObject({ kind: 'summary', goal: '로그인되게 한다', result: '화면과 API를 만들고 확인했다' })
+})
+
+test('the head carries the title, goal, one progress slot per step in order, the steps to check and what Claude is doing', () => {
+  let p: Plan = { ...sample(), goal: '아이디로 로그인되게 한다' }
+  p = ok(updateNodes(p, [{ id: '1', status: 'needs_check' }], 4))
+  const head = headOf(p, 1, { phase: 'tool', running: [{ id: 't', tool: 'Edit' }], tool: 'Edit' })
+  expect(head).toMatchObject({ title: '로그인 기능 추가', goal: '아이디로 로그인되게 한다', done: 2, total: 8, pct: 25, parked: 1 })
+  expect(head.slots.slice(0, 4)).toEqual(['check', 'done', 'todo', 'todo'])
+  expect(head.checks).toEqual(['조사'])
+  expect(head.activity).toMatchObject({ text: 'Edit 실행 중', color: 'text' })
+  expect(headOf(p, 0, { phase: 'idle', running: [] }).activity).toBeUndefined()
 })

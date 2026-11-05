@@ -1,24 +1,9 @@
 import { expect, test } from 'claude-code/testing'
-import { CELL_PX, joinSvg, liveSvg, splitSvg, trunkSvg } from './gui'
+import { joinSvg, progressSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
-
-test('the running step as a picture: a turning mark and a moving band, sized to the title cells, escaped', () => {
-  const svg = liveSvg('A<B & "C"', 9, 0)
-  expect(svg.width).toBe(11 * CELL_PX)
-  expect(svg.source.startsWith('<svg')).toBe(true)
-  expect(svg.source).toContain('A&lt;B &amp; &quot;C&quot;')
-  expect(svg.source).toContain('animateTransform')
-  expect(svg.source).toContain('<animate ')
-})
-
-test('a picture rebuilt later carries on where the motion stands instead of starting over', () => {
-  const begin = (now: number) => [...liveSvg('가', 2, now).source.matchAll(/begin="(-?[\d.]+)s"/g)].map(m => m[1])
-  expect(begin(0)).toEqual(['0.00', '0.00'])
-  expect(begin(1_250)).toEqual(['-1.25', '-0.25'])
-})
 
 test('the lines between cards: a trunk, a split to the middle of each card and a join back, wide pictures that scale to the drawer', () => {
   const trunk = trunkSvg()
@@ -34,4 +19,16 @@ test('the lines between cards: a trunk, a split to the middle of each card and a
   expect(joinSvg(2, false)).not.toMatch(/M600 \d+ V\d+$/)
   // The stroke follows the viewer's light or dark scheme.
   expect(trunk).toContain('prefers-color-scheme:dark')
+})
+
+test('the progress bar fills one slot per step in plan order, green for done and plain for waiting on a check', () => {
+  const svg = progressSvg(['done', 'done', 'check', 'todo'])
+  expect(svg).toContain('class="d" x="0" y="0" width="600"')
+  expect(svg).toContain('class="c" x="600" y="0" width="300"')
+  expect(svg.match(/class="[dc]"/g)).toHaveLength(2)
+})
+
+test('the turning mark carries on from where the clock stands instead of starting over', () => {
+  expect(spinSvg(0)).toContain('begin="0.00s"')
+  expect(spinSvg(400)).toContain('begin="-0.40s"')
 })

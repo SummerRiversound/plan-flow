@@ -4,7 +4,7 @@ import type { EngineInterface, Register, RenderChildren, Space, Timer } from 'cl
 import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
+import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
 import type { AxisItem, CardItem, CardStep } from './cards'
 import type { CardHead } from './cards'
 import { cardButtons, cardsOf, headOf, isDone } from './cards'
@@ -566,17 +566,35 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
           <Text size="footnote" weight="semibold">
             {t().shelf}
           </Text>
-          {parked.map(p => {
+          {parked.map((p, i) => {
             const { done, total } = progress(p.plan)
+            const id = `${SHELF}${i}`
+            const open = drawer.open[id] === true
+            const props: StepRowProps = { id, guide: null, mark: { text: open ? '▾' : '▸', color: 'inactive' }, title: p.plan.title, strong: false, muted: true, strike: false, redo: false, pill: null, after: null, right: { text: `${done}/${total}`, color: 'inactive' }, hover: HOVER, edge: EDGE }
             return (
-              <Box flexDirection="row">
-                <Text size="footnote" color="inactive">
-                  ▸ {p.plan.title}
-                </Text>
-                <Box flexGrow={1} />
-                <Text size="footnote" tabular color="inactive">
-                  {`${done}/${total}`}
-                </Text>
+              <Box key={`shelved-${i}`} flexDirection="column">
+                {Client !== null ? (
+                  <Client key={id} module="./step-row.tsx" props={props} flexGrow={1} />
+                ) : (
+                  <Button key={id} plain onPress={() => onPress(id)}>
+                    <Text size="footnote" color="inactive">
+                      {`${open ? '▾' : '▸'} ${p.plan.title}  ${done}/${total}`}
+                    </Text>
+                  </Button>
+                )}
+                {/* Its steps, read only, each indented by its level with its mark. */}
+                {open
+                  ? p.plan.nodes.map(n => (
+                      <Box key={`shelved-${i}-${n.id}`} flexDirection="row" gap="xs" paddingLeft={n.id.split('.').length * 2}>
+                        <Text size="footnote" color={glyphSeg(n).color}>
+                          {glyphSeg(n).text}
+                        </Text>
+                        <Text size="footnote" color="inactive">
+                          {n.title}
+                        </Text>
+                      </Box>
+                    ))
+                  : null}
               </Box>
             )
           })}
@@ -693,7 +711,9 @@ async function pressDrawer($: $, id: string): Promise<void> {
         ? { ...d, top: undefined }
         : id === VIEW
           ? { ...d, list: d.list !== true, top: undefined }
-          : hasChildren(plan.nodes, id)
+          : id.startsWith(SHELF)
+            ? { ...d, open: { ...d.open, [id]: d.open[id] !== true } }
+            : hasChildren(plan.nodes, id)
             ? { ...toggleFold(plan, d, id), focus: id }
             : pickStep(d, id),
   )

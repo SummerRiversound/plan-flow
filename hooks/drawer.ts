@@ -393,17 +393,27 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = f
   return { lines: lines.map(l => fitLine(l, width)), buttons: ctx.buttons, cut: ctx.cut }
 }
 
-// The plans set aside to come back to, under the flowchart.
-export const shelfLines = (shelf: readonly Shelved[], width: number): Line[] => {
+// A parked plan's row id: pressing it opens the plan's steps under it (kept in the drawer's `open`).
+export const SHELF = 'shelf-'
+export const shelfIds = (shelf: readonly Shelved[]): string[] => shelf.filter(s => s.state === 'parked').map((_, i) => `${SHELF}${i}`)
+
+// A parked plan's steps, read only: each indented by its level with its mark.
+const outline = (plan: Plan, width: number): Line[] =>
+  plan.nodes.map(n => fitLine([{ text: `   ${'  '.repeat(n.id.split('.').length)}` }, glyphSeg(n), { text: ` ${n.title}`, color: 'inactive' }], width))
+
+// The plans set aside to come back to, under the flowchart; each row opens to its steps.
+export const shelfLines = (shelf: readonly Shelved[], width: number, open: Record<string, boolean> = {}): Line[] => {
   const parked = shelf.filter(s => s.state === 'parked')
   if (parked.length === 0 || width <= 0) return []
 
   return [
     [],
     fitLine([{ text: t().shelf, bold: true, color: 'text' }], width),
-    ...parked.map(s => {
+    ...parked.flatMap((s, i) => {
+      const id = `${SHELF}${i}`
       const { done, total } = progress(s.plan)
-      return spread([{ text: ` ▸ ${s.plan.title}`, color: 'inactive' }], { text: `${done}/${total}`, color: 'inactive' }, width)
+      const row = press(spread([{ text: ` ${open[id] === true ? '▾' : '▸'} ${s.plan.title}`, color: 'inactive' }], { text: `${done}/${total}`, color: 'inactive' }, width), id)
+      return open[id] === true ? [row, ...outline(s.plan, width)] : [row]
     }),
   ]
 }
@@ -445,8 +455,9 @@ const flowTools = (width: number): Line =>
   )
 
 export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, { width, now }: FlowOptions): DrawerView => {
-  const shelved = shelfLines(shelf, width)
-  if (plan.nodes.length === 0) return { head: [], body: [...wrap(t().empty, width - 1, 4).map((text): Line => [{ text, color: 'inactive' }]), ...shelved], buttons: [], at: null }
+  const shelved = shelfLines(shelf, width, drawer.open)
+  const kept = shelfIds(shelf)
+  if (plan.nodes.length === 0) return { head: [], body: [...wrap(t().empty, width - 1, 4).map((text): Line => [{ text, color: 'inactive' }]), ...shelved], buttons: kept, at: null }
   const top = headTop(plan, shelf, activity, width, now)
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
   const tools = (left: ReadonlyArray<[string, string]>, r: [string, string]): Line => toolRow(left, r, width)
@@ -479,12 +490,12 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
     const close = summaryRows(plan, width - 2).map((r): Line => [{ text: ' ' }, ...r])
     const end = close.length === 0 ? [] : [[], ...close]
 
-    return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...end, ...shelved], buttons: steps, at: at === null ? null : at + hint.length }
+    return { head: [...top, ...toggle, rule(width)], body: [...hint, ...tree, ...end, ...shelved], buttons: [...steps, ...kept], at: at === null ? null : at + hint.length }
   }
   const row = flowTools(width)
   const at = find(flow.lines)
 
-  return { head: [...top, row, rule(width)], body: [[], ...flow.lines, ...shelved], buttons: flow.buttons, at: at === null ? null : at + 1 }
+  return { head: [...top, row, rule(width)], body: [[], ...flow.lines, ...shelved], buttons: [...flow.buttons, ...kept], at: at === null ? null : at + 1 }
 }
 
 // The rows the pane shows, `rows` tall. When the body runs past them it scrolls under the

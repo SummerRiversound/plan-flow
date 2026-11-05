@@ -5,6 +5,8 @@ import type { ClientModule } from 'claude-code'
 
 export type StepRowProps = {
   id: string
+  // The list's tree guides (`│  ├─ `), drawn monospaced at the row's start so they line up row to row.
+  guide: string | null
   // The status mark before the title; null where a turning picture stands beside the row.
   mark: { text: string; color: string } | null
   title: string
@@ -31,6 +33,11 @@ const StepRow: ClientModule<StepRowProps, { over: boolean }> = (p, surface) => {
 
   return (
     <Box flexDirection="row" alignItems="center" gap="xs" backgroundColor={surface.state?.over === true ? p.hover : undefined}>
+      {p.guide === null ? null : (
+        <Text mono color="inactive">
+          {p.guide}
+        </Text>
+      )}
       <Text weight={p.strong ? 'semibold' : undefined} color={p.muted ? 'inactive' : undefined} strikethrough={p.strike ? true : undefined}>
         {p.mark === null ? null : <Text color={p.mark.color}>{p.mark.text} </Text>}
         {p.title}

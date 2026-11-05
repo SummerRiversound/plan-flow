@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.15 — 2026-11-05
+
+### Fixed
+
+- In the terminal drawer the box of tasks that run together is closed on its right, and a long note wraps inside it instead of running to the stage box's border.
+
 ## 0.1.14 — 2026-11-05
 
 ### Fixed

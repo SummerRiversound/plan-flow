@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.18 — 2026-11-05
+
+### Fixed
+
+- In the desktop list view the `├─` guides line up with the step titles on every row. Rows are pressable end to end, and a picked step shows its detail, note and primary buttons under it.
+
 ## 0.1.17 — 2026-11-05
 
 ### Changed

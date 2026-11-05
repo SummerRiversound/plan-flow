@@ -61,6 +61,16 @@ test('the pinned head names the plan, its progress, then the buttons that fold e
   for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
 })
 
+test('the drawer head wraps the goal under the title to three rows at most', () => {
+  const goal = '아이디와 비밀번호로 실제 로그인이 되게 하고, 화면을 앱의 다른 화면과 같은 모양으로 맞춘 뒤, 테스트와 문서까지 갖춰 스테이징을 거쳐 운영에 내보내고 사용자 반응까지 살펴보기'
+  const head = view({ ...sample(), goal }).head.map(lineText)
+  expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
+  expect(head.slice(1, 4).every(l => l.startsWith(' ') && !l.includes('━'))).toBe(true)
+  expect(head[3]?.endsWith('…')).toBe(true)
+  expect(head[4]).toMatch(/━+╸?━+ +3\/14 · 21%$/)
+  for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
+})
+
 test('fold all and unfold all reach every box with something inside', () => {
   const p = sample()
   const all = drawFlow(p, foldAll(p, closed, true), { width: 53, now: 0 }).lines.map(lineText)

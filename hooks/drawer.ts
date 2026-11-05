@@ -410,7 +410,7 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
   const shelved = shelfLines(shelf, width)
   if (plan.nodes.length === 0) return { head: [], body: [[{ text: t().empty, color: 'inactive' }], ...shelved], buttons: [], at: null }
   const parked = shelf.filter(s => s.state === 'parked').length
-  const top = planHead(plan, activity, 6, width - 1, now, undefined, parked)
+  const top = planHead(plan, activity, 6, width - 1, now, undefined, parked, undefined, undefined, 3)
     .filter(l => l.length > 0)
     .map((l): Line => [{ text: ' ' }, ...l])
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })

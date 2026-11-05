@@ -241,8 +241,20 @@ export const setPlan = (prev: Plan, rawTitle: string, input: readonly PlanInput[
       }
     }
 
-    return { plan: rollup({ title: title.value, nodes: made.nodes, lastChild, startedAt: same ? prev.startedAt : now }) }
+    const kept = same && prev.goal !== undefined ? { goal: prev.goal } : {}
+
+    return { plan: rollup({ title: title.value, ...kept, nodes: made.nodes, lastChild, startedAt: same ? prev.startedAt : now }) }
   })
+
+// The plan's goal, one sentence on what the work is for; left out keeps it, empty clears it.
+export const withGoal = (r: PlanResult, goal: unknown): PlanResult => {
+  if ('error' in r || goal === undefined) return r
+  const v = text('the goal', goal, MAX_DETAIL, true)
+  if ('error' in v) return v
+  const { goal: _old, ...plan } = r.plan
+
+  return { plan: v.value === '' ? plan : { ...plan, goal: v.value } }
+}
 
 // New steps go after the last step under `parentId`, in the order given; each added
 // subtree is marked new. A running leaf that gains children hands its run to the first.

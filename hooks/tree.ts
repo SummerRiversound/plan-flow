@@ -180,8 +180,13 @@ export const checkLine = (plan: Plan, width: number, lead = ''): Line | null => 
   return fitLine([{ text: `${lead}${t().checks(checks.length)}`, color: 'text', bold: true }, { text: checks.map(n => `${n.title}${noteText(n)}`).join(' · '), color: 'text' }], width)
 }
 
-// The title, progress bar, steps to check and what Claude is doing; the band's top and the drawer's pinned head.
-export const planHead = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean, notice?: string): Line[] => {
+// The plan's goal under its title, dim, in at most `rows` rows.
+export const goalLines = (plan: Plan, width: number, rows: number): Line[] =>
+  plan.goal === undefined ? [] : wrap(plan.goal, width, rows).map((t): Line => [{ text: t, color: 'inactive' }])
+
+// The title, goal, progress bar, steps to check and what Claude is doing; the band's top and the drawer's pinned head.
+// `goalRows`: how many rows the goal may wrap to.
+export const planHead = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean, notice?: string, goalRows = 1): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -215,6 +220,7 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
           const cut = fitLine(title, width - cells(lineText(right)) - 1)
           return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(lineText(right))) }, ...right]
         })(),
+    ...goalLines(plan, width, goalRows),
     fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),
   ]
   const words = activityLabel(activity)
@@ -243,7 +249,7 @@ export type TreeOptions = { maxRows: number; width: number; now: number; open?: 
 export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice }: TreeOptions): Line[] => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
   const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice)
-  if (folded === true) return top.slice(0, 2)
+  if (folded === true) return top.slice(0, 2 + goalLines(plan, width, 1).length)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes

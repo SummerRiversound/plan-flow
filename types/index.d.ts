@@ -25,6 +25,8 @@ export type PlanNode = {
 // top level), so an id that was removed is never handed out again.
 export type Plan = {
   title: string
+  // One sentence on what the work is for, shown under the title.
+  goal?: string
   nodes: PlanNode[]
   lastChild: Record<string, number>
   startedAt: number
@@ -64,6 +66,7 @@ declare module 'claude-code' {
     'plan-flow': {
       plan: {
         title: string
+        goal?: string
         nodes: Array<{
           id: string
           parentId: string | null
@@ -90,6 +93,7 @@ declare module 'claude-code' {
       shelf: Array<{
         plan: {
           title: string
+          goal?: string
           nodes: Array<{
             id: string
             parentId: string | null

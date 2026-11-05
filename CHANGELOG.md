@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.6 — 2026-11-05
+
+### Added
+
+- Each plan carries a goal: one sentence on what the work is for, which Claude gives with the plan and rewrites when follow-up work widens it. The band shows it dim under the title, also when folded; the drawer's head wraps it to three rows.
+
 ## 0.1.5 — 2026-11-05
 
 ### Added

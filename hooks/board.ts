@@ -3,7 +3,7 @@
 // Pure: each op answers `{ board, notice? }` or `{ error }`, `notice` a line for the person.
 import type { Board, Shelved } from '../types'
 import type { Plan, PlanInput, PlanResult } from './plan'
-import { clearMarks, emptyPlan, finishedAt, hasOpenWork, progress, setPlan } from './plan'
+import { clearMarks, emptyPlan, finishedAt, hasOpenWork, progress, setPlan, withGoal } from './plan'
 import { clean } from './sanitize'
 import { t } from './i18n'
 
@@ -51,9 +51,9 @@ const outgoing = (plan: Plan, previous: Previous | undefined, action: string): {
 }
 
 // A new plan in hand. Resent under the same title it is the same plan revised.
-export const setBoard = (board: Board, title: string, nodes: readonly PlanInput[], previous: Previous | undefined, now: number): BoardResult => {
+export const setBoard = (board: Board, title: string, nodes: readonly PlanInput[], previous: Previous | undefined, now: number, goal?: string): BoardResult => {
   const revised = board.plan.nodes.length > 0 && same(clean(title), board.plan.title)
-  const made = setPlan(revised ? board.plan : emptyPlan(), title, nodes, now)
+  const made = withGoal(setPlan(revised ? board.plan : emptyPlan(), title, nodes, now), goal)
   if ('error' in made) return made
   if (revised || board.plan.nodes.length === 0) return { board: { ...board, plan: made.plan } }
   const out = outgoing(board.plan, previous, 'start a different plan')

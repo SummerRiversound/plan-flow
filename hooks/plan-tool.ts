@@ -3,7 +3,7 @@
 import type { Board, Previous } from './board'
 import { cancelBoard, resumeBoard, setBoard, settle } from './board'
 import type { NodeUpdate, Plan, PlanInput } from './plan'
-import { addNodes, closing, currentLeaf, finishedAt, hasOpenWork, MAX_DETAIL, MAX_LINKS, MAX_NOTE, MAX_RESULT, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes } from './plan'
+import { addNodes, closing, currentLeaf, finishedAt, hasOpenWork, MAX_DETAIL, MAX_LINKS, MAX_NOTE, MAX_RESULT, MAX_TITLE, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes, withGoal } from './plan'
 import { clean } from './sanitize'
 
 export const TOOL_NAME = 'plan'
@@ -11,9 +11,9 @@ export const OPS = ['set', 'next', 'update', 'add', 'remove', 'move', 'resume', 
 export type OpName = (typeof OPS)[number]
 
 export type PlanOp =
-  | { op: 'set'; title: string; nodes: PlanInput[]; previous?: Previous }
+  | { op: 'set'; title: string; nodes: PlanInput[]; previous?: Previous; goal?: string }
   | { op: 'next'; id?: string; summary?: SummaryInput }
-  | { op: 'update'; updates: NodeUpdate[]; summary?: SummaryInput }
+  | { op: 'update'; updates: NodeUpdate[]; summary?: SummaryInput; goal?: string }
   | { op: 'add'; parent: string | null; nodes: PlanInput[] }
   | { op: 'remove'; id: string }
   | { op: 'move'; id: string; before?: string }
@@ -27,11 +27,11 @@ export const ANSWER_LIMIT = 4000
 
 export const TOOL_DESCRIPTION = [
   'The plan board for the current task; the person watches it on screen while you work.',
-  'op "set" starts it: a title and the steps, nested as stages, tasks and checkpoints (3 levels at most): a few stages in order, each holding its tasks, never one flat list.',
+  'op "set" starts it: a title, a "goal" (one sentence on what the work is for, shown under the title) and the steps, nested as stages, tasks and checkpoints (3 levels at most): a few stages in order, each holding its tasks, never one flat list.',
   'Each step has a short title and a "detail": one plain sentence on what it does and why, shown under the step while it runs.',
   'Steps that do not depend on each other go under one node with "parallel": true and are worked on together; the step after the group waits for all of them.',
   'op "next" says the running step is done and starts the one after it (give "id" when several run and a particular one finished).',
-  'op "update" changes steps by id: status, title, detail, links, or a note (say why a step is blocked or skipped, or what the person should check).',
+  'op "update" changes steps by id: status, title, detail, links, or a note (say why a step is blocked or skipped, or what the person should check); its "goal" rewrites the plan\'s goal when the work widens.',
   'op "add" puts new steps under "parent" (or at the top; a leaf may get children when a step turns out bigger), op "remove" drops a step with everything under it, op "move" puts a step before its sibling "before" (or last), op "show" answers the plan with its ids.',
   'A step with children takes its status from them, so only leaves get a status; status "pending" on a finished step or parent reopens it to redo.',
   'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
@@ -60,6 +60,7 @@ export const TOOL_SCHEMA: Schema = {
   properties: {
     op: { type: 'string', enum: [...OPS] },
     title: { type: 'string', description: 'The task, for op set; the shelved plan, for op resume' },
+    goal: { type: 'string', description: `For op set, and op update when the work widens: one sentence on what the plan's work is for, shown under the title (${MAX_DETAIL} characters at most); empty clears it` },
     previous: { type: 'string', enum: ['park', 'cancel'], description: 'For op set and resume while the plan in hand has open steps: park it to come back to, or cancel it' },
     before: { type: 'string', description: 'For op move: the sibling to move in front of; leave out to move last' },
     nodes: { type: 'array', description: 'Steps, for op set and add', items: stepSchema(5) },
@@ -76,7 +77,7 @@ export const TOOL_SCHEMA: Schema = {
     },
     updates: {
       type: 'array',
-      description: 'For op update; may be left out when only the summary is given',
+      description: 'For op update; may be left out when only the summary or the goal is given',
       items: {
         type: 'object',
         properties: {
@@ -98,7 +99,8 @@ export const TOOL_SCHEMA: Schema = {
 // The section the system prompt carries while the tool is offered.
 export const instruction = (tool: string): string =>
   [
-    `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title and its steps as a hierarchy.`,
+    `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title, a "goal" and its steps as a hierarchy.`,
+    'The goal is one sentence on what this work is for, so anyone glancing at the board knows what the session is doing; when follow-up work widens it, rewrite it with op "update" and "goal".',
     'Shape it as 2 to 5 stages, the parts of the outcome in order, each holding the tasks that make it up; a task gets checkpoints when it has parts worth seeing. A flat list of steps hides the shape of the work, so group the steps even when the task is small.',
     "Name stages for what will exist when they are done, in this task's own words, not phases: a name that would fit any other task unchanged (setup, decision record, implement, test, commit, PR, wrap-up) is a phase, so rename it. The repo's routine (an issue comment, a worktree, test-first, a commit, the pull request) goes inside the stage it serves, never a stage of its own. For a delete button, not \"Decision record / Implement / PR\" but \"Each memo shows a button\" (the issue comment, the failing test, the button) then \"Clicking deletes it\" (the wiring, a check in the browser, the PR). When one stage holds more than half of five or more tasks, split it by what each part delivers. A stage holding a single task is just that task: leave it a step with no children.",
     "Every title is at most 4 words, in the user's language.",
@@ -136,14 +138,15 @@ export const boardNote = (board: Board, byPerson: readonly string[] = []): strin
       : board.plan.summary === undefined
         ? ', finished with no summary yet: send op "update" with "summary" to close it'
         : ', finished'
-    lines.push(`In hand: "${board.plan.title}" (${done}/${total} done${state}).`)
+    const goal = board.plan.goal === undefined ? '' : `, goal "${board.plan.goal}"`
+    lines.push(`In hand: "${board.plan.title}"${goal} (${done}/${total} done${state}).`)
   }
   if (byPerson.length > 0) lines.push(`Changed by the person in the drawer since the last request: ${byPerson.join(' ')}`)
   if (parked.length > 0) lines.push(`Parked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total})`).join(', ')}.`)
   lines.push(
     'Decide what this request does to the board, change the board first, then work:',
     '- a question, or a quick side job that does not change the task: leave the board alone;',
-    '- more work for this task, a follow-up after it finished, or a step that turned out bigger: op "add" (under the step it belongs to; a leaf may get children);',
+    '- more work for this task, a follow-up after it finished, or a step that turned out bigger: op "add" (under the step it belongs to; a leaf may get children), and op "update" with a new "goal" when it widens what the plan is for;',
     '- redo finished work: op "update" with status "pending" and a note why;',
     '- a different approach, dropped scope or a new order: update titles, op "remove" or status "skipped" with a note, op "move";',
     '- the person is needed before work can go on (sign-in, a decision): status "blocked" with a note;',
@@ -281,8 +284,18 @@ export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
       if ('error' in previous) return previous
       const nodes = readSteps(raw.nodes, 'nodes')
       if ('error' in nodes) return nodes
+      const goal = optionalText(raw, 'goal', '')
+      if ('error' in goal) return goal
 
-      return { op: previous.value === undefined ? { op, title: raw.title, nodes: nodes.value } : { op, title: raw.title, nodes: nodes.value, previous: previous.value } }
+      return {
+        op: {
+          op,
+          title: raw.title,
+          nodes: nodes.value,
+          ...(previous.value === undefined ? {} : { previous: previous.value }),
+          ...(goal.value === undefined ? {} : { goal: goal.value }),
+        },
+      }
     }
     case 'move': {
       if (typeof raw.id !== 'string') return bad('op move needs the "id" of the step to move')
@@ -317,9 +330,12 @@ export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
     case 'update': {
       const summary = readSummary(raw)
       if ('error' in summary) return summary
-      const updates = raw.updates === undefined && summary.value !== undefined ? { value: [] } : readUpdates(raw.updates)
+      const goal = optionalText(raw, 'goal', '')
+      if ('error' in goal) return goal
+      const updates = raw.updates === undefined && (summary.value !== undefined || goal.value !== undefined) ? { value: [] } : readUpdates(raw.updates)
+      if ('error' in updates) return updates
 
-      return 'error' in updates ? updates : { op: { op, updates: updates.value, ...(summary.value === undefined ? {} : { summary: summary.value }) } }
+      return { op: { op, updates: updates.value, ...(summary.value === undefined ? {} : { summary: summary.value }), ...(goal.value === undefined ? {} : { goal: goal.value }) } }
     }
     case 'remove':
       return typeof raw.id === 'string' ? { op: { op, id: raw.id } } : bad('op remove needs the "id" of the step to drop')
@@ -350,8 +366,8 @@ const HINT_ROOM = 800
 export const describePlan = (plan: Plan): string => {
   if (plan.nodes.length === 0) return 'No plan yet. Start one with op "set": a title and the steps.'
   const { done, total } = progress(plan)
-  const out = [`Plan: ${plan.title} (${done}/${total} done)`]
-  let size = out[0]?.length ?? 0
+  const out = [`Plan: ${plan.title} (${done}/${total} done)`, ...(plan.goal === undefined ? [] : [`Goal: ${plan.goal}`])]
+  let size = out.join('\n').length
   for (let i = 0; i < plan.nodes.length; i++) {
     const row = line(plan.nodes[i] as Plan['nodes'][number])
     const tail = `... ${plan.nodes.length - i} more steps not shown`
@@ -399,13 +415,15 @@ const routineStages = (plan: Plan): string[] => {
 export const routineHint = (ids: readonly string[]): string =>
   `${ids.length === 1 ? 'Stage' : 'Stages'} ${ids.join(', ')} ${ids.length === 1 ? 'is' : 'are'} named for the routine (setup, decision record, implement, PR), not for what this task produces. Unless that routine is the task itself, rename each for what will exist when it is done, fold the routine into the stage it serves, and send op "set" again with the same title; steps keep their status.`
 
+export const NO_GOAL = 'The plan has no goal: give it one sentence on what the work is for with op "update" and "goal".'
+
 // Runs one op: the new plan and the answer, or the refusal with the plan unchanged.
 export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; text: string; notice?: string } | { error: string } => {
   if (op.op === 'show') return { board, text: describeBoard(board) }
   const plan = board.plan
   const result =
     op.op === 'set'
-      ? setBoard(board, op.title, op.nodes, op.previous, now)
+      ? setBoard(board, op.title, op.nodes, op.previous, now, op.goal)
       : op.op === 'resume'
         ? resumeBoard(board, op.title, op.previous, now)
         : op.op === 'cancel'
@@ -415,7 +433,7 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
               op.op === 'next'
                 ? closing(nextStep(plan, op.id, now), op.summary)
                 : op.op === 'update'
-                  ? closing(op.updates.length === 0 ? { plan } : updateNodes(plan, op.updates, now), op.summary)
+                  ? closing(withGoal(op.updates.length === 0 ? { plan } : updateNodes(plan, op.updates, now), op.goal), op.summary)
                   : op.op === 'add'
                     ? closing(addNodes(plan, op.parent, op.nodes, now))
                     : op.op === 'move'
@@ -429,8 +447,9 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
   const named = routine.length > 0 ? `\n${routineHint(routine)}` : ''
   const bare = op.op === 'set' || op.op === 'add' ? result.board.plan.nodes.filter(n => (n.detail ?? '') === '').map(n => n.id) : []
   const detail = bare.length > 0 ? `\n${missingDetail(bare)}` : ''
+  const aim = op.op === 'set' && result.board.plan.goal === undefined ? `\n${NO_GOAL}` : ''
   const ask = finishedAt(result.board.plan) !== null && result.board.plan.summary === undefined ? '\nThe plan is finished: send op "update" with "summary" to close it.' : ''
-  const text = describeBoard(result.board) + flat + named + detail + ask
+  const text = describeBoard(result.board) + flat + named + detail + aim + ask
 
   return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

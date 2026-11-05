@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { FLAT_HINT, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { FLAT_HINT, NO_GOAL, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -39,7 +39,22 @@ test('every op is offered in the schema, next among them', () => {
 
 test('set answers the plan with ids, statuses and the done count', () => {
   const { text } = apply(emptyPlan(), SET)
-  expect(text).toBe(['Plan: 로그인 기능 추가 (0/3 done)', '1 조사 - pending', '2 로그인 동작 - pending', '  2.1 화면 - pending', '  2.2 API - pending', missingDetail(['1', '2', '2.1', '2.2'])].join('\n'))
+  expect(text).toBe(['Plan: 로그인 기능 추가 (0/3 done)', '1 조사 - pending', '2 로그인 동작 - pending', '  2.1 화면 - pending', '  2.2 API - pending', missingDetail(['1', '2', '2.1', '2.2']), NO_GOAL].join('\n'))
+})
+
+test('the goal is set with the plan, kept when the plan is resent, rewritten or cleared by update, and read back', () => {
+  let { plan, text } = apply(emptyPlan(), { ...SET, goal: '아이디로 로그인되게 하기' })
+  expect(plan.goal).toBe('아이디로 로그인되게 하기')
+  expect(text.split('\n').slice(0, 2)).toEqual(['Plan: 로그인 기능 추가 (0/3 done)', 'Goal: 아이디로 로그인되게 하기'])
+  expect(text).not.toContain(NO_GOAL)
+  plan = apply(plan, SET).plan
+  expect(plan.goal).toBe('아이디로 로그인되게 하기')
+  plan = apply(plan, { op: 'update', goal: '로그인과 회원가입까지 열기' }).plan
+  expect(plan.goal).toBe('로그인과 회원가입까지 열기')
+  expect(boardNote({ plan, shelf: [] })).toContain('In hand: "로그인 기능 추가", goal "로그인과 회원가입까지 열기" (0/3 done')
+  expect(apply(plan, { op: 'update', goal: '' }).plan.goal).toBeUndefined()
+  expect(error(plan, { op: 'update', goal: 3 })).toMatch(/goal must be text/)
+  expect(error(plan, { op: 'update', goal: 'ㄱ'.repeat(161) })).toMatch(/goal is longer than 160/)
 })
 
 test('next and update change statuses by id', () => {

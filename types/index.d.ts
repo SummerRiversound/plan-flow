@@ -50,7 +50,7 @@ export type Shelved = { plan: Plan; state: 'parked' | 'cancelled' | 'done'; at: 
 // The session's board: the plan in hand and the shelf.
 export type Board = { plan: Plan; shelf: Shelved[] }
 
-export type GateState = { planned: boolean; denies: number }
+export type GateState = { planned: boolean; denies: number; reminded?: boolean }
 
 // Folds the person set in the drawer (true open, false closed; absent follows the
 // running item), the box holding the focus ring, and the first body row the person

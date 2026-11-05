@@ -57,8 +57,8 @@ Set them on the install screen, or later in `/config`.
 The mod makes no network calls and writes no files. It adds one tool Claude calls, `plan`, and works only through Claude Code's own hooks.
 
 - **Keeps** the board of your 20 most recent sessions in Claude Code's storage for this mod, so a session that resumes finds its plan again. A board holds the step titles, details, notes and links Claude wrote.
-- **Adds to what Claude reads**: a short instruction on using the board, and while a plan exists, a one-line note on each of your messages saying where the plan stands.
-- **Watches tool calls** only to show what Claude is doing (for example `Running Edit`). With `enforce` on, it refuses the tools listed above until there is a plan.
+- **Adds to what Claude reads**: a short instruction on using the board, and a note on each of your messages saying where the plan stands, or that there is none yet. When Claude first changes something in a turn with no plan, one line after that tool's result reminds it to set one.
+- **Watches tool calls** to show what Claude is doing (for example `Running Edit`) and for that reminder. With `enforce` on, it refuses the tools listed above until there is a plan.
 - **Reads** Claude Code's `language` setting and the `LC_ALL`, `LC_MESSAGES` and `LANG` environment variables, only when `language` is `auto`.
 - **Fills your prompt box** only when you press `Discuss` on a step; nothing is sent until you send it.
 

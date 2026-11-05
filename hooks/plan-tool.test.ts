@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { FLAT_HINT, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { FLAT_HINT, NO_PLAN_NOTE, missingDetail, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -39,7 +39,7 @@ test('every op is offered in the schema, next among them', () => {
 
 test('set answers the plan with ids, statuses and the done count', () => {
   const { text } = apply(emptyPlan(), SET)
-  expect(text).toBe(['Plan: 로그인 기능 추가 (0/3 done)', '1 조사 - pending', '2 구현 - pending', '  2.1 화면 - pending', '  2.2 API - pending'].join('\n'))
+  expect(text).toBe(['Plan: 로그인 기능 추가 (0/3 done)', '1 조사 - pending', '2 구현 - pending', '  2.1 화면 - pending', '  2.2 API - pending', missingDetail(['1', '2', '2.1', '2.2'])].join('\n'))
 })
 
 test('next and update change statuses by id', () => {
@@ -123,7 +123,6 @@ test('move, resume and previous are read and checked', () => {
 })
 
 test('each request carries a note while a plan is on the board, with the cases to sort it into', () => {
-  expect(boardNote({ plan: emptyPlan(), shelf: [] })).toBeUndefined()
   const board = run({ plan: emptyPlan(), shelf: [] }, SET).board
   const note = boardNote(board) ?? ''
   expect(note).toContain('In hand: "로그인 기능 추가" (0/3 done, in hand: 조사 (id 1))')
@@ -183,4 +182,24 @@ test('a flat list of five or more steps is answered with a hint to group them un
   const regrouped = apply(done, { op: 'set', title: '정리', nodes: [{ title: '준비', children: [{ title: '가' }, { title: '나' }] }, { title: '작업', children: [{ title: '다' }, { title: '라' }, { title: '마' }] }] })
   expect(regrouped.plan.nodes.find(n => n.title === '가')?.status).toBe('completed')
   expect(instruction('plan')).toContain('2 to 5 stages')
+})
+
+test('a request with no plan on the board is reminded to set one before working, and that a question needs none', () => {
+  expect(boardNote({ plan: emptyPlan(), shelf: [] })).toBe(NO_PLAN_NOTE)
+  expect(NO_PLAN_NOTE).toContain('op "set"')
+  expect(NO_PLAN_NOTE).toMatch(/question/)
+  expect(NO_PLAN_NOTE.split('\n')).toHaveLength(1)
+})
+
+test('the instruction keeps stages to parts of the outcome, with no setup or wrap-up stage and no stage holding a single task', () => {
+  const t = instruction('plan')
+  expect(t).toMatch(/not phases/)
+  expect(t).toMatch(/single task/)
+})
+
+test('steps set or added without a detail are named back, so Claude fills them in', () => {
+  const out = apply(emptyPlan(), { op: 'set', title: '정리', nodes: [{ title: '준비', detail: '왜 하는지', children: [{ title: '가' }, { title: '나', detail: '설명' }] }] })
+  expect(out.text).toContain(missingDetail(['1.1']))
+  const full = apply(emptyPlan(), { op: 'set', title: '정리', nodes: [{ title: '가', detail: '설명' }] })
+  expect(full.text).not.toContain('no detail')
 })

@@ -100,6 +100,7 @@ export const instruction = (tool: string): string =>
   [
     `Plan board: the board follows the session's work, not each prompt. For a task that needs more than a couple of tool calls, call ${tool} with op "set" first: a short task title and its steps as a hierarchy.`,
     'Shape it as 2 to 5 stages, the parts of the outcome in order, each holding the tasks that make it up; a task gets checkpoints when it has parts worth seeing. A flat list of steps hides the shape of the work, so group the steps even when the task is small.',
+    'Name stages for what will exist when they are done, not phases like setup or wrap-up: housekeeping (a worktree, a commit) goes inside the stage it serves, never a stage of its own. A stage holding a single task is just that task: leave it a step with no children.',
     "Every title is at most 4 words, in the user's language.",
     'Give every step a detail: one plain sentence saying what it does and why, so the person follows without asking; use words the person already uses, never labels coined in this session.',
     'When a step produces something the person may open (a PR, an issue, a commit, an artifact, a doc, a file), attach it to that step with op "update" and "links": the full URL or an absolute path.',
@@ -113,12 +114,16 @@ export const instruction = (tool: string): string =>
     `If the tool is not loaded yet, load it with ToolSearch (query "select:${tool}").`,
   ].join(' ')
 
+// The note a request carries while the board is empty, so the plan is set before the work starts.
+export const NO_PLAN_NOTE =
+  'plan-flow: the board is empty, so the person sees no plan. If this request takes more than a couple of tool calls, call the plan tool with op "set" before any call that changes something (a worktree, an edit, a write, a command that writes); reading first is fine. A question or a one-step job needs no plan.'
+
 // The note each request carries while the board has a plan: where things stand, and the
 // cases to sort the request into before acting.
 // `byPerson`: what the person changed from the drawer since the last request.
-export const boardNote = (board: Board, byPerson: readonly string[] = []): string | undefined => {
+export const boardNote = (board: Board, byPerson: readonly string[] = []): string => {
   const parked = board.shelf.filter(s => s.state === 'parked')
-  if (board.plan.nodes.length === 0 && parked.length === 0) return undefined
+  if (board.plan.nodes.length === 0 && parked.length === 0) return NO_PLAN_NOTE
   const lines = ['plan-flow: the board before this request.']
   if (board.plan.nodes.length > 0) {
     const { done, total } = progress(board.plan)
@@ -337,6 +342,9 @@ const line = (n: Plan['nodes'][number]): string => {
   return `${'  '.repeat(n.id.split('.').length - 1)}${n.id} ${n.title} - ${extra}${note}`
 }
 
+// Room left under the limit for the hints that follow the plan (flat list, missing details, summary).
+const HINT_ROOM = 500
+
 // The plan as the model reads it: one step per line, indented by depth, kept under the limit.
 export const describePlan = (plan: Plan): string => {
   if (plan.nodes.length === 0) return 'No plan yet. Start one with op "set": a title and the steps.'
@@ -347,7 +355,7 @@ export const describePlan = (plan: Plan): string => {
     const row = line(plan.nodes[i] as Plan['nodes'][number])
     const tail = `... ${plan.nodes.length - i} more steps not shown`
     const last = i === plan.nodes.length - 1
-    if (size + 1 + row.length + (last ? 0 : 1 + tail.length) > ANSWER_LIMIT) {
+    if (size + 1 + row.length + (last ? 0 : 1 + tail.length) > ANSWER_LIMIT - HINT_ROOM) {
       out.push(tail)
       break
     }
@@ -372,6 +380,10 @@ export const describeBoard = (board: Board): string => {
 const isFlat = (plan: Plan): boolean => plan.nodes.length >= 5 && plan.nodes.every(n => n.parentId === null)
 export const FLAT_HINT =
   'These steps sit in one flat list. Group them under 2 to 5 stages and send op "set" again with the same title and the steps nested; steps keep their status.'
+
+// Steps without a detail leave the person guessing what they do.
+export const missingDetail = (ids: readonly string[]): string =>
+  `Steps ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ` and ${ids.length - 8} more` : ''} have no detail: give each its one sentence with op "update".`
 
 // Runs one op: the new plan and the answer, or the refusal with the plan unchanged.
 export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; text: string; notice?: string } | { error: string } => {
@@ -399,8 +411,10 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
             )
   if ('error' in result) return bad(result.error)
   const flat = (op.op === 'set' || op.op === 'add') && isFlat(result.board.plan) ? `\n${FLAT_HINT}` : ''
+  const bare = op.op === 'set' || op.op === 'add' ? result.board.plan.nodes.filter(n => (n.detail ?? '') === '').map(n => n.id) : []
+  const detail = bare.length > 0 ? `\n${missingDetail(bare)}` : ''
   const ask = finishedAt(result.board.plan) !== null && result.board.plan.summary === undefined ? '\nThe plan is finished: send op "update" with "summary" to close it.' : ''
-  const text = describeBoard(result.board) + flat + ask
+  const text = describeBoard(result.board) + flat + detail + ask
 
   return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

@@ -1,12 +1,24 @@
 import { expect, test } from 'claude-code/testing'
 import type { GateAsk } from './gate'
-import { decide, denyReason, MAX_DENIES, onPlanWritten, onTurnStart } from './gate'
+import { decide, denyReason, MAX_DENIES, onPlanWritten, onTurnStart, REMINDER } from './gate'
 import { emptyPlan, setPlan } from './plan'
 
 const ask: GateAsk = { tool: 'Edit', enforce: true, toolOffered: true, gate: { planned: false, denies: 0 } }
 
 test('with enforcement off nothing is ever refused', () => {
-  for (const tool of ['Edit', 'Write', 'Bash', 'Agent']) expect(decide({ ...ask, tool, enforce: false }).verdict).toBe('allow')
+  for (const tool of ['Edit', 'Write', 'Bash', 'Agent']) expect(decide({ ...ask, tool, enforce: false }).verdict).not.toBe('deny')
+})
+
+test('with enforcement off, the first state-changing tool in a turn with no plan carries one reminder, and nothing else does', () => {
+  const off = { ...ask, enforce: false }
+  const first = decide(off)
+  expect(first.verdict).toBe('remind')
+  expect(decide({ ...off, gate: first.gate }).verdict).toBe('allow')
+  expect(decide({ ...off, tool: 'Read' }).verdict).toBe('allow')
+  expect(decide({ ...off, gate: { planned: true, denies: 0 } }).verdict).toBe('allow')
+  expect(decide({ ...off, agentId: 'sub-1' }).verdict).toBe('allow')
+  expect(decide({ ...off, toolOffered: false }).verdict).toBe('allow')
+  expect(REMINDER).toContain('op "set"')
 })
 
 test('with enforcement on, a state-changing tool waits for a plan', () => {
@@ -33,10 +45,10 @@ test('after three refusals in a turn the gate steps aside once with a notice', (
 })
 
 test('a new turn starts the count again and remembers an unfinished plan', () => {
-  expect(onTurnStart(emptyPlan())).toEqual({ planned: false, denies: 0 })
+  expect(onTurnStart(emptyPlan())).toEqual({ planned: false, denies: 0, reminded: false })
   const r = setPlan(emptyPlan(), 'T', [{ title: 'a' }], 0)
   if ('error' in r) throw new Error(r.error)
-  expect(onTurnStart(r.plan)).toEqual({ planned: true, denies: 0 })
+  expect(onTurnStart(r.plan)).toEqual({ planned: true, denies: 0, reminded: false })
   expect(onPlanWritten({ planned: false, denies: 2 })).toEqual({ planned: true, denies: 2 })
 })
 

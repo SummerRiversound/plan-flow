@@ -2,6 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { setLanguage } from './i18n'
+import { NO_PLAN_NOTE } from './plan-tool'
+import { REMINDER } from './gate'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
@@ -84,6 +86,18 @@ test('with enforce off, edits run without a plan', KO, async ($, on) => {
   await start($)
   const out = await $.tool.call({ tool: 'Bash', command: 'ls' })
   expect(out.deny).toBeUndefined()
+  expect(out.result).toBe('ran')
+  // The first such call with no plan carries one reminder for the model; later ones run bare.
+  expect(out.context).toEqual([REMINDER])
+  expect((await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })).context).toBeUndefined()
+})
+
+test('a read-only call does not use up the reminder', KO, async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran', isReadOnly: true }))
+  engine(on)
+  await start($)
+  expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).context).toBeUndefined()
+  expect((await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })).context).toEqual([REMINDER])
 })
 
 test('with enforce on, edits wait for a plan, three times at most per turn', { options: { enforce: true, language: 'ko' } }, async ($, on) => {
@@ -232,7 +246,7 @@ test('each request carries the board to the model, and a detour parks the plan w
   on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))
   await start($)
   await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
-  expect(context).toEqual([])
+  expect(context).toEqual([NO_PLAN_NOTE])
   await $.tool.call({ tool: TOOL, ...PLAN })
   await $.prompt.submit({ text: '그 전에 버그 하나만', wait: false, origin: { kind: 'composer' } })
   expect(context[0]).toContain('In hand: "로그인 기능 추가"')

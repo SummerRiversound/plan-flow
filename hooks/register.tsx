@@ -5,7 +5,7 @@ import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
 import { ASK, BOXED, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, pickStep, toggleFold } from './drawer'
-import { decide, denyReason, onPlanWritten, onTurnStart } from './gate'
+import { REMINDER, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, runningLeaves } from './plan'
 import type { PlanOp } from './plan-tool'
@@ -224,13 +224,13 @@ export const register: Register = (on, options) => {
 
   // Each request the person sends: last request's marks go, and the model gets the board.
   on('prompt.submit', async ($, e, next) => {
-    if (e.command !== undefined || e.isMeta === true) return next(e)
+    if (e.command !== undefined || e.isMeta === true || !offered) return next(e)
     const plan = await read($, planAtom)
     if (plan.marks !== undefined) await update($, planAtom, clearMarks)
     const note = boardNote({ plan, shelf: await read($, shelfAtom) }, byPerson)
     byPerson = []
 
-    return next(note === undefined ? e : { ...e, context: [...(e.context ?? []), note] })
+    return next({ ...e, context: [...(e.context ?? []), note] })
   })
 
   // The plan tool itself.
@@ -248,14 +248,19 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     if (e.tool === TOOL) return next(e)
     const verdict = decide({ tool: e.tool, agentId: e.agentId, enforce, toolOffered: offered, gate: await read($, gateAtom) })
-    if (verdict.verdict !== 'allow') await update($, gateAtom, () => verdict.gate)
+    if (verdict.verdict === 'deny' || verdict.verdict === 'pause') await update($, gateAtom, () => verdict.gate)
     if (verdict.verdict === 'deny') return { deny: denyReason(TOOL) }
     if (verdict.verdict === 'pause') $.ui.toast(t().pause)
     if (e.agentId !== undefined) return next(e)
     const question = e.tool === 'AskUserQuestion'
     await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool })
     try {
-      return await next(e)
+      const out = await next(e)
+      // The reminder waits for a call that changed something: a read-only `ls` does not use it up.
+      if (verdict.verdict !== 'remind' || out.deny !== undefined || out.isReadOnly === true) return out
+      await update($, gateAtom, () => verdict.gate)
+
+      return { ...out, context: [...(out.context ?? []), REMINDER] }
     } finally {
       await act($, question ? { type: 'questionClose' } : { type: 'toolEnd', id: e.tool_use_id })
       await act($, { type: 'permissionEnd' })

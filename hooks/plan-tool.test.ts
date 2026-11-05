@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { FLAT_HINT, NO_GOAL, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -144,6 +144,35 @@ test('each request carries a note while a plan is on the board, with the cases t
   for (const op of ['"add"', '"pending"', 'previous "park"', 'previous "cancel"', 'fresh session', '"resume"']) expect(note).toContain(op)
   const parked = run(board, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' }).board
   expect(boardNote(parked)).toContain('Parked: "로그인 기능 추가" (0/3)')
+})
+
+test('the note lists the stages with their ids and status, and sends continuing work under the stage it continues', () => {
+  const board = run(run(run({ plan: emptyPlan(), shelf: [] }, SET).board, { op: 'next' }).board, { op: 'next' }).board
+  const note = boardNote(board)
+  expect(note).toContain('Stages: 1 조사 (completed), 2 로그인 동작 (in_progress).')
+  expect(note).toContain('under the stage it continues')
+  expect(note).toContain('a new top-level stage only for a new part of the outcome')
+})
+
+test('a goal rewritten a second time suggests a new plan; the first rewrite, a resend and a clear do not', () => {
+  let { plan, text } = apply(emptyPlan(), { ...SET, goal: '로그인' })
+  expect(text).not.toContain(GOAL_DRIFT_HINT)
+  ;({ plan, text } = apply(plan, { op: 'update', goal: '로그인과 회원가입' }))
+  expect(text).not.toContain(GOAL_DRIFT_HINT)
+  ;({ plan, text } = apply(plan, { op: 'update', goal: '로그인과 회원가입' }))
+  expect(text).not.toContain(GOAL_DRIFT_HINT)
+  ;({ plan, text } = apply(plan, { op: 'update', goal: '계정 전체 관리' }))
+  expect(text).toContain(GOAL_DRIFT_HINT)
+  expect(apply(plan, { op: 'update', goal: '' }).text).not.toContain(GOAL_DRIFT_HINT)
+})
+
+test('work added to a finished plan suggests a new plan once, while the plan still reads as finished', () => {
+  let { plan } = apply(emptyPlan(), { op: 'set', title: 'T', goal: 'g', nodes: [{ title: '조사', detail: 'd' }] })
+  plan = apply(plan, { op: 'update', updates: [{ id: '1', status: 'completed' }], summary: { goal: 'g', result: 'r' } }).plan
+  const added = apply(plan, { op: 'add', nodes: [{ title: '후속', detail: 'd' }] })
+  expect(added.text).toContain(FINISHED_ADD_HINT)
+  expect(apply(added.plan, { op: 'add', nodes: [{ title: '하나 더', detail: 'd' }] }).text).not.toContain(FINISHED_ADD_HINT)
+  expect(boardNote({ plan, shelf: [] })).toContain('a new outcome: op "set" with a new title')
 })
 
 test('steps carry a one-line detail, set with the step or by update, and an empty one clears it', () => {

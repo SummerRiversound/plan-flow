@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.16 — 2026-11-05
+
+### Changed
+
+- The desktop drawer's cards follow the mockup. Each title row sits on a faint fill, rows are split by hairlines and light up under the pointer, and links sit at the end of their row. Done steps are muted, and only running steps are semibold.
+
 ## 0.1.15 — 2026-11-05
 
 ### Fixed

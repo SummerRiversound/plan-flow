@@ -258,6 +258,14 @@ export const withGoal = (r: PlanResult, goal: unknown): PlanResult => {
   return { plan: { ...plan, goal: v.value, ...(rewritten ? { goalEdits: (plan.goalEdits ?? 0) + 1 } : {}) } }
 }
 
+// The plan's title, renamed once the work's subject is known; left out keeps it.
+export const withTitle = (r: PlanResult, title: unknown): PlanResult => {
+  if ('error' in r || title === undefined) return r
+  const v = text('the plan title', title, MAX_TITLE, false)
+
+  return 'error' in v ? v : { plan: { ...r.plan, title: v.value } }
+}
+
 // New steps go after the last step under `parentId`, in the order given; each added
 // subtree is marked new. A running leaf that gains children hands its run to the first.
 export const addNodes = (prev: Plan, parentId: string | null, input: readonly PlanInput[], now: number): PlanResult =>

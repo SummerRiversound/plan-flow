@@ -10,7 +10,7 @@ import { t } from './i18n'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
 // `live` marks the running step's turning mark and swept title, which a surface that draws pictures animates itself.
-export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title'; node?: string }
+export type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean; strike?: boolean; button?: string; href?: string; live?: 'mark' | 'title'; node?: string; fill?: true }
 export type Line = Seg[]
 
 // How long one frame of the running step's motion lasts.
@@ -198,30 +198,36 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
   let label = `  ${done}/${total} · ${pct}%`
   if (parked > 0 && cells(label) + 8 + 4 <= width) label += t().parked(parked)
   const bar = Math.max(0, Math.min(24, width - cells(label)))
-  const title: Line = [{ text: plan.title, bold: true, color: 'text' }]
-  // Buttons flush right on the title line: fold, then open the drawer; the open button goes first when room runs short.
-  const all: Array<{ text: string; id?: string }> = [
-    ...(folded === undefined ? [] : [{ text: folded ? t().unfold : t().fold, id: FOLD_BUTTON }]),
-    ...(open === undefined ? [] : [{ text: open, id: OPEN_BUTTON }]),
-  ]
-  // A newer plan-flow goes before the buttons and keeps its place over the fold button; the title keeps ten cells.
+  // Pressing the title folds or unfolds the band; its arrow says which way a press goes.
+  const arrow = folded === true ? ' ▾' : ' ▴'
+  const title = (w: number): Line =>
+    folded === undefined
+      ? fitLine([{ text: plan.title, bold: true, color: 'text' }], w)
+      : [
+          { text: fit(plan.title, Math.max(0, w - cells(arrow))), bold: true, color: 'text', button: FOLD_BUTTON },
+          { text: arrow, color: 'inactive', button: FOLD_BUTTON },
+        ]
+  // The flowchart button flush right; a newer plan-flow before it gives way first when room runs short.
+  const all: Array<{ text: string; id?: string }> = open === undefined ? [] : [{ text: open, id: OPEN_BUTTON }]
+  // The title keeps ten cells.
   const tag: Array<{ text: string; id?: string }> = notice === undefined ? [] : [{ text: notice }]
   // The engine frames each button in `[ ` and ` ]`, four cells the text does not count.
   const frame = (bs: ReadonlyArray<{ id?: string }>) => bs.filter(b => b.id !== undefined).length * 4
   const room = (bs: ReadonlyArray<{ text: string; id?: string }>) => bs.reduce((n, b) => n + cells(b.text) + 2, 0) + frame(bs) + 10 <= width
-  const picks = [[...tag, ...all], [...tag, ...all.slice(0, 1)], all, all.slice(0, 1)]
+  const picks = [[...tag, ...all], all]
   const chosen = picks.find(room) ?? []
   const right: Line = chosen.flatMap((b, i) => [
     ...(i === 0 ? [] : [{ text: '  ' }]),
-    b.id === undefined ? { text: b.text, color: 'text' } : { text: b.text, color: 'text', bold: true, button: b.id },
+    // A button's label takes the colour the surface gives its kind of button.
+    b.id === undefined ? { text: b.text, color: 'text' } : { text: b.text, bold: true, button: b.id },
   ])
   const lines: Line[] = [
     right.length === 0
-      ? fitLine(title, width)
+      ? title(width)
       : (() => {
           const used = cells(lineText(right)) + frame(chosen)
-          const cut = fitLine(title, width - used - 1)
-          return [...cut, { text: padRight('', width - cells(lineText(cut)) - used) }, ...right]
+          const cut = title(width - used - 1)
+          return [...cut, { text: padRight('', width - cells(lineText(cut)) - used), fill: true as const }, ...right]
         })(),
     ...goalLines(plan, width, goalRows),
     fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),

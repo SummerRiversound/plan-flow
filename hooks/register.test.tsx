@@ -132,6 +132,24 @@ test('the tree shows above the prompt once a plan exists', KO, async ($, on) => 
   await band.unmount()
 })
 
+test('pressing the band title folds it and pressing again unfolds it, and the flowchart button is the main one', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...PLAN })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const buttons = await band.findAll({ type: 'Button' })
+  expect(buttons.find(b => b.key === 'open-flow')?.props.variant).toBe('primary')
+  expect(buttons.find(b => b.key === 'fold-band')?.props.variant).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /접기|펼치기/ })).toBeUndefined()
+  await band.press({ key: 'fold-band' })
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: / 조사/ })).toBeUndefined()
+  await band.press({ key: 'fold-band' })
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: / 조사/ })).toBeDefined()
+  await band.unmount()
+})
+
 test('with autoShow off, nothing shows above the prompt until /flow', { options: { autoShow: false, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)

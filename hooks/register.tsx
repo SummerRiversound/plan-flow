@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, pickStep, toggleFold } from './drawer'
+import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, pickStep, toggleFold } from './drawer'
 import { REMINDER, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, runningLeaves } from './plan'
@@ -52,12 +52,14 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
       {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
     </Text>
   )
+  // A gap that grows on surfaces drawing native buttons, whose widths the cell count cannot know.
+  const piece = (s: Line[number]) => (s.fill === true && e.surface !== 'terminal' ? <Box flexGrow={1} /> : text(s))
   const segs = (ss: Line) => {
-    if (Svg === null) return ss.map(text)
+    if (Svg === null) return ss.map(piece)
     const title = ss.filter(s => s.live === 'title').map(s => s.text).join('').trimStart()
     return ss.flatMap(s => {
       if (s.live === 'title') return []
-      if (s.live !== 'mark') return [text(s)]
+      if (s.live !== 'mark') return [piece(s)]
       const pic = liveSvg(title, cells(title), now)
       return [<Svg source={pic.source} alt={title} width={pic.width} height={pic.height} />]
     })
@@ -76,7 +78,7 @@ const row = ($: $, e: Parameters<$['ui']['resolve']>[0], line: Line, focus: stri
         p.id === undefined ? (
           segs(p.segs)
         ) : (
-          <Button key={p.id} plain={BOXED.has(p.id ?? '') ? undefined : true} autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
+          <Button key={p.id} plain={BOXED.has(p.id ?? '') ? undefined : true} variant={PRIMARY.has(p.id ?? '') ? 'primary' : undefined} autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
             {segs(p.segs)}
           </Button>
         ),

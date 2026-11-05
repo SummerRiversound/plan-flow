@@ -2,6 +2,18 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.17 — 2026-11-05
+
+### Changed
+
+- On the desktop app every pressable row of the drawer, and the band's title row, takes a click or Enter anywhere on the row and lights up under the pointer.
+- A step's `확인 완료` and `논의` are primary buttons at the right, with space above them.
+- A desktop drawer too narrow for the flowchart shows the list.
+
+### Fixed
+
+- The desktop card's title row spans the card with its count at the right edge. The fill that floated inside the card is gone.
+
 ## 0.1.16 — 2026-11-05
 
 ### Changed

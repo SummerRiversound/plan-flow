@@ -311,6 +311,10 @@ test('on the desktop app every line between cards says what it is, and cards sid
   expect(halves).toHaveLength(2)
   // A column, so the card inside stretches across its half.
   expect(halves.every(b => b.props.flexDirection === 'column')).toBe(true)
+  // Each half keeps its own height: a card opened beside a short one leaves no empty box next to it.
+  const rows = (await pane.findAll({ type: 'Box' })).filter(b => b.props.flexDirection === 'row' && (b.children ?? []).some(c => typeof c === 'object' && c !== null && (c as { props?: { width?: unknown } }).props?.width === '50%'))
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.props.alignItems).toBe('flex-start')
   await pane.unmount()
 })
 

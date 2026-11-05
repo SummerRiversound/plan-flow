@@ -203,3 +203,9 @@ test('steps set or added without a detail are named back, so Claude fills them i
   const full = apply(emptyPlan(), { op: 'set', title: '정리', nodes: [{ title: '가', detail: '설명' }] })
   expect(full.text).not.toContain('no detail')
 })
+
+test('the instruction keeps steps at the level of following the work, not the code', () => {
+  const t = instruction('plan')
+  expect(t).toMatch(/not the edits/)
+  expect(t).toMatch(/no file names, code or commands/)
+})

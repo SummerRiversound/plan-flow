@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.2 — 2026-11-05
+
+### Changed
+
+- Steps are checkpoints for following where the work stands, not the edits: titles and details say what is done for the project, without file names, code or commands.
+
 ## 0.1.1 — 2026-11-05
 
 ### Changed

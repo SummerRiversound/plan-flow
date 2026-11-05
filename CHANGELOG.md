@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.21 — 2026-11-05
+
+### Changed
+
+- When Claude adds a new stage at the end of a plan that still has open work, the plan tool asks whether that work is a detour, so it gets parked and comes back instead of piling up as one more stage.
+
 ## 0.1.20 — 2026-11-05
 
 ### Fixed

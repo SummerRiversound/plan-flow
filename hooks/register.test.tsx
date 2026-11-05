@@ -206,14 +206,22 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   await $.tool.call({ tool: TOOL, ...PLAN })
   await $.tool.call({ tool: TOOL, op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round' && b.props.paddingY !== undefined)
-  // 조사 is running: its card is drawn in text colour, the others muted.
-  expect((await cards()).map(c => c.props.borderColor)).toEqual(['text', 'inactive', 'inactive'])
+  const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round' && b.props.overflow === 'hidden')
+  // 조사 is running: its card's edge is stronger than the others'.
+  const edges = (await cards()).map(c => String(c.props.borderColor))
+  expect(edges).toHaveLength(3)
+  expect(edges[1]).toBe(edges[2])
+  expect(edges[0]).not.toBe(edges[1])
+  // Each card's title row sits on a faint fill.
+  expect((await pane.findAll({ type: 'Box' })).filter(b => typeof b.props.backgroundColor === 'string').length).toBeGreaterThanOrEqual(3)
   expect((await pane.findAll({ type: 'Svg' })).length).toBeGreaterThanOrEqual(2)
   expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
   await pane.press({ key: '2' })
   await pane.redraw()
   expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeDefined()
+  // An open card's rows are split by hairlines.
+  expect((await pane.findAll({ type: 'Svg' })).some(x => x.props.alt === '구분선' && x.props.height === 1)).toBe(true)
+  expect((await pane.findAll({ type: 'Box' })).some(b => b.key === 'row-2.1')).toBe(true)
   await pane.press({ key: '2.1' })
   await pane.redraw()
   expect(await pane.find({ type: 'Button', key: 'ask' })).toBeDefined()
@@ -238,13 +246,14 @@ test('on the desktop app the drawer head is set in the app type: a heading title
   expect((await pane.find({ type: 'Text', text: /^로그인 기능 추가$/ }))?.props.size).toBe('heading')
   expect((await pane.findAll({ type: 'Svg' })).some(x => /진행/.test(String(x.props.alt)))).toBe(true)
   expect((await pane.find({ type: 'Text', text: /^\d+\/\d+ · \d+%$/ }))?.props.tabular).toBe(true)
-  // Stage titles weigh more than the steps under them; counts and details are smaller.
-  expect((await pane.find({ type: 'Text', text: /구현/ }))?.props.weight).toBe('semibold')
+  // The running stage's title weighs more; one still to come reads plain. Counts are smaller.
+  expect((await pane.find({ type: 'Text', text: /^조사$/ }))?.props.weight).toBe('semibold')
+  expect((await pane.find({ type: 'Text', text: /^구현$/ }))?.props.weight).toBeUndefined()
   expect((await pane.find({ type: 'Text', text: /^0\/2 ▸$/ }))?.props.size).toBe('footnote')
   await pane.unmount()
 })
 
-test('on the desktop app each task that runs with its siblings carries a small 동시에 pill beside its title, at their level, and links are chips', KO, async ($, on) => {
+test('on the desktop app each task that runs with its siblings carries a small 동시에 pill beside its title, at their level, and links sit at the end of the row', KO, async ($, on) => {
   engine(on)
   await start($)
   await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '혼자' }, { title: '같이', parallel: true, children: [{ title: '하나', links: ['https://github.com/o/r/pull/7'] }, { title: '둘' }] }] }] })

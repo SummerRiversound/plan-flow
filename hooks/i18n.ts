@@ -10,6 +10,7 @@ export type Language = (typeof LANGUAGES)[number]
 const en = {
   parallel: 'parallel',
   line: 'Line between steps',
+  divider: 'Divider',
   progress: (done: number, total: number) => `Progress: ${done} of ${total} steps done`,
   checks: (n: number) => `◐ To check ${n}: `,
   parked: (n: number) => ` · parked ${n}`,
@@ -84,6 +85,7 @@ export type Strings = typeof en
 const ko: Strings = {
   parallel: '동시에',
   line: '단계 사이 연결선',
+  divider: '구분선',
   progress: (done, total) => `진행률: ${total}단계 중 ${done}단계 완료`,
   checks: n => `◐ 확인할 것 ${n}: `,
   parked: n => ` · 보관 ${n}`,

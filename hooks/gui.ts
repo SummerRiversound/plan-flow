@@ -75,3 +75,7 @@ export const spinSvg = (now: number): string => {
     `<animateTransform attributeName="transform" type="rotate" from="0 ${c} ${c}" to="360 ${c} ${c}" dur="${SPIN_S}s" begin="${at}s" repeatCount="indefinite"/></circle></svg>`
   )
 }
+
+// A hairline across a card's body, drawn one pixel tall at whatever width it gets.
+export const ruleSvg = (): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="1" viewBox="0 0 ${W} 1" preserveAspectRatio="none"><rect width="${W}" height="1" fill="#808080" fill-opacity="0.2"/></svg>`

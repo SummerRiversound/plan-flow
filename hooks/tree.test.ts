@@ -6,6 +6,7 @@ import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { FOLD_BUTTON, FRAME_MS, drawTree, lineText } from './tree'
 import { cells } from './width'
 import { setLanguage, t } from './i18n'
+import { BOXED } from './drawer'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
@@ -197,4 +198,16 @@ test('the notice says what to run: a reload for an installed update, an update f
   setLanguage('en')
   expect(t().newer({ kind: 'installed', version: '0.1.5' })).toContain('/reload-plugins')
   setLanguage('ko')
+})
+
+test('the band draws its buttons framed like the drawer buttons, and its title line leaves room for the frames', () => {
+  setLanguage('ko')
+  for (const width of [40, 60, 90]) {
+    const line = drawTree(sample(), working, { maxRows: 12, width, now: 0, open: t().bandOpen, folded: false })[0] ?? []
+    const buttons = line.filter(s => s.button !== undefined)
+    expect(buttons.length).toBeGreaterThan(0)
+    expect(buttons.every(s => BOXED.has(s.button ?? ''))).toBe(true)
+    // The engine draws `[ ` and ` ]` around each framed button.
+    expect(cells(lineText(line)) + 4 * buttons.length).toBeLessThanOrEqual(width)
+  }
 })

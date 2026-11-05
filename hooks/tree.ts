@@ -206,7 +206,9 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
   ]
   // A newer plan-flow goes before the buttons and keeps its place over the fold button; the title keeps ten cells.
   const tag: Array<{ text: string; id?: string }> = notice === undefined ? [] : [{ text: notice }]
-  const room = (bs: ReadonlyArray<{ text: string }>) => bs.reduce((n, b) => n + cells(b.text) + 2, 0) + 10 <= width
+  // The engine frames each button in `[ ` and ` ]`, four cells the text does not count.
+  const frame = (bs: ReadonlyArray<{ id?: string }>) => bs.filter(b => b.id !== undefined).length * 4
+  const room = (bs: ReadonlyArray<{ text: string; id?: string }>) => bs.reduce((n, b) => n + cells(b.text) + 2, 0) + frame(bs) + 10 <= width
   const picks = [[...tag, ...all], [...tag, ...all.slice(0, 1)], all, all.slice(0, 1)]
   const chosen = picks.find(room) ?? []
   const right: Line = chosen.flatMap((b, i) => [
@@ -217,8 +219,9 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
     right.length === 0
       ? fitLine(title, width)
       : (() => {
-          const cut = fitLine(title, width - cells(lineText(right)) - 1)
-          return [...cut, { text: padRight('', width - cells(lineText(cut)) - cells(lineText(right))) }, ...right]
+          const used = cells(lineText(right)) + frame(chosen)
+          const cut = fitLine(title, width - used - 1)
+          return [...cut, { text: padRight('', width - cells(lineText(cut)) - used) }, ...right]
         })(),
     ...goalLines(plan, width, goalRows),
     fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),

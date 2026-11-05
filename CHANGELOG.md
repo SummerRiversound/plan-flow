@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.7 — 2026-11-05
+
+### Changed
+
+- The empty drawer says what fills it: a request that takes several steps makes Claude draw its plan there. The message wraps to the drawer's width instead of running past a narrow drawer.
+
 ## 0.1.6 — 2026-11-05
 
 ### Added

@@ -487,7 +487,8 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       // Lines only between cards: none above a first group or under a last one.
       if (!first) flow.push(pic(splitSvg(a.stages.length), `split-${i}`))
       flow.push(
-        <Box flexDirection="row">
+        // Each card keeps its own height: one opened beside a short one leaves no empty box.
+        <Box flexDirection="row" alignItems="flex-start">
           {a.stages.map(s => (
             <Box width={`${100 / a.stages.length}%`} flexDirection="column" paddingX="xs">
               {card(s)}

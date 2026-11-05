@@ -2,6 +2,13 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.4 — 2026-11-05
+
+### Changed
+
+- Stages are named for what this task produces, not for the repo's routine: a stage name that would fit any task (setup, decision record, implement, PR) is a phase, and the issue comment, worktree, tests, commit and pull request go inside the stage they serve. A stage holding most of the tasks is split by what each part delivers.
+- When a new plan has a stage named only for the routine, the tool's answer names it back so Claude renames it.
+
 ## 0.1.3 — 2026-11-05
 
 ### Fixed

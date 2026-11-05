@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { FLAT_HINT, NO_PLAN_NOTE, missingDetail, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { FLAT_HINT, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -29,7 +29,7 @@ const error = (plan: Plan, raw: unknown): string => {
   return 'error' in out ? out.error : 'no error'
 }
 
-const SET = { op: 'set', title: '로그인 기능 추가', nodes: [{ title: '조사' }, { title: '구현', children: [{ title: '화면' }, { title: 'API' }] }] }
+const SET = { op: 'set', title: '로그인 기능 추가', nodes: [{ title: '조사' }, { title: '로그인 동작', children: [{ title: '화면' }, { title: 'API' }] }] }
 
 test('every op is offered in the schema, next among them', () => {
   const op = (TOOL_SCHEMA.properties as Record<string, { enum?: string[] }>).op
@@ -39,7 +39,7 @@ test('every op is offered in the schema, next among them', () => {
 
 test('set answers the plan with ids, statuses and the done count', () => {
   const { text } = apply(emptyPlan(), SET)
-  expect(text).toBe(['Plan: 로그인 기능 추가 (0/3 done)', '1 조사 - pending', '2 구현 - pending', '  2.1 화면 - pending', '  2.2 API - pending', missingDetail(['1', '2', '2.1', '2.2'])].join('\n'))
+  expect(text).toBe(['Plan: 로그인 기능 추가 (0/3 done)', '1 조사 - pending', '2 로그인 동작 - pending', '  2.1 화면 - pending', '  2.2 API - pending', missingDetail(['1', '2', '2.1', '2.2'])].join('\n'))
 })
 
 test('next and update change statuses by id', () => {
@@ -211,4 +211,26 @@ test('the instruction keeps steps at the level of following the work, not the co
   const t = instruction('plan')
   expect(t).toMatch(/not the edits/)
   expect(t).toMatch(/no file names, code or commands/)
+})
+
+test('stages named only for the repo routine are named back, so Claude renames them for what the task produces', () => {
+  const nodes = [
+    { title: '결정 기록', detail: '왜', children: [{ title: '이슈에 결정 남기기', detail: '왜' }] },
+    { title: '재시작해도 메모 유지', detail: '왜', children: [{ title: '파일 저장', detail: '왜' }, { title: '테스트로 확인', detail: '왜' }] },
+    { title: 'PR로 마무리', detail: '왜' },
+  ]
+  expect(apply(emptyPlan(), { op: 'set', title: '메모 저장', nodes }).text).toContain(routineHint(['1', '3']))
+  const en = [{ title: 'Set up the worktree', detail: 'w' }, { title: 'Each memo shows a button', detail: 'w' }, { title: 'Commit and open the PR', detail: 'w' }]
+  expect(apply(emptyPlan(), { op: 'set', title: 'Delete', nodes: en }).text).toContain(routineHint(['1', '3']))
+})
+
+test('stages named for an outcome, a plan of one stage and steps added later carry no routine hint', () => {
+  const outcome = [
+    { title: '원인 확인', detail: '왜' },
+    { title: '메모가 글자 그대로 보임', detail: '왜', children: [{ title: '실패하는 테스트', detail: '왜' }, { title: 'PR 열기', detail: '왜' }] },
+  ]
+  expect(apply(emptyPlan(), { op: 'set', title: '메모 표시', nodes: outcome }).text).not.toContain('named for the routine')
+  expect(apply(emptyPlan(), { op: 'set', title: 'PR', nodes: [{ title: 'PR 열기', detail: '왜' }] }).text).not.toContain('named for the routine')
+  const set = apply(emptyPlan(), { op: 'set', title: '메모 표시', nodes: outcome })
+  expect(apply(set.plan, { op: 'add', nodes: [{ title: '커밋', detail: '왜' }] }).text).not.toContain('named for the routine')
 })

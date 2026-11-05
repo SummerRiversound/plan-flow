@@ -343,8 +343,8 @@ const line = (n: Plan['nodes'][number]): string => {
   return `${'  '.repeat(n.id.split('.').length - 1)}${n.id} ${n.title} - ${extra}${note}`
 }
 
-// Room left under the limit for the hints that follow the plan (flat list, missing details, summary).
-const HINT_ROOM = 500
+// Room left under the limit for the hints that follow the plan (flat list or routine stages, missing details, summary).
+const HINT_ROOM = 800
 
 // The plan as the model reads it: one step per line, indented by depth, kept under the limit.
 export const describePlan = (plan: Plan): string => {
@@ -386,6 +386,19 @@ export const FLAT_HINT =
 export const missingDetail = (ids: readonly string[]): string =>
   `Steps ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ` and ${ids.length - 8} more` : ''} have no detail: give each its one sentence with op "update".`
 
+// A stage whose name is nothing but the repo's routine (setup, decision record, implement, PR)
+// would fit any task, so it says nothing about where this one stands.
+const ROUTINE =
+  /set ?up|prepar\w*|decisions?|decide|records?|design|issues?|implement\w*|build|testing|tests?|verif\w*|checks?|commits?|pull requests?|pr|reviews?|wrap[- ]?up|finish\w*|clean[- ]?up|worktree|branch|open\w*|write|code|결정|기록|설계|이슈|구현|개발|테스트|검증|확인|커밋|마무리|준비|정리|리뷰|작업|공간|브랜치|워크트리|코드|생성|만들기|열기|열림|올리기|작성|파악|수정|남기기|먼저|제출|반영/giu
+const isRoutine = (title: string): boolean => title.replace(ROUTINE, '').replace(/\b(and|the|a|an)\b|[\s·/&+,.\-과와으로를을에및]/giu, '') === ''
+const routineStages = (plan: Plan): string[] => {
+  const stages = plan.nodes.filter(n => n.parentId === null)
+
+  return stages.length < 2 ? [] : stages.filter(n => isRoutine(n.title)).map(n => n.id)
+}
+export const routineHint = (ids: readonly string[]): string =>
+  `${ids.length === 1 ? 'Stage' : 'Stages'} ${ids.join(', ')} ${ids.length === 1 ? 'is' : 'are'} named for the routine (setup, decision record, implement, PR), not for what this task produces. Unless that routine is the task itself, rename each for what will exist when it is done, fold the routine into the stage it serves, and send op "set" again with the same title; steps keep their status.`
+
 // Runs one op: the new plan and the answer, or the refusal with the plan unchanged.
 export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; text: string; notice?: string } | { error: string } => {
   if (op.op === 'show') return { board, text: describeBoard(board) }
@@ -412,10 +425,12 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
             )
   if ('error' in result) return bad(result.error)
   const flat = (op.op === 'set' || op.op === 'add') && isFlat(result.board.plan) ? `\n${FLAT_HINT}` : ''
+  const routine = op.op === 'set' && flat === '' ? routineStages(result.board.plan) : []
+  const named = routine.length > 0 ? `\n${routineHint(routine)}` : ''
   const bare = op.op === 'set' || op.op === 'add' ? result.board.plan.nodes.filter(n => (n.detail ?? '') === '').map(n => n.id) : []
   const detail = bare.length > 0 ? `\n${missingDetail(bare)}` : ''
   const ask = finishedAt(result.board.plan) !== null && result.board.plan.summary === undefined ? '\nThe plan is finished: send op "update" with "summary" to close it.' : ''
-  const text = describeBoard(result.board) + flat + detail + ask
+  const text = describeBoard(result.board) + flat + named + detail + ask
 
   return result.notice === undefined ? { board: result.board, text } : { board: result.board, text: `${result.notice}\n${text}`, notice: result.notice }
 }

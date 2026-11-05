@@ -97,7 +97,8 @@ const cardsBody = ($: $, e: Parameters<$['ui']['resolve']>[0], axis: readonly Ax
   const t2 = $.ui.resolve(e)
   const { Box, Text, Button, Link } = t2
   const Svg = 'Svg' in t2 ? t2.Svg : null
-  const pic = (source: string, key: string) => (Svg === null ? null : <Svg key={key} source={source} alt="" />)
+  // The app drops a picture with no alt.
+  const pic = (source: string, key: string) => (Svg === null ? null : <Svg key={key} source={source} alt={t().line} />)
   const title = (s: CardStep) => (
     <Text bold={s.running ? true : undefined} dimColor={isDone(s) ? true : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
       <Text color={s.glyph.color}>{s.glyph.text}</Text> {s.title}
@@ -183,7 +184,7 @@ const cardsBody = ($: $, e: Parameters<$['ui']['resolve']>[0], axis: readonly Ax
       out.push(
         <Box flexDirection="row">
           {a.stages.map(s => (
-            <Box width={`${100 / a.stages.length}%`} paddingX="xs">
+            <Box width={`${100 / a.stages.length}%`} flexDirection="column" paddingX="xs">
               {card(s)}
             </Box>
           ))}
@@ -193,10 +194,15 @@ const cardsBody = ($: $, e: Parameters<$['ui']['resolve']>[0], axis: readonly Ax
       return
     }
     if (!first && axis[i - 1]?.kind !== 'split') out.push(pic(trunkSvg(), `trunk-${i}`))
-    if (a.kind === 'stage') out.push(card(a.stage))
+    if (a.kind === 'stage')
+      out.push(
+        <Box flexDirection="column" paddingX="xs">
+          {card(a.stage)}
+        </Box>,
+      )
     if (a.kind === 'summary') {
       out.push(
-        <Box flexDirection="column" borderStyle="round" borderColor="inactive" paddingX="sm" paddingY="xs" gap="xs">
+        <Box flexDirection="column" marginX="xs" borderStyle="round" borderColor="inactive" paddingX="sm" paddingY="xs" gap="xs">
           <Text bold>
             <Text color="success">✓</Text> {t().summary.title}
           </Text>
@@ -219,7 +225,12 @@ const cardsBody = ($: $, e: Parameters<$['ui']['resolve']>[0], axis: readonly Ax
     }
   })
 
-  return <Box flexDirection="column">{out}</Box>
+  // A gap too, so cards never touch where a surface leaves a line out.
+  return (
+    <Box flexDirection="column" gap="xs">
+      {out}
+    </Box>
+  )
 }
 
 async function shown($: $, autoShow: boolean): Promise<boolean> {

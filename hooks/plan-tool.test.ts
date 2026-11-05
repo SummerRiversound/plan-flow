@@ -137,11 +137,15 @@ test('move, resume and previous are read and checked', () => {
   expect('error' in bad && bad.error).toContain('"park" or "cancel"')
 })
 
-test('each request carries a note while a plan is on the board, with the cases to sort it into', () => {
+test('each request carries a short note on where the board stands; the cases to sort a request into live in the system prompt once', () => {
   const board = run({ plan: emptyPlan(), shelf: [] }, SET).board
   const note = boardNote(board) ?? ''
   expect(note).toContain('In hand: "로그인 기능 추가" (0/3 done, in hand: 조사 (id 1))')
-  for (const op of ['"add"', '"pending"', 'previous "park"', 'previous "cancel"', 'fresh session', '"resume"']) expect(note).toContain(op)
+  for (const op of ['"add"', '"pending"', 'previous "park"', 'previous "cancel"', 'fresh session', '"resume"']) expect(instruction('plan')).toContain(op)
+  // The note neither holds the work back for the board nor sends Claude to ask first.
+  expect(note.length).toBeLessThan(500)
+  expect(note).not.toMatch(/ask the person|change the board first/i)
+  expect(instruction('plan')).not.toMatch(/ask the person before|before acting/i)
   const parked = run(board, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' }).board
   expect(boardNote(parked)).toContain('Parked: "로그인 기능 추가" (0/3)')
 })
@@ -150,8 +154,8 @@ test('the note lists the stages with their ids and status, and sends continuing 
   const board = run(run(run({ plan: emptyPlan(), shelf: [] }, SET).board, { op: 'next' }).board, { op: 'next' }).board
   const note = boardNote(board)
   expect(note).toContain('Stages: 1 조사 (completed), 2 로그인 동작 (in_progress).')
-  expect(note).toContain('under the stage it continues')
-  expect(note).toContain('a new top-level stage only for a new part of the outcome')
+  expect(instruction('plan')).toContain('under the stage it continues')
+  expect(instruction('plan')).toContain('a new top-level stage only for a new part of the outcome')
 })
 
 test('a goal rewritten a second time suggests a new plan; the first rewrite, a resend and a clear do not', () => {
@@ -172,7 +176,7 @@ test('work added to a finished plan suggests a new plan once, while the plan sti
   const added = apply(plan, { op: 'add', nodes: [{ title: '후속', detail: 'd' }] })
   expect(added.text).toContain(FINISHED_ADD_HINT)
   expect(apply(added.plan, { op: 'add', nodes: [{ title: '하나 더', detail: 'd' }] }).text).not.toContain(FINISHED_ADD_HINT)
-  expect(boardNote({ plan, shelf: [] })).toContain('a new outcome: op "set" with a new title')
+  expect(instruction('plan')).toContain('a new outcome: op "set" with a new title')
 })
 
 test('a new top-level stage on a plan with open work asks whether it is a detour to park; a step under a stage does not', () => {

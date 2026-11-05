@@ -1,7 +1,7 @@
 {
   "name": "plan-flow",
   "displayName": "Plan Flow",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Draws Claude's current plan inside Claude Code: a live tree above the prompt and a card flowchart in a side drawer (/flow).",
   "author": {
     "name": "SummerRiversound",

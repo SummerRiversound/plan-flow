@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.23 — 2026-11-05
+
+### Fixed
+
+- On the desktop app the `동시에` tag keeps the height of its row instead of standing taller than it.
+
 ## 0.1.22 — 2026-11-05
 
 ### Fixed

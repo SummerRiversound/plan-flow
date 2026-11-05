@@ -290,6 +290,10 @@ test('on the desktop app each step row is one Client: the mark, the title, the p
   expect(props('step-1')).toMatchObject({ strong: true, right: { text: '0/3 ▾' } })
   expect(props('step-2')).toMatchObject({ strong: false, right: { text: '0/1 ▸' } })
   expect([props('step-1.2.1')?.pill, props('step-1.2.2')?.pill, props('step-1.1')?.pill]).toEqual(['동시에', '동시에', null])
+  // The pill is a tint, not a bordered box: the app pads a bordered box itself, which made it taller than the row.
+  const pillRow = JSON.stringify(await pane.drawn({ in: 'step-1.2.1' }))
+  expect(pillRow).toContain('동시에')
+  expect(pillRow).not.toContain('borderStyle')
   // The row draws its own title and count, and fills under the pointer.
   expect(JSON.stringify(await pane.drawn({ in: 'step-2' }))).toContain('0/1 ▸')
   expect(JSON.stringify(await pane.drawn({ in: 'step-2' }))).not.toContain('backgroundColor')

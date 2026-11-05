@@ -2,6 +2,13 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.19 — 2026-11-05
+
+### Changed
+
+- Each request's board note lists the plan's stages with their ids and status, and asks Claude to put continuing work or a fix under the stage it continues, instead of adding a new stage at the end.
+- When the goal is rewritten a second time, or work is added to a finished plan, Claude is told to consider closing the plan and starting a new one, so the board stays one piece of work rather than a log of the session.
+
 ## 0.1.18 — 2026-11-05
 
 ### Fixed

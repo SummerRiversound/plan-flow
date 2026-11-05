@@ -3,14 +3,12 @@ import { joinSvg, splitSvg } from './gui'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { setLanguage } from './i18n'
-import { NO_PLAN_NOTE } from './plan-tool'
-import { LONG_STEP, REMINDER } from './gate'
+import { plannerIdle } from './register'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
 const KO = { options: { language: 'ko' } }
 
-const TOOL = 'mcp__plan-flow__plan'
 const PLAN = {
   op: 'set',
   title: '로그인 기능 추가',
@@ -35,16 +33,51 @@ const PANE = {
   props: { title: '흐름도', isFocused: true, bodyColumns: 53, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
+// The side planner's answers, one list of ops per look, and the prompts it was handed.
+const replies: unknown[][] = []
+const asked: string[] = []
+// What the plugins registered as tools, and the context the last request reached the model with.
+const registered: string[] = []
+let handedContext: readonly string[] | undefined
+const NO_USAGE = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+let theClock: ReturnType<typeof mock.clock> | undefined
+const TURN = { answer: '했어요', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
+// A turn ends and the planner answers with `ops`: the board as the person would then see it.
+const plan = async ($: Engine, ...ops: object[]) => {
+  replies.push(ops)
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(1)
+  await plannerIdle()
+}
+// The board as the planner is handed it on its next look.
+const shown = async ($: Engine) => {
+  await plan($)
+  return asked[asked.length - 1] ?? ''
+}
+
 // Toasts the plugin raised, newest last.
 const toasts: string[] = []
 
 // The engine beneath the plugin: each hook answers what the session would.
 const engine = (on: On) => {
   const clock = mock.clock(on, { now: 1_000 })
+  theClock = clock
+  registered.length = 0
+  handedContext = undefined
+  replies.length = 0
+  asked.length = 0
+  on('model.complete', (_, e) => {
+    asked.push(e.prompt)
+    const next = replies.shift()
+    return { value: next === undefined ? { isAnswered: false, reason: 'api-error', status: 500, error: 'api_error', usage: NO_USAGE } : { isAnswered: true, text: JSON.stringify(next), usage: NO_USAGE } } as never
+  })
   mock.store(on)
   const open = new Set<string>()
   on('session.id', () => ({ value: 's1' }))
-  on('tool.register', (_, e) => ({ value: { tool: `mcp__plan-flow__${e.name}` } }))
+  on('tool.register', (_, e) => (registered.push(e.name), { value: { tool: `mcp__plan-flow__${e.name}` } }))
+  on('prompt.submit', (_, e) => ((handedContext = e.context), { text: e.text, context: e.context }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.compose', () => ({ sections: [] }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('ui.open', (_, e) => (open.add(e.id), { value: { isPlaced: true } }))
   on('ui.close', (_, e) => (open.delete(e.id), { value: undefined }))
@@ -66,69 +99,79 @@ const personMoves = ($: Engine, element: string) =>
   $.ui.focus({ component: 'Pane', requestId: 'plan-flow', plugin: 'plan-flow', element, origin: { kind: 'person' } } as never)
 const start = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
-test('the plan tool sets the plan and answers with it', KO, async ($, on) => {
+test('nothing of plan-flow reaches what Claude reads: no tool, no system prompt section, no note on a request, nothing on a tool result', KO, async ($, on) => {
   engine(on)
   await start($)
-  const out = await $.tool.call({ tool: TOOL, ...PLAN })
-  expect(String(out.result)).toContain('Plan: 로그인 기능 추가 (0/5 done)')
-  const next = await $.tool.call({ tool: TOOL, op: 'next' })
-  expect(String(next.result)).toContain('1 조사 - in_progress')
-})
-
-test('a subagent cannot change the plan', KO, async ($, on) => {
-  engine(on)
-  await start($)
-  const out = await $.tool.call({ tool: TOOL, ...PLAN, agentId: 'a1' })
-  expect(out.deny).toContain('main conversation')
-})
-
-test('with enforce off, edits run without a plan', KO, async ($, on) => {
-  engine(on)
-  await start($)
-  const out = await $.tool.call({ tool: 'Bash', command: 'ls' })
-  expect(out.deny).toBeUndefined()
-  expect(out.result).toBe('ran')
-  // The first such call with no plan carries one reminder for the model; later ones run bare.
-  expect(out.context).toEqual([REMINDER])
-  expect((await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })).context).toBeUndefined()
-})
-
-test('a running step that piles up changes gets one note to split it into checkpoints', KO, async ($, on) => {
-  engine(on)
-  await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  const notes: string[] = []
-  for (let i = 0; i < LONG_STEP + 3; i++) {
+  expect(registered).toEqual([])
+  const composed = await $.prompt.compose({ traits: [], tools: [], sections: [] } as never)
+  expect(composed.sections ?? []).toEqual([])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  expect(handedContext ?? []).toEqual([])
+  await plan($, PLAN)
+  await $.prompt.submit({ text: '계속', wait: false, origin: { kind: 'composer' } })
+  expect(handedContext ?? []).toEqual([])
+  for (let i = 0; i < 12; i++) {
     const out = await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })
-    notes.push((out.context ?? []).join(' '))
+    expect(out.context).toBeUndefined()
+    expect(out.deny).toBeUndefined()
   }
-  expect(notes.filter(n => n.includes('op "add"'))).toHaveLength(1)
-  expect(notes[LONG_STEP - 1]).toContain('조사')
 })
 
-test('a read-only call does not use up the reminder', KO, async ($, on) => {
+test('after a turn the side planner sets the board from the request, the calls and the answer', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Bash', command: 'npm test', description: '테스트 돌리기' })
+  await plan($, PLAN)
+  const handed = asked[asked.length - 1] ?? ''
+  expect(handed).toContain('The person asked: 로그인 만들어줘')
+  expect(handed).toContain('Claude ran: 테스트 돌리기')
+  expect(handed).toContain('Claude answered: 했어요')
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
+  // The next look carries only what is new, with the request it serves.
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/login.ts', old_string: 'a', new_string: 'b' })
+  await plan($, { op: 'next' })
+  const again = asked[asked.length - 1] ?? ''
+  expect(again).toContain('The person asked: 로그인 만들어줘')
+  expect(again).toContain('Claude ran: Edit login.ts')
+  expect(again).not.toContain('테스트 돌리기')
+  expect(again).toContain('Plan: 로그인 기능 추가')
+  await band.unmount()
+})
+
+test('the planner looks again while Claude works, after six calls that change something', KO, async ($, on) => {
   on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran', isReadOnly: true }))
   engine(on)
   await start($)
-  expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).context).toBeUndefined()
-  expect((await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })).context).toEqual([REMINDER])
+  replies.push([PLAN])
+  for (let i = 0; i < 5; i++) await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(0)
+  await $.tool.call({ tool: 'Edit', file_path: '/a', old_string: 'a', new_string: 'b' })
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(1)
+  // A read-only call is not work.
+  for (let i = 0; i < 6; i++) await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(1)
 })
 
-test('with enforce on, edits wait for a plan, three times at most per turn', { options: { enforce: true, language: 'ko' } }, async ($, on) => {
+test('a planner call that fails keeps what happened for the next look', KO, async ($, on) => {
   engine(on)
   await start($)
-  for (let i = 0; i < 3; i++) expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).deny).toContain('"op":"set"')
-  expect((await $.tool.call({ tool: 'Bash', command: 'ls' })).deny).toBeUndefined()
-})
-
-test('with enforce on, a plan lets edits through', { options: { enforce: true, language: 'ko' } }, async ($, on) => {
-  engine(on)
-  await start($)
-  expect((await $.tool.call({ tool: 'Write', file_path: '/a', content: '' })).deny).toBeDefined()
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  expect((await $.tool.call({ tool: 'Write', file_path: '/a', content: '' })).deny).toBeUndefined()
-  // Reading is never held.
-  expect((await $.tool.call({ tool: 'Read', file_path: '/a' })).deny).toBeUndefined()
+  await $.prompt.submit({ text: '버그 고쳐줘', wait: false, origin: { kind: 'composer' } })
+  // No reply queued: the call fails.
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(1)
+  await plannerIdle()
+  await plan($, { op: 'set', title: '버그', nodes: [{ title: '재현' }] })
+  expect(asked[asked.length - 1]).toContain('The person asked: 버그 고쳐줘')
+  expect(await shown($)).toContain('Plan: 버그')
 })
 
 test('the tree shows above the prompt once a plan exists', KO, async ($, on) => {
@@ -136,7 +179,7 @@ test('the tree shows above the prompt once a plan exists', KO, async ($, on) => 
   await start($)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeUndefined()
-  await $.tool.call({ tool: TOOL, ...PLAN })
+  await plan($, PLAN)
   await band.redraw()
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
   expect(await band.find({ type: 'Text', text: / 조사/ })).toBeDefined()
@@ -149,7 +192,7 @@ test('the tree shows above the prompt once a plan exists', KO, async ($, on) => 
 test('pressing the band title folds it and pressing again unfolds it, and the flowchart button is the main one', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
+  await plan($, PLAN)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   const buttons = await band.findAll({ type: 'Button' })
   expect(buttons.find(b => b.key === 'open-flow')?.props.variant).toBe('primary')
@@ -167,9 +210,9 @@ test('pressing the band title folds it and pressing again unfolds it, and the fl
 test('on the desktop app the band is set in the app type: the title folds it, progress is a picture, steps step in by level, and the flowchart button is primary', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  await $.tool.call({ tool: TOOL, op: 'next' })
-  await $.tool.call({ tool: TOOL, op: 'next' })
+  await plan($, PLAN)
+  await plan($, { op: 'next' })
+  await plan($, { op: 'next' })
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect((await band.findAll({ type: 'Text' })).some(x => x.props.mono === true)).toBe(false)
   expect((await band.findAll({ type: 'Text' })).some(x => /[├└│]/.test(String(x.props.children)))).toBe(false)
@@ -192,7 +235,7 @@ test('on the desktop app the band is set in the app type: the title folds it, pr
 test('on the desktop app the band marks steps that run together with a tint, not a bordered box', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }, { title: '끝' }] })
+  await plan($, { op: 'set', title: '갈래', nodes: [{ title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }, { title: '끝' }] })
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   // The app pads a bordered box itself, which made the tag taller than its row.
   expect(await band.find({ type: 'Text', text: /^동시에$/ })).toBeDefined()
@@ -203,8 +246,8 @@ test('on the desktop app the band marks steps that run together with a tint, not
 test('a parked plan opens in the drawer to show its steps, on the desktop app and in the terminal', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  await $.tool.call({ tool: TOOL, op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' })
+  await plan($, PLAN)
+  await plan($, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await pane.find({ type: 'Text', text: /로그인 화면/ })).toBeUndefined()
   // The whole row opens it, like any other row.
@@ -225,7 +268,7 @@ test('a parked plan opens in the drawer to show its steps, on the desktop app an
 test('with autoShow off, nothing shows above the prompt until /flow', { options: { autoShow: false, language: 'ko' } }, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
+  await plan($, PLAN)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeUndefined()
   await $.command.run(FLOW)
@@ -241,8 +284,8 @@ test('with autoShow off, nothing shows above the prompt until /flow', { options:
 test('on the desktop app the drawer draws each stage as a rounded card joined by lines, and presses still fold, pick and switch to the list', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  await $.tool.call({ tool: TOOL, op: 'next' })
+  await plan($, PLAN)
+  await plan($, { op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => typeof b.key === 'string' && b.key.startsWith('card-'))
   // 조사 is running: its card's edge is stronger than the others'.
@@ -286,8 +329,8 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
 test('in the editor the drawer head is set in the app type: a heading title, a progress bar picture and counts that hold their width', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  await $.tool.call({ tool: TOOL, op: 'next' })
+  await plan($, PLAN)
+  await plan($, { op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   const texts = await pane.findAll({ type: 'Text' })
   expect(texts.some(x => x.props.mono === true)).toBe(false)
@@ -304,7 +347,7 @@ test('in the editor the drawer head is set in the app type: a heading title, a p
 test('in the editor each task that runs with its siblings carries a small 동시에 pill beside its title, at their level, and links sit at the end of the row', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '혼자' }, { title: '같이', parallel: true, children: [{ title: '하나', links: ['https://github.com/o/r/pull/7'] }, { title: '둘' }] }] }] })
+  await plan($, { op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '혼자' }, { title: '같이', parallel: true, children: [{ title: '하나', links: ['https://github.com/o/r/pull/7'] }, { title: '둘' }] }] }] })
   const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   // One pill per task that runs together, none on a line of its own.
   const pills = await pane.findAll({ type: 'Text', text: /^동시에$/ })
@@ -319,8 +362,8 @@ test('in the editor each task that runs with its siblings carries a small 동시
 test('on the desktop app each step row is one Client: the mark, the title, the pill and the count in one pressable row that lights under the pointer', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }] }, { title: '끝', children: [{ title: '마무리' }] }] })
-  await $.tool.call({ tool: TOOL, op: 'next' })
+  await plan($, { op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }] }, { title: '끝', children: [{ title: '마무리' }] }] })
+  await plan($, { op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // No Button for a row: every row is a Client named after its step.
   expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view'])
@@ -345,7 +388,7 @@ test('on the desktop app each step row is one Client: the mark, the title, the p
 test('on the desktop app every line between cards says what it is, and cards side by side each fill their half', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '동시에', nodes: [{ title: '갈래', parallel: true, children: [{ title: '왼쪽' }, { title: '오른쪽' }] }, { title: '마무리' }] })
+  await plan($, { op: 'set', title: '동시에', nodes: [{ title: '갈래', parallel: true, children: [{ title: '왼쪽' }, { title: '오른쪽' }] }, { title: '마무리' }] })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const lines = await pane.findAll({ type: 'Svg' })
   expect(lines.length).toBeGreaterThanOrEqual(2)
@@ -365,7 +408,7 @@ test('on the desktop app every line between cards says what it is, and cards sid
 test('on the desktop app no line hangs off the flowchart: no split above a first group, no join under a last one', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '동시에', nodes: [{ title: '갈래', parallel: true, children: [{ title: '왼쪽' }, { title: '오른쪽' }] }, { title: '가운데' }, { title: '끝', parallel: true, children: [{ title: 'ㄱ' }, { title: 'ㄴ' }] }] })
+  await plan($, { op: 'set', title: '동시에', nodes: [{ title: '갈래', parallel: true, children: [{ title: '왼쪽' }, { title: '오른쪽' }] }, { title: '가운데' }, { title: '끝', parallel: true, children: [{ title: 'ㄱ' }, { title: 'ㄴ' }] }] })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // The lines between cards, top to bottom: the join under the first group, then the split above the last.
   const lines = (await pane.findAll({ type: 'Svg' })).filter(l => l.props.alt === '단계 사이 연결선').map(l => l.props.source)
@@ -376,7 +419,7 @@ test('on the desktop app no line hangs off the flowchart: no split above a first
 test('the terminal drawer keeps the character flowchart', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
+  await plan($, PLAN)
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')).toHaveLength(0)
   expect(await pane.find({ type: 'Text', text: /╭─/ })).toBeDefined()
@@ -393,9 +436,9 @@ test('/flow opens the drawer and closes it again', KO, async ($, on) => {
 test('the tree hides five seconds after everything is done', KO, async ($, on) => {
   const clock = engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '짧은 일', nodes: [{ title: '하나' }] })
-  await $.tool.call({ tool: TOOL, op: 'next' })
-  await $.tool.call({ tool: TOOL, op: 'next' })
+  await plan($, { op: 'set', title: '짧은 일', nodes: [{ title: '하나' }] })
+  await plan($, { op: 'next' })
+  await plan($, { op: 'next' })
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /짧은 일/ })).toBeDefined()
   await clock.advance(6_000)
@@ -407,9 +450,9 @@ test('the tree hides five seconds after everything is done', KO, async ($, on) =
 test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  await $.tool.call({ tool: TOOL, op: 'next' })
-  await $.tool.call({ tool: TOOL, op: 'next' })
+  await plan($, PLAN)
+  await plan($, { op: 'next' })
+  await plan($, { op: 'next' })
   // The surfaces whose rows are Buttons; the desktop app's rows are Clients, tested on their own.
   for (const surface of ['terminal', 'vscode'] as const) {
     const pane = await $.ui.mount({ ...PANE, surface })
@@ -446,61 +489,47 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
 test('a resumed session gets its plan back', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
+  await plan($, PLAN)
   await start($)
-  expect(String((await $.tool.call({ tool: TOOL, op: 'show' })).result)).toContain('Plan: 로그인 기능 추가')
+  expect(await shown($)).toContain('Plan: 로그인 기능 추가')
 })
 
-test('in the drawer, 확인 완료 under a step waiting for a check finishes it and tells Claude; 논의 starts a draft', KO, async ($, on) => {
+test('in the drawer, 확인 완료 under a step waiting for a check finishes it on the board; 논의 starts a draft', KO, async ($, on) => {
   engine(on)
-  let context: readonly string[] = []
-  on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))
   let draft = ''
   on('prompt.fill', (_, e) => ((draft = e.text), { isFilled: true }))
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  await $.tool.call({ tool: TOOL, op: 'update', updates: [{ id: '1', status: 'needs_check', note: '화면 보기' }] })
+  await plan($, PLAN)
+  await plan($, { op: 'update', updates: [{ id: '1', status: 'needs_check', note: '화면 보기' }] })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await pane.press({ key: '1' })
   await pane.press({ key: 'ask' })
   expect(draft).toBe('[조사] ')
   await pane.press({ key: 'confirm' })
-  const shown = String((await $.tool.call({ tool: TOOL, op: 'show' })).result)
-  expect(shown).toContain('1 조사 - completed')
+  const board = await shown($)
+  expect(board).toContain('1 조사 - completed')
   // What to look at goes with the check.
-  expect(shown).not.toContain('화면 보기')
+  expect(board).not.toContain('화면 보기')
   expect(await pane.find({ type: 'Button', key: 'confirm' })).toBeUndefined()
-  await $.prompt.submit({ text: '계속', wait: false, origin: { kind: 'composer' } })
-  expect(context[0]).toContain('"조사" (id 1) marked completed')
-  // Told once: the request after that no longer carries it.
-  await $.prompt.submit({ text: '다음', wait: false, origin: { kind: 'composer' } })
-  expect(context[0]).not.toContain('marked completed')
 })
 
-test('each request carries the board to the model, and a detour parks the plan with a toast', KO, async ($, on) => {
+test('a detour the planner parks shows a toast, and a reload finds the shelf again', KO, async ($, on) => {
   engine(on)
-  let context: readonly string[] = []
-  on('prompt.submit', (_, e) => ((context = e.context ?? []), { text: e.text, context }))
   await start($)
-  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
-  expect(context).toEqual([NO_PLAN_NOTE])
-  await $.tool.call({ tool: TOOL, ...PLAN })
-  await $.prompt.submit({ text: '그 전에 버그 하나만', wait: false, origin: { kind: 'composer' } })
-  expect(context[0]).toContain('In hand: "로그인 기능 추가"')
-  const refused = await $.tool.call({ tool: TOOL, op: 'set', title: '버그', nodes: [{ title: '재현' }] })
-  expect(String(refused.result)).toContain('previous "park"')
-  await $.tool.call({ tool: TOOL, op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' })
+  await plan($, PLAN)
+  // An op the board refuses is left out; the board is unchanged.
+  await plan($, { op: 'set', title: '버그', nodes: [{ title: '재현' }] })
+  expect(await shown($)).toContain('Plan: 로그인 기능 추가')
+  await plan($, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' })
   expect(toasts).toContain('"로그인 기능 추가" 보관 · "버그" 시작')
-  // A new session start (a reload) finds the shelf again.
   await start($)
-  await $.prompt.submit({ text: '계속', wait: false, origin: { kind: 'composer' } })
-  expect(context[0]).toContain('Parked: "로그인 기능 추가" (0/5)')
+  expect(await shown($)).toContain('Parked: "로그인 기능 추가" (0/5 done)')
 })
 
 test('/flow demo shows canned boards above the prompt and leaves the real plan alone', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, op: 'set', title: '진짜 계획', nodes: [{ title: '첫 단계' }] })
+  await plan($, { op: 'set', title: '진짜 계획', nodes: [{ title: '첫 단계' }] })
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   const demo = (args: string) => $.command.run({ ...FLOW, args })
   expect((await demo('demo')).text).toContain('시연 1/10: 기본 진행')
@@ -514,14 +543,14 @@ test('/flow demo shows canned boards above the prompt and leaves the real plan a
   await band.redraw()
   expect(await band.find({ type: 'Text', text: /시연/ })).toBeUndefined()
   expect(await band.find({ type: 'Text', text: /진짜 계획/ })).toBeDefined()
-  expect(String((await $.tool.call({ tool: TOOL, op: 'show' })).result)).toContain('Plan: 진짜 계획')
+  expect(await shown($)).toContain('Plan: 진짜 계획')
   await band.unmount()
 })
 
 test('the band keeps what another plugin draws above the prompt, under the tree', KO, async ($, on) => {
   engine(on)
   await start($)
-  await $.tool.call({ tool: TOOL, ...PLAN })
+  await plan($, PLAN)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
   expect(await band.find({ type: 'Text', text: 'engine' })).toBeDefined()

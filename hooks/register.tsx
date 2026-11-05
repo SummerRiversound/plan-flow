@@ -8,11 +8,12 @@ import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, SHELF, 
 import type { AxisItem, CardItem, CardStep } from './cards'
 import type { CardHead } from './cards'
 import { cardButtons, cardsOf, headOf, isDone } from './cards'
-import { GUARDED, REMINDER, decide, denyReason, idleWatch, longStepNote, onPlanWritten, onStepPlanWritten, onTurnStart, watchStep } from './gate'
 import type { Plan, PlanNode } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, isFinished, progress, runningLeaves } from './plan'
 import type { PlanOp } from './plan-tool'
-import { TOOL_DESCRIPTION, TOOL_NAME, TOOL_SCHEMA, boardNote, instruction, parseOp, runOp } from './plan-tool'
+import { runOp } from './plan-tool'
+import type { Happened } from './planner'
+import { GUARDED, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import { joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
@@ -25,7 +26,6 @@ import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
 
 const PLUGIN = 'plan-flow'
-const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
 const PANE = 'plan-flow'
 const HIDE_AFTER_MS = 5000
 const KEPT_SESSIONS = 20
@@ -33,8 +33,6 @@ const KEPT_SESSIONS = 20
 const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan())
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
 const shelfAtom = atom({ plugin: 'plan-flow', key: 'shelf' } as const, [] as Shelved[])
-const gateAtom = atom({ plugin: 'plan-flow', key: 'gate' } as const, { planned: false, denies: 0 })
-const stepAtom = atom({ plugin: 'plan-flow', key: 'step' } as const, idleWatch())
 const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open: {}, focus: null } as DrawerState)
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
 const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
@@ -680,10 +678,6 @@ async function demo($: $, arg: string | undefined): Promise<string> {
   return t().demo.at(to.scenario + 1, scenarios().length, s?.title ?? '', demoFrame(to)?.label ?? '', demoList())
 }
 
-// What the person changed on the board from the drawer, told to Claude with the next request.
-// shortcut: a module variable, lost on a reload of the mod; move to $.state if that bites.
-let byPerson: string[] = []
-
 // A press in the drawer: a Button's, or a row a desktop draws as a Client.
 async function pressDrawer($: $, id: string): Promise<void> {
   const at = await read($, demoAtom)
@@ -693,7 +687,6 @@ async function pressDrawer($: $, id: string): Promise<void> {
   const picked = plan.nodes.find(n => n.id === pick)
   if (id === CONFIRM && picked !== undefined) {
     if (frame !== undefined) return $.ui.toast(t().demo.untouched)
-    byPerson.push(`"${picked.title}" (id ${picked.id}) marked completed: the person checked it.`)
     await apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] })
     await update($, drawerAtom, d => ({ ...d, pick: undefined }))
     return
@@ -719,7 +712,7 @@ async function pressDrawer($: $, id: string): Promise<void> {
   )
 }
 
-// Runs one op on the board, from the plan tool or a press in the drawer, and redraws.
+// Runs one op on the board, from the side planner or a press in the drawer, and redraws.
 async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: string }> {
   const before = await read($, planAtom)
   const shelf = await read($, shelfAtom)
@@ -730,8 +723,6 @@ async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: stri
   if (ran.board.plan !== before || ran.board.shelf !== shelf) {
     const plan = ran.board.plan
     await update($, planAtom, () => plan)
-    await update($, gateAtom, onPlanWritten)
-    await update($, stepAtom, onStepPlanWritten)
     if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
     await save($, plan, ran.board.shelf)
     await tick($, true)
@@ -773,15 +764,70 @@ async function resolveLanguage($: $, option: unknown): Promise<void> {
   setLanguage(pickLanguage(option, setting, locale))
 }
 
+// The side planner's queue. shortcut: module variables, lost on a reload of the mod (the board itself
+// is kept); move them to $.state if a reload mid-turn drops too much.
+const PLANNER_MODEL = 'haiku'
+// State-changing calls in a turn before the planner looks again, so the board moves while Claude works.
+const PLAN_EVERY = 6
+let fresh: Happened[] = []
+let request = ''
+let calls = 0
+let busy: Promise<void> | null = null
+let queued = false
+let again = false
+
+// Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
+export const plannerIdle = async (): Promise<void> => {
+  while (busy !== null) await busy
+}
+
+// One look: the board and what happened since the last, to the planner, then its ops on the board.
+async function planOnce($: $): Promise<void> {
+  const take = fresh
+  fresh = []
+  calls = 0
+  if (take.length === 0) return
+  const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
+  const head: Happened[] = request === '' || take.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
+  const r = await $.model
+    .complete({ model: PLANNER_MODEL, system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...take]), maxTokens: 4000, timeoutMs: 60_000 })
+    .catch(() => undefined)
+  if (r === undefined || !r.isAnswered) {
+    // Kept for the next look, so a failed call loses nothing.
+    fresh = [...take, ...fresh]
+    return
+  }
+  $.ui.log(`planner: ${r.text}`, { to: 'debug' })
+  for (const op of parseOps(r.text)) await apply($, op)
+}
+
+// Asks for a look outside the hook that noticed something, one at a time; a look asked for while
+// one runs follows it.
+function planSoon($: $): void {
+  if (busy !== null) {
+    again = true
+    return
+  }
+  if (queued) return
+  queued = true
+  $.clock.after(0, () => {
+    queued = false
+    busy = (async () => {
+      do {
+        again = false
+        await planOnce($).catch(() => undefined)
+      } while (again)
+    })().finally(() => {
+      busy = null
+    })
+  })
+}
+
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
-  const enforce = options.enforce === true
-  let offered = false
 
   on('session.start', async ($, e, next) => {
     await resolveLanguage($, options.language)
-    await $.tool.register({ name: TOOL_NAME, description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA, isDeferred: false })
-    offered = true
     await $.command.register({ name: 'flow', description: t().command, immediate: true })
     const saved = ((await $.store.get('plans')) ?? {}) as Saved
     const mine = saved[await $.session.id()]
@@ -789,7 +835,6 @@ export const register: Register = (on, options) => {
     await update($, planAtom, () => plan)
     await update($, shelfAtom, () => mine?.shelf ?? [])
     await update($, activityAtom, () => idleActivity())
-    await update($, gateAtom, () => onTurnStart(plan))
     // A reload runs this again: forget what the older copy saw, then look afresh without holding the start.
     await update($, newerAtom, () => null)
     void checkVersion($).catch(() => undefined)
@@ -797,60 +842,31 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('prompt.compose', async ($, e, next) => {
-    const composed = await next(e)
-    if (e.traits.includes('bare') || !e.tools.includes(TOOL)) return composed
-
-    return { sections: [...composed.sections, { id: `${PLUGIN}:plan`, text: instruction(TOOL), scope: 'session' as const }] }
-  })
-
-  // Each request the person sends: last request's marks go, and the model gets the board.
+  // Each request the person sends: last request's marks go, and the planner hears it. Nothing is added to the request.
   on('prompt.submit', async ($, e, next) => {
-    if (e.command !== undefined || e.isMeta === true || !offered) return next(e)
+    if (e.command !== undefined || e.isMeta === true) return next(e)
     const plan = await read($, planAtom)
     if (plan.marks !== undefined) await update($, planAtom, clearMarks)
-    const note = boardNote({ plan, shelf: await read($, shelfAtom) }, byPerson)
-    byPerson = []
+    request = e.text
+    fresh = remember(fresh, { kind: 'request', text: e.text })
+    planSoon($)
 
-    return next({ ...e, context: [...(e.context ?? []), note] })
+    return next(e)
   })
 
-  // The plan tool itself.
-  on('tool.call', { tool: 'mcp__plan-flow__plan' }, async ($, e) => {
-    if (e.agentId !== undefined) return { deny: 'The plan belongs to the main conversation; a subagent does not change it.' }
-    const { tool: _tool, tool_use_id: _id, agentId: _agent, requestMeta: _meta, ...input } = e as Record<string, unknown>
-    const parsed = parseOp(input)
-    if ('error' in parsed) return { result: parsed.error }
-    const ran = await apply($, parsed.op)
-
-    return { result: 'error' in ran ? ran.error : ran.text }
-  })
-
-  // Every other tool: the optional gate, then the activity line.
+  // Every tool call: the activity line, and a line for the planner; what Claude gets back is untouched.
   on('tool.call', async ($, e, next) => {
-    if (e.tool === TOOL) return next(e)
-    const verdict = decide({ tool: e.tool, agentId: e.agentId, enforce, toolOffered: offered, gate: await read($, gateAtom) })
-    if (verdict.verdict === 'deny' || verdict.verdict === 'pause') await update($, gateAtom, () => verdict.gate)
-    if (verdict.verdict === 'deny') return { deny: denyReason(TOOL) }
-    if (verdict.verdict === 'pause') $.ui.toast(t().pause)
     if (e.agentId !== undefined) return next(e)
     const question = e.tool === 'AskUserQuestion'
     await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool })
     try {
       const out = await next(e)
-      // Only a call that changed something counts: a read-only `ls` neither uses up the reminder nor adds to a step.
       if (out.deny !== undefined || out.isReadOnly === true || !GUARDED.has(e.tool)) return out
-      if (verdict.verdict === 'remind') {
-        await update($, gateAtom, () => verdict.gate)
-        return { ...out, context: [...(out.context ?? []), REMINDER] }
-      }
-      // The step Claude is on: the running one, else the one up next when Claude has not marked it.
-      const run = currentLeaf(await read($, planAtom)) ?? undefined
-      const watched = watchStep(await read($, stepAtom), run?.id ?? null)
-      await update($, stepAtom, () => watched.watch)
-      if (!watched.nudge || run === undefined) return out
+      fresh = remember(fresh, { kind: 'tool', text: toolLine(e.tool, e as unknown as Record<string, unknown>) })
+      calls++
+      if (calls >= PLAN_EVERY) planSoon($)
 
-      return { ...out, context: [...(out.context ?? []), longStepNote(run.id, run.title)] }
+      return out
     } finally {
       await act($, question ? { type: 'questionClose' } : { type: 'toolEnd', id: e.tool_use_id })
       await act($, { type: 'permissionEnd' })
@@ -867,8 +883,6 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
-      const plan = await read($, planAtom)
-      await update($, gateAtom, () => onTurnStart(plan))
       await act($, { type: 'turnStart' })
       await tick($, true)
     }
@@ -880,6 +894,8 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       await act($, { type: 'turnEnd', reason: e.reason })
       await tick($, false)
+      fresh = remember(fresh, { kind: 'answer', text: e.answer })
+      planSoon($)
       void checkVersion($).catch(() => undefined)
     }
 

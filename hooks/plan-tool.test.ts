@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { DETOUR_HINT, FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, NO_PLAN_NOTE, missingDetail, routineHint, boardNote, describePlan, instruction, parseOp, runOp, TOOL_DESCRIPTION, TOOL_SCHEMA } from './plan-tool'
+import { DETOUR_HINT, FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, missingDetail, routineHint, describePlan, parseOp, runOp, TOOL_DESCRIPTION } from './plan-tool'
+import { PLANNER_SYSTEM } from './planner'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -31,10 +32,9 @@ const error = (plan: Plan, raw: unknown): string => {
 
 const SET = { op: 'set', title: '로그인 기능 추가', nodes: [{ title: '조사' }, { title: '로그인 동작', children: [{ title: '화면' }, { title: 'API' }] }] }
 
-test('every op is offered in the schema, next among them', () => {
-  const op = (TOOL_SCHEMA.properties as Record<string, { enum?: string[] }>).op
-  expect(op?.enum).toEqual(['set', 'next', 'update', 'add', 'remove', 'move', 'resume', 'cancel', 'show'])
-  expect(TOOL_DESCRIPTION).toContain('"next"')
+test('every op the board runs is described for the planner', () => {
+  for (const op of ['set', 'next', 'update', 'add', 'remove', 'move', 'resume', 'cancel']) expect(TOOL_DESCRIPTION).toContain(`op "${op}"`)
+  expect(PLANNER_SYSTEM).toContain(TOOL_DESCRIPTION)
 })
 
 test('set answers the plan with ids, statuses and the done count', () => {
@@ -51,7 +51,6 @@ test('the goal is set with the plan, kept when the plan is resent, rewritten or 
   expect(plan.goal).toBe('아이디로 로그인되게 하기')
   plan = apply(plan, { op: 'update', goal: '로그인과 회원가입까지 열기' }).plan
   expect(plan.goal).toBe('로그인과 회원가입까지 열기')
-  expect(boardNote({ plan, shelf: [] })).toContain('In hand: "로그인 기능 추가", goal "로그인과 회원가입까지 열기" (0/3 done')
   expect(apply(plan, { op: 'update', goal: '' }).plan.goal).toBeUndefined()
   expect(error(plan, { op: 'update', goal: 3 })).toMatch(/goal must be text/)
   expect(error(plan, { op: 'update', goal: 'ㄱ'.repeat(161) })).toMatch(/goal is longer than 160/)
@@ -107,13 +106,10 @@ test('the answer stays under 4000 characters for the largest plan', () => {
   expect(text).toContain('more steps not shown')
 })
 
-test('the instruction names the tool, next, short titles and leaving the drawing alone', () => {
-  const t = instruction('mcp__plan-flow__plan')
-  expect(t).toContain('mcp__plan-flow__plan')
-  expect(t).toContain('"next"')
-  expect(t).toContain('4 words')
-  expect(t).toContain("user's language")
-  expect(t).toMatch(/never describe/i)
+test('the planner is told to keep titles short, in the language the person writes in, and to answer with ops alone', () => {
+  expect(PLANNER_SYSTEM).toContain('4 words')
+  expect(PLANNER_SYSTEM).toContain('language the person writes in')
+  expect(PLANNER_SYSTEM).toMatch(/only a JSON array/)
 })
 
 test('describePlan of an empty plan tells how to start one', () => {
@@ -137,25 +133,11 @@ test('move, resume and previous are read and checked', () => {
   expect('error' in bad && bad.error).toContain('"park" or "cancel"')
 })
 
-test('each request carries a short note on where the board stands; the cases to sort a request into live in the system prompt once', () => {
-  const board = run({ plan: emptyPlan(), shelf: [] }, SET).board
-  const note = boardNote(board) ?? ''
-  expect(note).toContain('In hand: "로그인 기능 추가" (0/3 done, in hand: 조사 (id 1))')
-  for (const op of ['"add"', '"pending"', 'previous "park"', 'previous "cancel"', 'fresh session', '"resume"']) expect(instruction('plan')).toContain(op)
-  // The note neither holds the work back for the board nor sends Claude to ask first.
-  expect(note.length).toBeLessThan(500)
-  expect(note).not.toMatch(/ask the person|change the board first/i)
-  expect(instruction('plan')).not.toMatch(/ask the person before|before acting/i)
-  const parked = run(board, { op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'park' }).board
-  expect(boardNote(parked)).toContain('Parked: "로그인 기능 추가" (0/3)')
-})
-
-test('the note lists the stages with their ids and status, and sends continuing work under the stage it continues', () => {
+test('the planner is told to put continuing work under the stage it continues and to park a detour', () => {
   const board = run(run(run({ plan: emptyPlan(), shelf: [] }, SET).board, { op: 'next' }).board, { op: 'next' }).board
-  const note = boardNote(board)
-  expect(note).toContain('Stages: 1 조사 (completed), 2 로그인 동작 (in_progress).')
-  expect(instruction('plan')).toContain('under the stage it continues')
-  expect(instruction('plan')).toContain('a new top-level stage only for a new part of the outcome')
+  expect(board.plan.nodes.find(n => n.id === '2')?.status).toBe('in_progress')
+  expect(PLANNER_SYSTEM).toContain('under the stage it continues')
+  expect(PLANNER_SYSTEM).toContain('previous "park"')
 })
 
 test('a goal rewritten a second time suggests a new plan; the first rewrite, a resend and a clear do not', () => {
@@ -176,7 +158,6 @@ test('work added to a finished plan suggests a new plan once, while the plan sti
   const added = apply(plan, { op: 'add', nodes: [{ title: '후속', detail: 'd' }] })
   expect(added.text).toContain(FINISHED_ADD_HINT)
   expect(apply(added.plan, { op: 'add', nodes: [{ title: '하나 더', detail: 'd' }] }).text).not.toContain(FINISHED_ADD_HINT)
-  expect(instruction('plan')).toContain('a new outcome: op "set" with a new title')
 })
 
 test('a new top-level stage on a plan with open work asks whether it is a detour to park; a step under a stage does not', () => {
@@ -201,7 +182,7 @@ test('steps carry a one-line detail, set with the step or by update, and an empt
   expect(changed.nodes[0]?.detail).toBe('다른 설명')
   expect(apply(changed, { op: 'update', updates: [{ id: '1', detail: '' }] }).plan.nodes[0]?.detail).toBeUndefined()
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', detail: 3 }] })).toMatch(/^Error: .*detail must be text/)
-  expect(instruction('t')).toContain('detail')
+  expect(PLANNER_SYSTEM).toContain('detail')
 })
 
 test('steps carry links: set with the step, added by update without repeats, cleared by an empty list', () => {
@@ -213,7 +194,7 @@ test('steps carry links: set with the step, added by update without repeats, cle
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: 'x' }] })).toMatch(/links must be a list of text/)
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['a b'] }] })).toMatch(/a link has no spaces/)
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['1', '2', '3', '4', '5', '6'] }] })).toMatch(/at most 5 links/)
-  expect(instruction('t')).toContain('"links"')
+  expect(PLANNER_SYSTEM).toContain('"links"')
 })
 
 test('the op that finishes the last step carries the summary; it is refused while steps are open and goes when one reopens', () => {
@@ -244,18 +225,11 @@ test('a flat list of five or more steps is answered with a hint to group them un
   const done = apply(apply(flat.plan, { op: 'next' }).plan, { op: 'next' }).plan
   const regrouped = apply(done, { op: 'set', title: '정리', nodes: [{ title: '준비', children: [{ title: '가' }, { title: '나' }] }, { title: '작업', children: [{ title: '다' }, { title: '라' }, { title: '마' }] }] })
   expect(regrouped.plan.nodes.find(n => n.title === '가')?.status).toBe('completed')
-  expect(instruction('plan')).toContain('2 to 5 stages')
+  expect(PLANNER_SYSTEM).toContain('2 to 5 stages')
 })
 
-test('a request with no plan on the board is reminded to set one before working, and that a question needs none', () => {
-  expect(boardNote({ plan: emptyPlan(), shelf: [] })).toBe(NO_PLAN_NOTE)
-  expect(NO_PLAN_NOTE).toContain('op "set"')
-  expect(NO_PLAN_NOTE).toMatch(/question/)
-  expect(NO_PLAN_NOTE.split('\n')).toHaveLength(1)
-})
-
-test('the instruction keeps stages to parts of the outcome: no stage named for the routine, the routine inside a stage, no lump, no stage holding a single task', () => {
-  const t = instruction('plan')
+test('the planner rules keep stages to parts of the outcome: no stage named for the routine, the routine inside a stage, no lump, no stage holding a single task', () => {
+  const t = PLANNER_SYSTEM
   expect(t).toMatch(/not phases/)
   expect(t).toMatch(/fit any other task unchanged/)
   expect(t).toMatch(/goes inside the stage it serves/)
@@ -270,8 +244,8 @@ test('steps set or added without a detail are named back, so Claude fills them i
   expect(full.text).not.toContain('no detail')
 })
 
-test('the instruction keeps steps at the level of following the work, not the code', () => {
-  const t = instruction('plan')
+test('the planner rules keep steps at the level of following the work, not the code', () => {
+  const t = PLANNER_SYSTEM
   expect(t).toMatch(/not the edits/)
   expect(t).toMatch(/no file names, code or commands/)
 })

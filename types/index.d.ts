@@ -120,6 +120,8 @@ declare module 'claude-code' {
       pane: boolean
       // The band folded to its title and progress lines.
       fold: boolean
+      // A newer plan-flow installed beside this one, or out in its repository; null when this one is the newest.
+      newer: { kind: 'installed' | 'released'; version: string } | null
     }
   }
 }

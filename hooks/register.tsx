@@ -17,6 +17,8 @@ import type { Line } from './tree'
 import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, fitLine } from './tree'
 import { cells } from './width'
 import { pickLanguage, setLanguage, t } from './i18n'
+import type { Newer, ReleaseCheck } from './version'
+import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
 
 const PLUGIN = 'plan-flow'
 const TOOL = `mcp__${PLUGIN}__${TOOL_NAME}`
@@ -33,6 +35,7 @@ const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
 const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
 const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const foldAtom = atom({ plugin: 'plan-flow', key: 'fold' } as const, false)
+const newerAtom = atom({ plugin: 'plan-flow', key: 'newer' } as const, null as Newer | null)
 
 type $ = EngineInterface
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
@@ -185,6 +188,27 @@ async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: stri
   return { text: ran.text }
 }
 
+// Whether a newer plan-flow is installed beside this one or out in its repository. The repository
+// is asked at most once a day, never while nonessential traffic is off; any failure leaves the band as it is.
+async function checkVersion($: $): Promise<void> {
+  const here = runningVersion($.plugin.root)
+  if (here === null) return
+  const installed = (await $.fs.list(here.parent).catch(() => [])).filter(f => f.kind === 'dir').map(f => f.name)
+  const now = await $.clock.now()
+  let last = (await $.store.get('release').catch(() => undefined)) as ReleaseCheck | undefined
+  if (staleRelease(last, now) && !(await $.env.get('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC').catch(() => undefined))) {
+    const manifest = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`).catch(() => '{}')) as { repository?: string }
+    const url = manifestUrl(manifest.repository)
+    const res = url === undefined ? undefined : await $.http.fetch(url).catch(() => undefined)
+    const version = res?.ok === true ? (JSON.parse(res.text) as { version?: unknown }).version : undefined
+    last = { checkedAt: now, version: typeof version === 'string' ? version : last?.version }
+    await $.store.set('release', last)
+  }
+  const newer = newerVersion(here.version, installed, last?.version)
+  const before = await read($, newerAtom)
+  if (newer?.kind !== before?.kind || newer?.version !== before?.version) await update($, newerAtom, () => newer)
+}
+
 // The language the mod speaks: its option, else Claude Code's language setting, else the locale.
 async function resolveLanguage($: $, option: unknown): Promise<void> {
   // A policy can refuse a read; the language then falls through to the next source.
@@ -211,6 +235,9 @@ export const register: Register = (on, options) => {
     await update($, shelfAtom, () => mine?.shelf ?? [])
     await update($, activityAtom, () => idleActivity())
     await update($, gateAtom, () => onTurnStart(plan))
+    // A reload runs this again: forget what the older copy saw, then look afresh without holding the start.
+    await update($, newerAtom, () => null)
+    void checkVersion($).catch(() => undefined)
 
     return next(e)
   })
@@ -290,6 +317,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       await act($, { type: 'turnEnd', reason: e.reason })
       await tick($, false)
+      void checkVersion($).catch(() => undefined)
     }
 
     return next(e)
@@ -346,6 +374,7 @@ export const register: Register = (on, options) => {
       open: t().bandOpen,
       folded: frame?.folded ?? (await read($, foldAtom)),
       parked: (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length,
+      notice: frame === undefined ? await read($, newerAtom).then(n => (n === null ? undefined : t().newer(n))) : undefined,
     })
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)

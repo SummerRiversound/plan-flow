@@ -181,7 +181,7 @@ export const checkLine = (plan: Plan, width: number, lead = ''): Line | null => 
 }
 
 // The title, progress bar, steps to check and what Claude is doing; the band's top and the drawer's pinned head.
-export const planHead = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean): Line[] => {
+export const planHead = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean, notice?: string): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -195,13 +195,19 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
   const bar = Math.max(0, Math.min(24, width - cells(label)))
   const title: Line = [{ text: plan.title, bold: true, color: 'text' }]
   // Buttons flush right on the title line: fold, then open the drawer; the open button goes first when room runs short.
-  const all = [
+  const all: Array<{ text: string; id?: string }> = [
     ...(folded === undefined ? [] : [{ text: folded ? t().unfold : t().fold, id: FOLD_BUTTON }]),
     ...(open === undefined ? [] : [{ text: open, id: OPEN_BUTTON }]),
   ]
-  const room = (bs: typeof all) => bs.reduce((n, b) => n + cells(b.text) + 2, 0) + 10 <= width
-  const buttons = room(all) ? all : room(all.slice(0, 1)) ? all.slice(0, 1) : []
-  const right: Line = buttons.flatMap((b, i) => [...(i === 0 ? [] : [{ text: '  ' }]), { text: b.text, color: 'text', bold: true, button: b.id }])
+  // A newer plan-flow goes before the buttons and keeps its place over the fold button; the title keeps ten cells.
+  const tag: Array<{ text: string; id?: string }> = notice === undefined ? [] : [{ text: notice }]
+  const room = (bs: ReadonlyArray<{ text: string }>) => bs.reduce((n, b) => n + cells(b.text) + 2, 0) + 10 <= width
+  const picks = [[...tag, ...all], [...tag, ...all.slice(0, 1)], all, all.slice(0, 1)]
+  const chosen = picks.find(room) ?? []
+  const right: Line = chosen.flatMap((b, i) => [
+    ...(i === 0 ? [] : [{ text: '  ' }]),
+    b.id === undefined ? { text: b.text, color: 'text' } : { text: b.text, color: 'text', bold: true, button: b.id },
+  ])
   const lines: Line[] = [
     right.length === 0
       ? fitLine(title, width)
@@ -232,10 +238,11 @@ export const FOLD_BUTTON = 'fold-band'
 
 // `open` labels a button on the title line that opens the drawer; `parked` counts the plans set aside.
 // `folded` shows the fold button, and when true draws only the title and progress lines.
-export type TreeOptions = { maxRows: number; width: number; now: number; open?: string; parked?: number; folded?: boolean }
-export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded }: TreeOptions): Line[] => {
+// `notice` says a newer plan-flow is installed or out, on the title line.
+export type TreeOptions = { maxRows: number; width: number; now: number; open?: string; parked?: number; folded?: boolean; notice?: string }
+export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice }: TreeOptions): Line[] => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
-  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded)
+  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice)
   if (folded === true) return top.slice(0, 2)
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>

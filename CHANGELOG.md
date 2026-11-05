@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.5 — 2026-11-05
+
+### Added
+
+- The band's title line says when a newer plan-flow is ready: `↑ 0.1.6 installed · /reload-plugins` when a newer copy sits beside this one, or `↑ 0.1.6 is out · update in /plugin` when the repository has one. The repository is read at most once a day, and not at all when `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set.
+
 ## 0.1.4 — 2026-11-05
 
 ### Changed

@@ -2,6 +2,8 @@
 // table must hold the same keys, which the type checks. The language is set once per
 // session (`setLanguage`); drawing reads it through `t()`.
 
+import type { Newer } from './version'
+
 export const LANGUAGES = ['en', 'ko'] as const
 export type Language = (typeof LANGUAGES)[number]
 
@@ -38,6 +40,7 @@ const en = {
   opened: 'Opened the flowchart',
   openedLater: 'Opened the flowchart; it shows once the window is wide enough',
   bandOpen: 'Flowchart ▸',
+  newer: (n: Newer) => (n.kind === 'installed' ? `↑ ${n.version} installed · /reload-plugins` : `↑ ${n.version} is out · update in /plugin`),
   demo: {
     unknown: (list: string) => `No such demo. You can pick:\n${list}`,
     ended: 'Demo ended',
@@ -111,6 +114,7 @@ const ko: Strings = {
   opened: '흐름도를 열었어요',
   openedLater: '흐름도를 열었어요. 화면이 넓어지면 보여요',
   bandOpen: '흐름도 보기 ▸',
+  newer: n => (n.kind === 'installed' ? `↑ ${n.version} 설치됨 · /reload-plugins` : `↑ ${n.version} 나옴 · /plugin에서 업데이트`),
   demo: {
     unknown: list => `그런 시연이 없어요. 고를 수 있는 것:\n${list}`,
     ended: '시연을 끝냈어요',

@@ -5,7 +5,7 @@ import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { FOLD_BUTTON, FRAME_MS, drawTree, lineText } from './tree'
 import { cells } from './width'
-import { setLanguage } from './i18n'
+import { setLanguage, t } from './i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
@@ -167,4 +167,22 @@ test('the progress bar is one heavy line to half a cell, done in green over a di
   expect(lineText(bar)).toBe(`━━━╸${'━'.repeat(20)}`)
   expect(bar.slice(0, 2)).toEqual([{ text: '━━━', color: 'success' }, { text: '╸', color: 'success' }])
   expect(bar[2]).toMatchObject({ color: 'inactive', dim: true })
+})
+
+test('a newer plan-flow shows on the title line before the buttons, stays when folded, and gives way to the title when the band is narrow', () => {
+  const notice = t().newer({ kind: 'installed', version: '0.1.5' })
+  const wide = drawTree(sample(), working, { maxRows: 12, width: 80, now: 0, folded: false, notice })
+  expect(lineText(wide[0] ?? [])).toMatch(new RegExp(`^로그인 기능 추가 +${notice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}  접기 ▴$`))
+  expect(lineText(drawTree(sample(), working, { maxRows: 12, width: 80, now: 0, folded: true, notice })[0] ?? [])).toContain(notice)
+  const narrow = drawTree(sample(), working, { maxRows: 12, width: 30, now: 0, folded: false, notice })
+  expect(lineText(narrow[0] ?? [])).not.toContain('0.1.5')
+  expect(cells(lineText(narrow[0] ?? []))).toBeLessThanOrEqual(30)
+})
+
+test('the notice says what to run: a reload for an installed update, an update for a release', () => {
+  expect(t().newer({ kind: 'installed', version: '0.1.5' })).toContain('/reload-plugins')
+  expect(t().newer({ kind: 'released', version: '0.1.5' })).toContain('/plugin')
+  setLanguage('en')
+  expect(t().newer({ kind: 'installed', version: '0.1.5' })).toContain('/reload-plugins')
+  setLanguage('ko')
 })

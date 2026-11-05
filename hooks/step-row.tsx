@@ -15,6 +15,8 @@ export type StepRowProps = {
   strike: boolean
   redo: boolean
   pill: string | null
+  // Muted text right after the title, such as the band's fold arrow.
+  after: string | null
   right: { text: string; color: string } | null
   // The row's fill under the pointer.
   hover: string
@@ -42,6 +44,7 @@ const StepRow: ClientModule<StepRowProps, { over: boolean }> = (p, surface) => {
         {p.mark === null ? null : <Text color={p.mark.color}>{p.mark.text} </Text>}
         {p.title}
         {p.redo ? ' ↺' : ''}
+        {p.after === null ? null : <Text color="inactive"> {p.after}</Text>}
       </Text>
       {p.pill === null ? null : (
         // A tint, not a border: the app pads a bordered box itself, which would make the pill taller than the row.

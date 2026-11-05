@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.22 — 2026-11-05
+
+### Fixed
+
+- In the desktop drawer, opening a step in one of two side-by-side cards no longer stretches the other into an empty box.
+
 ## 0.1.21 — 2026-11-05
 
 ### Changed

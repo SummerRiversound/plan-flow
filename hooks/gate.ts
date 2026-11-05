@@ -40,3 +40,26 @@ export const denyReason = (tool: string): string =>
   `plan-flow wants a plan before edits and commands. Send one first: ${tool} {"op":"set","title":"<what you are doing>","nodes":[{"title":"<first stage>"}]}. ` +
   `(${tool} may need loading through ToolSearch: "select:${tool}".)`
 
+// A step that keeps changing things with the plan untouched may hold several parts the
+// person would check one by one; after LONG_STEP changes Claude hears so, once per step.
+export type StepWatch = { id: string | null; changes: number; nudged: boolean }
+
+export const LONG_STEP = 8
+
+export const idleWatch = (): StepWatch => ({ id: null, changes: 0, nudged: false })
+
+// One state-changing call while `running` is the step Claude is on (null: none).
+export const watchStep = (w: StepWatch, running: string | null): { watch: StepWatch; nudge: boolean } => {
+  if (running === null) return { watch: idleWatch(), nudge: false }
+  const base = w.id === running ? w : { id: running, changes: 0, nudged: false }
+  const changes = base.changes + 1
+  const nudge = changes >= LONG_STEP && !base.nudged
+
+  return { watch: { id: running, changes, nudged: base.nudged || nudge }, nudge }
+}
+
+// A plan write counts as Claude looking at the board again; the step keeps its one note.
+export const onStepPlanWritten = (w: StepWatch): StepWatch => ({ ...w, changes: 0 })
+
+export const longStepNote = (id: string, title: string): string =>
+  `plan-flow: step ${id} "${title}" has run through ${LONG_STEP} changes with the plan unchanged. If it holds parts the person checks one by one (each draft, screen or file they open), add them under it with op "add" (parent "${id}") and mark the finished ones completed; if it is one piece of work, carry on.`

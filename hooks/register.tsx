@@ -5,7 +5,7 @@ import type { DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
 import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, VIEW, drawerPage, drawerView, foldAll, pickStep, toggleFold } from './drawer'
-import { REMINDER, decide, denyReason, onPlanWritten, onTurnStart } from './gate'
+import { GUARDED, REMINDER, decide, denyReason, idleWatch, longStepNote, onPlanWritten, onStepPlanWritten, onTurnStart, watchStep } from './gate'
 import type { Plan } from './plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, runningLeaves } from './plan'
 import type { PlanOp } from './plan-tool'
@@ -30,6 +30,7 @@ const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan()
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
 const shelfAtom = atom({ plugin: 'plan-flow', key: 'shelf' } as const, [] as Shelved[])
 const gateAtom = atom({ plugin: 'plan-flow', key: 'gate' } as const, { planned: false, denies: 0 })
+const stepAtom = atom({ plugin: 'plan-flow', key: 'step' } as const, idleWatch())
 const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open: {}, focus: null } as DrawerState)
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
 const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
@@ -179,6 +180,7 @@ async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: stri
     const plan = ran.board.plan
     await update($, planAtom, () => plan)
     await update($, gateAtom, onPlanWritten)
+    await update($, stepAtom, onStepPlanWritten)
     if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
     await save($, plan, ran.board.shelf)
     await tick($, true)
@@ -285,11 +287,19 @@ export const register: Register = (on, options) => {
     await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool })
     try {
       const out = await next(e)
-      // The reminder waits for a call that changed something: a read-only `ls` does not use it up.
-      if (verdict.verdict !== 'remind' || out.deny !== undefined || out.isReadOnly === true) return out
-      await update($, gateAtom, () => verdict.gate)
+      // Only a call that changed something counts: a read-only `ls` neither uses up the reminder nor adds to a step.
+      if (out.deny !== undefined || out.isReadOnly === true || !GUARDED.has(e.tool)) return out
+      if (verdict.verdict === 'remind') {
+        await update($, gateAtom, () => verdict.gate)
+        return { ...out, context: [...(out.context ?? []), REMINDER] }
+      }
+      // The step Claude is on: the running one, else the one up next when Claude has not marked it.
+      const run = currentLeaf(await read($, planAtom)) ?? undefined
+      const watched = watchStep(await read($, stepAtom), run?.id ?? null)
+      await update($, stepAtom, () => watched.watch)
+      if (!watched.nudge || run === undefined) return out
 
-      return { ...out, context: [...(out.context ?? []), REMINDER] }
+      return { ...out, context: [...(out.context ?? []), longStepNote(run.id, run.title)] }
     } finally {
       await act($, question ? { type: 'questionClose' } : { type: 'toolEnd', id: e.tool_use_id })
       await act($, { type: 'permissionEnd' })

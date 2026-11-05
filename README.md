@@ -57,8 +57,8 @@ Set them on the install screen, or later in `/config`.
 The mod writes no files, and its one network call is the version check below. It adds one tool Claude calls, `plan`, and works only through Claude Code's own hooks.
 
 - **Keeps** the board of your 20 most recent sessions in Claude Code's storage for this mod, so a session that resumes finds its plan again. A board holds the step titles, details, notes and links Claude wrote.
-- **Adds to what Claude reads**: a short instruction on using the board, and a note on each of your messages saying where the plan stands, or that there is none yet. When Claude first changes something in a turn with no plan, one line after that tool's result reminds it to set one.
-- **Watches tool calls** to show what Claude is doing (for example `Running Edit`) and for that reminder. With `enforce` on, it refuses the tools listed above until there is a plan.
+- **Adds to what Claude reads**: a short instruction on using the board, and a note on each of your messages saying where the plan stands, or that there is none yet. When Claude first changes something in a turn with no plan, one line after that tool's result reminds it to set one. When one step has gone through 8 changes with the plan unchanged, one line asks Claude, once for that step, to split it if it holds parts you would check one by one.
+- **Watches tool calls** to show what Claude is doing (for example `Running Edit`) and for those lines. With `enforce` on, it refuses the tools listed above until there is a plan.
 - **Reads** Claude Code's `language` setting and the `LC_ALL`, `LC_MESSAGES` and `LANG` environment variables, only when `language` is `auto`.
 - **Checks for a newer version**: it lists the folder its installed copy sits in, and once a day reads `.claude-plugin/plugin.json` from this repository on raw.githubusercontent.com. When a newer copy is installed or released, the band's title line says so. Setting `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` skips the network read.
 - **Fills your prompt box** only when you press `Discuss` on a step; nothing is sent until you send it.

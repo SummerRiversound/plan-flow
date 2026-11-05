@@ -191,9 +191,12 @@ test('a request with no plan on the board is reminded to set one before working,
   expect(NO_PLAN_NOTE.split('\n')).toHaveLength(1)
 })
 
-test('the instruction keeps stages to parts of the outcome, with no setup or wrap-up stage and no stage holding a single task', () => {
+test('the instruction keeps stages to parts of the outcome: no stage named for the routine, the routine inside a stage, no lump, no stage holding a single task', () => {
   const t = instruction('plan')
   expect(t).toMatch(/not phases/)
+  expect(t).toMatch(/fit any other task unchanged/)
+  expect(t).toMatch(/goes inside the stage it serves/)
+  expect(t).toMatch(/more than half/)
   expect(t).toMatch(/single task/)
 })
 

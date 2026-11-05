@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.20 — 2026-11-05
+
+### Fixed
+
+- In the desktop drawer, a plan that starts or ends with stages side by side no longer draws a line hanging above or below them.
+
 ## 0.1.19 — 2026-11-05
 
 ### Changed

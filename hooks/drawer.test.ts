@@ -391,3 +391,11 @@ test('a drawer too narrow for the flowchart shows the list with no way to switch
   expect(narrow.head.flat().some(s => s.button !== undefined)).toBe(false)
   expect(narrow.body.map(lineText).some(l => l.includes('창을 넓히면'))).toBe(true)
 })
+
+test('an empty drawer wraps its message to the drawer width instead of running past it', () => {
+  setLanguage('ko')
+  const body = view(emptyPlan(), closed, 30).body.map(lineText)
+  expect(body.length).toBeGreaterThan(1)
+  expect(body.every(l => cells(l) <= 30)).toBe(true)
+  expect(body.join(' ')).toContain('여러 단계가 필요한 요청을 보내면')
+})

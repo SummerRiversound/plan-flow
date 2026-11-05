@@ -11,8 +11,6 @@ const en = {
   parallel: 'parallel',
   checks: (n: number) => `◐ To check ${n}: `,
   parked: (n: number) => ` · parked ${n}`,
-  fold: 'Fold ▴',
-  unfold: 'Unfold ▾',
   more: (n: number, done: number, waiting: number) => `+${n} more · ${done} done · ${waiting} waiting`,
   activity: {
     working: 'Working',
@@ -85,8 +83,6 @@ const ko: Strings = {
   parallel: '동시에',
   checks: n => `◐ 확인할 것 ${n}: `,
   parked: n => ` · 보관 ${n}`,
-  fold: '접기 ▴',
-  unfold: '펼치기 ▾',
   more: (n, done, waiting) => `+${n}개 더 · 완료 ${done} · 대기 ${waiting}`,
   activity: {
     working: '작업 중',

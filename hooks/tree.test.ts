@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { FOLD_BUTTON, FRAME_MS, drawTree, lineText } from './tree'
+import { FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, lineText } from './tree'
 import { cells } from './width'
 import { setLanguage, t } from './i18n'
 import { BOXED } from './drawer'
@@ -143,14 +143,15 @@ test('the goal sits dim under the title in one row, and stays when the band is f
   expect(texts(sample(), working, 12, 40, false)[1]).toMatch(/\d+\/\d+ · \d+%/)
 })
 
-test('the band folds to its title and progress lines, and its button says which way it goes', () => {
-  const open = texts(sample(), working, 12, 60, false)
-  expect(open[0]).toMatch(/^로그인 기능 추가 +접기 ▴$/)
+test('the band folds and unfolds by its title, which ends in an arrow for the way it goes, with no fold button', () => {
+  const open = drawTree(sample(), working, { maxRows: 12, width: 60, now: 0, folded: false })
+  expect(lineText(open[0] ?? [])).toBe('로그인 기능 추가 ▴')
+  expect(open[0]?.every(s => s.button === FOLD_BUTTON)).toBe(true)
   const folded = drawTree(sample(), working, { maxRows: 12, width: 60, now: 0, folded: true })
   expect(folded.map(lineText)).toHaveLength(2)
-  expect(lineText(folded[0] ?? [])).toMatch(/^로그인 기능 추가 +펼치기 ▾$/)
+  expect(lineText(folded[0] ?? [])).toBe('로그인 기능 추가 ▾')
   expect(lineText(folded[1] ?? [])).toMatch(/\d+\/\d+ · \d+%/)
-  expect(folded[0]?.find(s => s.text === '펼치기 ▾')?.button).toBe(FOLD_BUTTON)
+  expect(folded[0]?.every(s => s.button === FOLD_BUTTON)).toBe(true)
 })
 
 test('steps waiting for the person to check are gathered on one line under the progress bar, and fold away with the band', () => {
@@ -185,7 +186,7 @@ test('the progress bar is one heavy line to half a cell, done in green over a di
 test('a newer plan-flow shows on the title line before the buttons, stays when folded, and gives way to the title when the band is narrow', () => {
   const notice = t().newer({ kind: 'installed', version: '0.1.5' })
   const wide = drawTree(sample(), working, { maxRows: 12, width: 80, now: 0, folded: false, notice })
-  expect(lineText(wide[0] ?? [])).toMatch(new RegExp(`^로그인 기능 추가 +${notice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}  접기 ▴$`))
+  expect(lineText(wide[0] ?? [])).toMatch(new RegExp(`^로그인 기능 추가 ▴ +${notice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
   expect(lineText(drawTree(sample(), working, { maxRows: 12, width: 80, now: 0, folded: true, notice })[0] ?? [])).toContain(notice)
   const narrow = drawTree(sample(), working, { maxRows: 12, width: 30, now: 0, folded: false, notice })
   expect(lineText(narrow[0] ?? [])).not.toContain('0.1.5')
@@ -200,14 +201,15 @@ test('the notice says what to run: a reload for an installed update, an update f
   setLanguage('ko')
 })
 
-test('the band draws its buttons framed like the drawer buttons, and its title line leaves room for the frames', () => {
+test('the band ends its title line in the flowchart button, the one framed button, with a gap that stretches and room for the frame', () => {
   setLanguage('ko')
   for (const width of [40, 60, 90]) {
     const line = drawTree(sample(), working, { maxRows: 12, width, now: 0, open: t().bandOpen, folded: false })[0] ?? []
-    const buttons = line.filter(s => s.button !== undefined)
-    expect(buttons.length).toBeGreaterThan(0)
-    expect(buttons.every(s => BOXED.has(s.button ?? ''))).toBe(true)
-    // The engine draws `[ ` and ` ]` around each framed button.
-    expect(cells(lineText(line)) + 4 * buttons.length).toBeLessThanOrEqual(width)
+    expect(line[line.length - 1]).toMatchObject({ text: t().bandOpen, button: OPEN_BUTTON })
+    expect(line.filter(s => BOXED.has(s.button ?? '')).map(s => s.button)).toEqual([OPEN_BUTTON])
+    // On a surface with native buttons the gap grows, so the button sits at the right edge there too.
+    expect(line.some(s => s.fill === true)).toBe(true)
+    // The engine draws `[ ` and ` ]` around the framed button.
+    expect(cells(lineText(line)) + 4).toBeLessThanOrEqual(width)
   }
 })

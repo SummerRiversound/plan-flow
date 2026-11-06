@@ -2,6 +2,14 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.36 — 2026-11-06
+
+### Changed
+
+- Claude designs the plan: when the planner starts a plan or changes its goal, a copy of the conversation asks Claude once, after it has taken your message, for the goal as the end you are after and the stages the whole way there. The working conversation is untouched, and the copy reads it from the session's cache.
+- The goal names the end you are after, not the steps, and stages ahead of the work stay on the board instead of being dropped.
+- The planner hears what Claude says between its calls and looks again then, so the running step follows the work sooner.
+
 ## 0.1.35 — 2026-11-06
 
 ### Fixed

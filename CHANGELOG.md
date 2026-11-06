@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.39 — 2026-11-06
+
+### Fixed
+
+- A turn that ends while background agents, workflows or shells still run no longer reads `Waiting for your answer`: the line says how many background tasks are running, in plain text, and the running step keeps its usual colour.
+
 ## 0.1.38 — 2026-11-06
 
 ### Changed

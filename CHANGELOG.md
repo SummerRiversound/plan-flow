@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.32 — 2026-11-06
+
+### Fixed
+
+- Expected work shows in the band above the prompt. It asked for three rows the band seldom had left, so it never appeared there; when rows run short it now drops its lone dotted row, then shares one row (`┆ ◌ PR 올리기 · npm 배포`).
+
 ## 0.1.31 — 2026-11-06
 
 ### Added

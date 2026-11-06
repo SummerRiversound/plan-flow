@@ -3,7 +3,7 @@ import type { Activity } from '../types'
 import { idleActivity } from './activity'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, drawTree, lineText } from './tree'
+import { FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, drawTree, lineText } from './tree'
 import { cells } from './width'
 import { setLanguage, t } from './i18n'
 import { BOXED } from './drawer'
@@ -228,5 +228,14 @@ test('work expected after the plan hangs dotted under its last row, dim, and nev
 test('the band keeps its rows for the steps: expected work shows only when the end of the plan is in view', () => {
   const steps = [...Array(12).keys()].map(i => ({ title: `단계 ${i + 1}` }))
   const p = { ...ok(nextStep(ok(setPlan(emptyPlan(), '긴 계획', steps, 0)), undefined, 1)), expected: ['리뷰 반영'] }
-  expect(drawTree(p, idleActivity(), { maxRows: 16, width: 60, now: 0 }).map(lineText).join('\n')).not.toContain('◌')
+  expect(drawTree(p, idleActivity(), { maxRows: 10, width: 60, now: 0 }).map(lineText).join('\n')).not.toContain('◌')
+})
+
+test('when the band is short, expected work drops its lone dotted row, then shares one row', () => {
+  const p = { ...ok(nextStep(ok(setPlan(emptyPlan(), '헤더 다듬기', [{ title: '헤더 적용' }, { title: '변경 올리기' }], 0)), undefined, 1)), expected: ['리뷰 반영', '릴리즈'] }
+  const rows = (budget: number) => bandRows(p, idleActivity(), budget, 60, 0).filter(r => r.kind === 'expected').map(r => lineText(r.line))
+  expect(rows(5)).toEqual(['   ┆', '   ┆ ◌ 리뷰 반영', '   ┆ ◌ 릴리즈'])
+  expect(rows(4)).toEqual(['   ┆ ◌ 리뷰 반영', '   ┆ ◌ 릴리즈'])
+  expect(rows(3)).toEqual(['   ┆ ◌ 리뷰 반영 · 릴리즈'])
+  expect(rows(2)).toEqual([])
 })

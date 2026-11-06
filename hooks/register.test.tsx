@@ -141,6 +141,15 @@ test('after a turn the side planner sets the board from the request, the calls a
   await band.unmount()
 })
 
+test('a step is always running while work is open, even when the planner only marks steps done', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await plan($, PLAN)
+  expect(await shown($)).toContain('1 조사 - in_progress')
+  await plan($, { op: 'update', updates: [{ id: '1', status: 'completed' }] })
+  expect(await shown($)).toContain('2.1 로그인 화면 - in_progress')
+})
+
 test('the planner looks again while Claude works, after six calls that change something', KO, async ($, on) => {
   on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran', isReadOnly: true }))
   engine(on)
@@ -260,7 +269,6 @@ test('on the desktop app the band is set in the app type: the title folds it, pr
   await start($)
   await plan($, PLAN)
   await plan($, { op: 'next' })
-  await plan($, { op: 'next' })
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect((await band.findAll({ type: 'Text' })).some(x => x.props.mono === true)).toBe(false)
   expect((await band.findAll({ type: 'Text' })).some(x => /[├└│]/.test(String(x.props.children)))).toBe(false)
@@ -333,7 +341,6 @@ test('on the desktop app the drawer draws each stage as a rounded card joined by
   engine(on)
   await start($)
   await plan($, PLAN)
-  await plan($, { op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const cards = async () => (await pane.findAll({ type: 'Box' })).filter(b => typeof b.key === 'string' && b.key.startsWith('card-'))
   // 조사 is running: its card's edge is stronger than the others'.
@@ -378,7 +385,6 @@ test('in the editor the drawer head is set in the app type: a heading title, a p
   engine(on)
   await start($)
   await plan($, PLAN)
-  await plan($, { op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   const texts = await pane.findAll({ type: 'Text' })
   expect(texts.some(x => x.props.mono === true)).toBe(false)
@@ -411,7 +417,6 @@ test('on the desktop app each step row is one Client: the mark, the title, the p
   engine(on)
   await start($)
   await plan($, { op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }] }, { title: '끝', children: [{ title: '마무리' }] }] })
-  await plan($, { op: 'next' })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // No Button for a row: every row is a Client named after its step.
   expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view'])
@@ -499,7 +504,6 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
   engine(on)
   await start($)
   await plan($, PLAN)
-  await plan($, { op: 'next' })
   await plan($, { op: 'next' })
   // The surfaces whose rows are Buttons; the desktop app's rows are Clients, tested on their own.
   for (const surface of ['terminal', 'vscode'] as const) {

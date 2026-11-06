@@ -803,6 +803,9 @@ async function planOnce($: $): Promise<void> {
   }
   $.ui.log(`planner: ${r.text}`, { to: 'debug' })
   for (const op of parseOps(r.text)) await apply($, op)
+  // The planner often marks steps done without starting the next; open work keeps a step running, so it is drawn as running.
+  const after = await read($, planAtom)
+  if (hasOpenWork(after) && currentLeaf(after)?.status === 'pending') await apply($, { op: 'next' })
 }
 
 // Asks for a look outside the hook that noticed something, one at a time; a look asked for while

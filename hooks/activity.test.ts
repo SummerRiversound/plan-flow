@@ -46,3 +46,12 @@ test('the end of a turn says how it ended and drops running calls', () => {
 test('tool names from events are cleaned', () => {
   expect(activityLabel(run({ type: 'turnStart' }, { type: 'toolStart', id: 'a', tool: 'Ba\u001bsh' }))).toBe('Ba sh 실행 중')
 })
+
+test('a turn that ends with background work in flight says so, whichever of the two comes first, until the next turn', () => {
+  const after = run({ type: 'turnStart' }, { type: 'turnEnd', reason: 'answer' }, { type: 'background', count: 2 })
+  expect(activityLabel(after)).toBe('백그라운드 작업 2개 진행 중')
+  const before = run({ type: 'turnStart' }, { type: 'background', count: 1 }, { type: 'turnEnd', reason: 'answer' })
+  expect(activityLabel(before)).toBe('백그라운드 작업 1개 진행 중')
+  expect(step(after, { type: 'turnStart' }).background).toBeUndefined()
+  expect(run({ type: 'turnEnd', reason: 'answer' }, { type: 'background', count: 0 }).background).toBeUndefined()
+})

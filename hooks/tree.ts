@@ -47,8 +47,9 @@ export const glyphColor = (n: PlanNode, waiting = false): string =>
 // The glyph piece: finished steps dim, so the running one stands out.
 export const glyphSeg = (n: PlanNode, waiting = false): Seg => ({ text: GLYPH[n.status], color: glyphColor(n, waiting) })
 
-// Claude waits on the person: a question or a permission is open, or its turn ended with work still open.
-export const isWaiting = (plan: Plan, a: Activity): boolean => a.phase === 'question' || a.phase === 'permission' || (a.phase === 'idle' && hasOpenWork(plan))
+// Claude waits on the person: a question or a permission is open, or its turn ended with work
+// still open and no background work in flight to wake it.
+export const isWaiting = (plan: Plan, a: Activity): boolean => a.phase === 'question' || a.phase === 'permission' || (a.phase === 'idle' && a.background === undefined && hasOpenWork(plan))
 
 // The activity line's words: what Claude is doing, else that it waits for an answer.
 export const activityWords = (plan: Plan, a: Activity): string | undefined => activityLabel(a) ?? (isWaiting(plan, a) ? t().activity.question : undefined)

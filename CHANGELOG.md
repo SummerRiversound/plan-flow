@@ -2,6 +2,13 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.38 — 2026-11-06
+
+### Changed
+
+- Work Claude goes on with without asking, the review, merge or release that follows your request included, is a solid step. Only work that waits on your go-ahead or on someone else hangs dotted after the plan.
+- A finished plan keeps its dotted work, on the band, after the drawer's closing note, and on the desktop cards.
+
 ## 0.1.37 — 2026-11-06
 
 ### Changed

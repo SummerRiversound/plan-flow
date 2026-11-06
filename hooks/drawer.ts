@@ -8,14 +8,15 @@ import type { Plan, PlanNode } from './plan'
 import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { OPEN_BUTTON, drawTree, fitLine, isLive, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
+import { OPEN_BUTTON, drawTree, fitLine, isLive, isWaiting, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
 import { t } from './i18n'
 
 export type { DrawerState }
 
 // `live`: Claude is at work, so the running steps move.
-export type FlowOptions = { width: number; now: number; live?: boolean }
+// `waiting`: Claude waits on the person, so the running steps say so.
+export type FlowOptions = { width: number; now: number; live?: boolean; waiting?: boolean }
 // `cut` is true when some title did not fit its box: the drawer then draws the tree instead.
 export type Flow = { lines: Line[]; buttons: string[]; cut: boolean }
 
@@ -93,17 +94,17 @@ const noteLines = (n: PlanNode, w: number, lead: string): Line[] => {
 const actionLines = (drawer: DrawerState, n: PlanNode, w: number, lead: string): Line[] =>
   drawer.pick !== n.id ? [] : [buttonRow([...(n.status === 'needs_check' ? [[CONFIRM, t().confirm] as [string, string]] : []), [ASK, t().discuss]], w, lead, 0)]
 
-type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number }
+type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; live: boolean; now: number; waiting: boolean }
 
 // What a step shows flush right: a box's done/total and its fold arrow, or a running leaf's "진행 중".
-export const stepRight = (plan: Plan, drawer: DrawerState, n: PlanNode): Seg | null => {
+export const stepRight = (plan: Plan, drawer: DrawerState, n: PlanNode, waiting = false): Seg | null => {
   if (hasChildren(plan.nodes, n.id)) return { text: `${count(plan, n.id)} ${isOpen(plan, drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
-  if (n.status === 'in_progress') return { text: t().running, color: glyphColor(n) }
+  if (n.status === 'in_progress') return { text: waiting ? t().waiting : t().running, color: glyphColor(n, waiting) }
 
   return null
 }
 
-const right = (ctx: Ctx, n: PlanNode): Seg | null => stepRight(ctx.plan, ctx.drawer, n)
+const right = (ctx: Ctx, n: PlanNode): Seg | null => stepRight(ctx.plan, ctx.drawer, n, ctx.waiting)
 
 // The note, when asked for, comes last so a box may cut it without cutting the title.
 const titleSegs = (ctx: Ctx, n: PlanNode, withNote = true): Line => {
@@ -111,7 +112,7 @@ const titleSegs = (ctx: Ctx, n: PlanNode, withNote = true): Line => {
   const out: Line = [
     ...(run && ctx.live && !hasChildren(ctx.plan.nodes, n.id)
       ? liveSegs(n.title, ctx.now)
-      : [glyphSeg(n), { text: ` ${n.title}`, color: 'text', dim: isFinished(n.status) && n.status !== 'needs_check', bold: run, strike: n.status === 'skipped' }]),
+      : [glyphSeg(n, ctx.waiting), { text: ` ${n.title}`, color: 'text', dim: isFinished(n.status) && n.status !== 'needs_check', bold: run, strike: n.status === 'skipped' }]),
     ...markSeg(ctx.plan, n.id),
   ]
   const note = withNote ? noteText(n) : ''
@@ -359,8 +360,8 @@ const branches = (ctx: Ctx, group: PlanNode, span: number, axis: number, first: 
   return out
 }
 
-export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = false }: FlowOptions): Flow => {
-  const ctx: Ctx = { plan, drawer, buttons: [], cut: false, live, now }
+export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = false, waiting = false }: FlowOptions): Flow => {
+  const ctx: Ctx = { plan, drawer, buttons: [], cut: false, live, now, waiting }
   if (plan.nodes.length === 0 || width <= 0) return { lines: [], buttons: [], cut: false }
   // Too narrow for a box.
   if (width < MIN_INNER + 4) return { lines: [], buttons: [], cut: true }
@@ -473,7 +474,7 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
   const kept = shelfIds(shelf)
   if (plan.nodes.length === 0) return { head: [], body: [...wrap(t().empty, width - 1, 4).map((text): Line => [{ text, color: 'inactive' }]), ...shelved], buttons: kept, at: null }
   const top = headTop(plan, shelf, activity, width, now)
-  const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity) })
+  const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity), waiting: isWaiting(plan, activity) })
   const tools = (left: ReadonlyArray<[string, string]>, r: [string, string]): Line => toolRow(left, r, width)
   const leaf = currentLeaf(plan)
   // The step Claude is on, else the nearest row above it that shows.

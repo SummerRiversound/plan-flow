@@ -38,12 +38,20 @@ export const liveSegs = (title: string, now: number): Seg[] => {
 
 export const GLYPH: Record<PlanStatus, string> = { completed: '✓', in_progress: '●', pending: '○', blocked: '■', skipped: '–', needs_check: '◐' }
 
-// Only two colours carry meaning: green for done, red for blocked. Everything else is plain text or muted.
-export const glyphColor = (n: PlanNode): string =>
-  n.status === 'completed' ? 'success' : n.status === 'blocked' ? 'error' : n.status === 'in_progress' ? 'text' : 'inactive'
+// Three colours carry meaning: green for done, red for blocked, and the permission colour while
+// Claude waits on the person. Everything else is plain text or muted.
+export const WAIT_COLOR = 'permission'
+export const glyphColor = (n: PlanNode, waiting = false): string =>
+  n.status === 'completed' ? 'success' : n.status === 'blocked' ? 'error' : n.status === 'in_progress' ? (waiting ? WAIT_COLOR : 'text') : 'inactive'
 
 // The glyph piece: finished steps dim, so the running one stands out.
-export const glyphSeg = (n: PlanNode): Seg => ({ text: GLYPH[n.status], color: glyphColor(n) })
+export const glyphSeg = (n: PlanNode, waiting = false): Seg => ({ text: GLYPH[n.status], color: glyphColor(n, waiting) })
+
+// Claude waits on the person: a question or a permission is open, or its turn ended with work still open.
+export const isWaiting = (plan: Plan, a: Activity): boolean => a.phase === 'question' || a.phase === 'permission' || (a.phase === 'idle' && hasOpenWork(plan))
+
+// The activity line's words: what Claude is doing, else that it waits for an answer.
+export const activityWords = (plan: Plan, a: Activity): string | undefined => activityLabel(a) ?? (isWaiting(plan, a) ? t().activity.question : undefined)
 
 export const lineText = (line: Line): string => line.map(s => s.text).join('')
 
@@ -118,14 +126,14 @@ const detailRows = (plan: Plan, n: PlanNode, width: number, marked: Set<string>)
   ])
 }
 
-const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, folded: ReadonlySet<string>, live: boolean, now: number): Line => {
+const nodeRow = (plan: Plan, n: PlanNode, width: number, marked: Set<string>, folded: ReadonlySet<string>, live: boolean, now: number, waiting = false): Line => {
   const done = isFinished(n.status) && n.status !== 'needs_check'
   const running = n.status === 'in_progress' && !hasChildren(plan.nodes, n.id)
   const left: Line = [
     { text: prefixOf(plan, n), color: 'inactive', node: n.id },
     ...(running && live
       ? liveSegs(n.title, now)
-      : [glyphSeg(n), { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) }]),
+      : [glyphSeg(n, waiting), { text: ` ${n.title}`, color: 'text', dim: done, strike: n.status === 'skipped', bold: marked.has(n.id) }]),
     ...markSeg(plan, n.id),
   ]
   if (n.parallel === true) left.push({ text: ` ∥ ${t().parallel}`, color: 'inactive' })
@@ -232,12 +240,13 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
     ...goalLines(plan, width, goalRows),
     fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),
   ]
-  const words = activityLabel(activity)
+  const words = activityWords(plan, activity)
   const run = runningLeaves(plan)[0]
-  const dot = activity.phase === 'error' ? 'error' : run === undefined ? 'text' : glyphColor(run)
+  const waiting = isWaiting(plan, activity)
+  const dot = activity.phase === 'error' ? 'error' : waiting ? WAIT_COLOR : run === undefined ? 'text' : glyphColor(run)
   const checks = checkLine(plan, width)
   if (checks !== null) lines.push(checks)
-  if (words !== undefined) lines.push(fitLine([{ text: '● ', color: dot }, { text: words, color: 'text' }], width))
+  if (words !== undefined) lines.push(fitLine([{ text: '● ', color: dot }, { text: words, color: waiting ? WAIT_COLOR : 'text' }], width))
   lines.push([])
 
   return lines
@@ -298,7 +307,7 @@ const stepRows = (plan: Plan, activity: Activity, budget: number, width: number,
     plan.nodes
       .filter(n => ![...folded].some(id => n.id.startsWith(`${id}.`)))
       .flatMap((node): Array<{ node: PlanNode; line: BandRow }> => [
-        { node, line: { kind: 'step', node, folded: folded.has(node.id), line: nodeRow(plan, node, width, marked, folded, isLive(activity), now) } },
+        { node, line: { kind: 'step', node, folded: folded.has(node.id), line: nodeRow(plan, node, width, marked, folded, isLive(activity), now, isWaiting(plan, activity)) } },
         ...detailRows(plan, node, width, marked).map(line => ({ node, line: { kind: 'detail' as const, node, text: line[1]?.text ?? '', line } })),
       ])
   const overflow = (hidden: readonly PlanNode[]): BandRow => {

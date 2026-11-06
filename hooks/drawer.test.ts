@@ -468,3 +468,11 @@ test('the flowchart ends in a dotted box for each piece of work expected after t
   expect(rest[4]).toMatch(/^╰┄+╯$/)
   expect(cells(text[at + 4] ?? '')).toBe(cells(text[at - 1] ?? ''))
 })
+
+test('in the drawer the running step says it waits for an answer once the turn ended with work open', () => {
+  const p = ok(nextStep(ok(setPlan(emptyPlan(), '헤더 다듬기', [{ title: '헤더 적용' }, { title: '변경 올리기' }], 0)), undefined, 1))
+  const text = (waiting: boolean) => drawFlow(p, { open: {}, focus: null }, { width: 53, now: 0, waiting }).lines.map(lineText).join('\n')
+  expect(text(true)).toContain('답변 기다림')
+  expect(text(false)).toContain('진행 중')
+  expect(text(false)).not.toContain('답변 기다림')
+})

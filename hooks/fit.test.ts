@@ -28,9 +28,9 @@ test('the view never takes more rows than it is given', () => {
 })
 
 test('only the running stage keeps its checkpoints', () => {
-  // 3 head lines (title, progress, blank) + 6 stages + 4 checkpoints of the running one.
+  // 4 head lines (title, progress, waiting for an answer, blank) + 6 stages + 4 checkpoints of the running one.
   const lines = rows(big(), 33)
-  expect(lines).toHaveLength(13)
+  expect(lines).toHaveLength(14)
   expect(lines.find(l => l.includes('단계 1'))?.endsWith('4/4 ▸')).toBe(true)
   expect(lines.some(l => l.includes('확인 1-1'))).toBe(false)
   expect(lines.find(l => l.includes('확인 3-3'))?.endsWith('● 확인 3-3')).toBe(true)

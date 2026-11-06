@@ -1,10 +1,11 @@
 ---
 version: alpha
 name: plan-flow terminal
-description: A plan drawn as a card flowchart inside Claude Code's terminal, in plain text with two colours that mean something — green for done, red for blocked.
+description: A plan drawn as a card flowchart inside Claude Code's terminal, in plain text with three colours that mean something — green for done, red for blocked, blue-violet while Claude waits on you.
 colors:
   success: "#5cc072"
   error: "#ff6b80"
+  waiting: "#b1b9f9"
   text: "#e8e6e3"
   muted: "#9a968f"
   surface: "#0f0e0d"
@@ -43,6 +44,9 @@ components:
   row-done:
     textColor: "{colors.success}"
     typography: "{typography.body}"
+  row-your-turn:
+    textColor: "{colors.waiting}"
+    typography: "{typography.body}"
 ---
 
 # plan-flow terminal
@@ -53,10 +57,11 @@ A plan is drawn in two places: a live tree above the prompt, and a card flowchar
 
 ## Colors
 
-Two colours, each with one meaning; everything else is plain text or muted. More colours made the board noisy. All are Claude Code theme keys, so light and dark themes follow the user's setting; the hex values are the dark-theme reference.
+Three colours, each with one meaning; everything else is plain text or muted. More colours made the board noisy. All are Claude Code theme keys, so light and dark themes follow the user's setting; the hex values are the dark-theme reference.
 
 - **Success (#5cc072, `success`):** done marks and the filled part of the progress bar.
 - **Error (#ff6b80, `error`):** a blocked step and its note.
+- **Waiting (#b1b9f9, `permission`):** Claude waits on you (a question, a permission, or a turn that ended with work open): the `● 답변 기다리는 중` line and the running step's mark and its `답변 기다림`. The colour Claude Code gives its own permission prompts, so it reads as your turn.
 - **Text (#e8e6e3, `text`):** step names, the running mark and the running box's border; bold for buttons, the running step and the plan title.
 - **Muted (#9a968f, `inactive`):** waiting and skipped steps, borders, connectors, counts.
 

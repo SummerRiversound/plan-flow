@@ -239,3 +239,18 @@ test('when the band is short, expected work drops its lone dotted row, then shar
   expect(rows(3)).toEqual(['   ┆ ◌ 리뷰 반영 · 릴리즈'])
   expect(rows(2)).toEqual([])
 })
+
+test('a turn that ended with work open reads as waiting for an answer, in its own colour, on the line and the running step', () => {
+  const p = ok(nextStep(ok(setPlan(emptyPlan(), '헤더 다듬기', [{ title: '헤더 적용' }, { title: '변경 올리기' }], 0)), undefined, 1))
+  const idle = drawTree(p, idleActivity(), { maxRows: 20, width: 60, now: 0 })
+  const line = idle.find(l => lineText(l).includes('답변 기다리는 중'))
+  expect(line?.map(s => s.color)).toEqual(['permission', 'permission'])
+  const step = idle.find(l => lineText(l).includes('헤더 적용'))
+  expect(step?.find(s => s.text === '●')?.color).toBe('permission')
+  // While Claude works, nothing waits.
+  const busy = drawTree(p, { phase: 'tool', tool: 'Edit', running: [] }, { maxRows: 20, width: 60, now: 0 })
+  expect(busy.map(lineText).join('\n')).not.toContain('기다리는')
+  // A finished plan waits for nothing.
+  const done = ok(updateNodes(p, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }], 2))
+  expect(drawTree(done, idleActivity(), { maxRows: 20, width: 60, now: 0 }).map(lineText).join('\n')).not.toContain('기다리는')
+})

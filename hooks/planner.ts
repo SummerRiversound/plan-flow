@@ -8,7 +8,7 @@ import { STATUSES } from './plan'
 import { PLAN_RULES, TOOL_DESCRIPTION, describeBoard, parseOp } from './plan-tool'
 
 // One line of what happened, oldest first.
-export type Happened = { kind: 'request' | 'notice' | 'tool' | 'subagent' | 'answer'; text: string }
+export type Happened = { kind: 'request' | 'notice' | 'tool' | 'subagent' | 'said' | 'answer'; text: string }
 
 // The calls that change something; these count towards the next look.
 export const GUARDED: ReadonlySet<string> = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash', 'Agent', 'Task', 'Workflow'])
@@ -66,7 +66,7 @@ export const PLANNER_SYSTEM = [
   OP_SHAPES,
   PLAN_RULES,
   'Keep the board following the work: a new piece of work gets op "set" with a title, a goal and its steps; more of the same, or a fix to finished work, goes under the stage it continues (op "add" with that stage as "parent", or status "pending" to reopen a step); a detour done before coming back gets op "set" with previous "park", and the parked plan returns when the detour finishes; a request that starts over gets previous "cancel"; going back to parked work gets op "resume". Mark steps done (op "next" or op "update" with status "completed") as the tool calls and answers show them done, and give the summary with the op that finishes the last step. A question, a chat or a one-step job changes nothing.',
-  'Plan only what the request and the work show, never parts you imagine (a screen, a deploy) that nobody asked for; work very likely to follow goes in "expected", not in the steps. The work outranks your first guess: when the calls and answers show a step was not part of it, remove it or reshape the plan to what was done; when Claude answers that the request is done, the board should read done too. A note goes only on a blocked, skipped or needs_check step; a question Claude puts to the person stays in Claude\'s answer, not on the board.',
+  'Never add parts nobody asked for (a screen, a deploy); steps already on the board ahead of the work are the plan\'s way to its goal, so keep them until the work turns away from them. Work very likely to follow the plan goes in "expected", not in the steps. The work outranks your first guess: when the calls and answers show a step was not part of it, remove it or reshape the plan to what was done; when Claude answers that the request is done, the board should read done too. A note goes only on a blocked, skipped or needs_check step; a question Claude puts to the person stays in Claude\'s answer, not on the board.',
   'When Claude\'s answer asks the person to approve, choose or say whether to go on, the step waiting on that answer stays open (in_progress) until the person answers; asking is not finishing it, and the plan does not close while the answer is pending.',
   'A call marked (failed) did not succeed, so the step it serves is not done yet; reading and searching show the work being looked into, not finished; a subagent\'s calls are work Claude handed off, done for the step that handed it.',
   'Write titles and details in the language the person writes in.',
@@ -75,7 +75,7 @@ export const PLANNER_SYSTEM = [
 
 // What the planner reads: the board as it stands, then the newest of what happened.
 export const plannerPrompt = (board: Board, log: readonly Happened[]): string => {
-  const label = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', answer: 'Claude answered' } as const
+  const label = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
   const lines: string[] = []
   let size = 0
   for (let i = log.length - 1; i >= 0; i--) {
@@ -89,6 +89,21 @@ export const plannerPrompt = (board: Board, log: readonly Happened[]): string =>
 
   return [`The board now:\n${now}`, `What happened since your last look, oldest first:\n${lines.join('\n') || '- nothing'}`, 'Answer with the JSON array of ops.'].join('\n\n')
 }
+
+// The ops a fork may use: it reshapes the plan in hand, never starts, ends or swaps one.
+export const DESIGN_OPS: ReadonlySet<PlanOp['op']> = new Set(['update', 'add', 'remove', 'move'])
+
+// The one question put to a fork of the main conversation: Claude, who does the work, designs the plan.
+export const designPrompt = (board: Board): string =>
+  [
+    'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
+    `A smaller model drew this board from the calls it saw:\n${describeBoard(board)}`,
+    'Design the plan of this work as you, who are doing it, see it. The goal is the end the person is after: what will be true or exist for them once the work is done, never the steps or what was done so far. The stages run the whole way to that end, the ones not started yet included (review, merge or release where this repo\'s routine has them), so the person sees what is left.',
+    OP_SHAPES,
+    PLAN_RULES,
+    'Reshape the board with op "update" (the goal, the title, a step\'s title or detail), "add", "remove" and "move" only, by the ids it shows, and leave every status as it is. Write in the language the person writes in.',
+    'Answer with only a JSON array of op objects, and [] when the board already fits. No prose, no code fence.',
+  ].join('\n\n')
 
 // The ops in the planner's answer, in order; anything that is not an op is left out.
 export const parseOps = (text: string): PlanOp[] => {

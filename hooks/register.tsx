@@ -13,7 +13,7 @@ import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWor
 import type { PlanOp } from './plan-tool'
 import { runOp } from './plan-tool'
 import type { Happened } from './planner'
-import { GUARDED, noticeLine, PERSON, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
+import { DESIGN_OPS, designPrompt, GUARDED, noticeLine, PERSON, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import { dottedTrunkSvg, joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
@@ -816,6 +816,10 @@ let lastLook = 0
 let busy: Promise<void> | null = null
 let queued = false
 let again = false
+// A plan the planner starts or widens is designed once per request by a fork of the main conversation,
+// after a main request of that turn is out, so the fork holds the request and reads it from the cache.
+let design: 'none' | 'wanted' | 'done' = 'none'
+let stepped = false
 
 // Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
 export const plannerIdle = async (): Promise<void> => {
@@ -840,10 +844,27 @@ async function planOnce($: $): Promise<void> {
     return
   }
   $.ui.log(`planner: ${r.text}`, { to: 'debug' })
-  for (const op of parseOps(r.text)) await apply($, op)
-  // The planner often marks steps done without starting the next; open work keeps a step running, so it is drawn as running.
+  const ops = parseOps(r.text)
+  for (const op of ops) await apply($, op)
+  if (design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
+  await keepRunning($)
+}
+
+// The planner often marks steps done without starting the next; open work keeps a step running, so it is drawn as running.
+async function keepRunning($: $): Promise<void> {
   const after = await read($, planAtom)
   if (hasOpenWork(after) && currentLeaf(after)?.status === 'pending') await apply($, { op: 'next' })
+}
+
+// Claude, in a fork of the main conversation, reshapes the plan the planner drew; the main conversation is untouched.
+async function designOnce($: $): Promise<void> {
+  const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
+  if (!hasOpenWork(board.plan)) return
+  const r = await $.model.fork({ prompt: designPrompt(board) })
+  if (!r.isAnswered) return
+  $.ui.log(`designer: ${r.text}`, { to: 'debug' })
+  for (const op of parseOps(r.text)) if (DESIGN_OPS.has(op.op)) await apply($, op)
+  await keepRunning($)
 }
 
 // Asks for a look outside the hook that noticed something, one at a time; a look asked for while
@@ -861,6 +882,10 @@ function planSoon($: $): void {
       do {
         again = false
         await planOnce($).catch(() => undefined)
+        if (design === 'wanted' && stepped) {
+          design = 'done'
+          await designOnce($).catch(() => undefined)
+        }
       } while (again)
     })().finally(() => {
       busy = null
@@ -898,6 +923,8 @@ export const register: Register = (on, options) => {
     const plan = await read($, planAtom)
     if (plan.marks !== undefined) await update($, planAtom, clearMarks)
     request = e.text
+    design = 'none'
+    stepped = false
     fresh = remember(fresh, { kind: 'request', text: e.text })
     planSoon($)
 
@@ -942,6 +969,20 @@ export const register: Register = (on, options) => {
     }
 
     return next(e)
+  })
+
+  // Each model request of the main turn, read as it ends and passed on untouched: what Claude says
+  // between its calls tells where the work stands, so the planner hears it and looks.
+  on('turn.step', async function* ($, e, next) {
+    const r = yield* next(e)
+    if (e.agentId !== undefined) return r
+    stepped = true
+    if (r.toolUses.length > 0 && r.answer.trim() !== '') {
+      fresh = remember(fresh, { kind: 'said', text: r.answer })
+      planSoon($)
+    } else if (design === 'wanted') planSoon($)
+
+    return r
   })
 
   on('turn.complete', async ($, e, next) => {

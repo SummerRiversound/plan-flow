@@ -55,6 +55,18 @@ const shown = async ($: Engine) => {
   return asked[asked.length - 1] ?? ''
 }
 
+// The fork's answers, one list of ops per fork, and the prompts it was handed.
+const forkReplies: unknown[][] = []
+const forked: string[] = []
+// One model request of the main turn ends with `answer` and, unless it is the last, a tool call to run.
+const step = async ($: Engine, answer: string, isLast = false) => {
+  stepAnswer = { answer, toolUses: isLast ? [] : [{ id: 'u1', name: 'Bash', input: {} }] }
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'opus', messageCount: 2 })) void _
+  await theClock?.advance(1)
+  await plannerIdle()
+}
+let stepAnswer: { answer: string; toolUses: unknown[] } = { answer: '', toolUses: [] }
+
 // Toasts the plugin raised, newest last.
 const toasts: string[] = []
 
@@ -70,6 +82,16 @@ const engine = (on: On) => {
     asked.push(e.prompt)
     const next = replies.shift()
     return { value: next === undefined ? { isAnswered: false, reason: 'api-error', status: 500, error: 'api_error', usage: NO_USAGE } : { isAnswered: true, text: JSON.stringify(next), usage: NO_USAGE } } as never
+  })
+  forkReplies.length = 0
+  forked.length = 0
+  on('model.fork', (_, e) => {
+    forked.push(e.prompt)
+    const next = forkReplies.shift()
+    return { value: next === undefined ? { isAnswered: false, reason: 'nothing-to-fork' } : { isAnswered: true, text: JSON.stringify(next), usage: NO_USAGE } } as never
+  })
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, ...stepAnswer } as never
   })
   mock.store(on)
   const open = new Set<string>()
@@ -194,6 +216,46 @@ test('reading is heard too, and a minute of it makes the planner look again', KO
   expect(asked).toHaveLength(1)
   expect(asked[0]).toContain('Claude ran: Read cart.js')
   expect(asked[0]).toContain('Claude ran: Grep total')
+})
+
+test("what Claude says between its calls reaches the planner and makes it look; the turn's last words come as the answer", KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await step($, '이제 리뷰 결과를 확인할게요')
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toContain('Claude said: 이제 리뷰 결과를 확인할게요')
+  await step($, '끝났어요', true)
+  expect(asked).toHaveLength(1)
+})
+
+test('a new plan is designed once by a fork of the main conversation, after Claude has taken the request', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  // The plan is set, but Claude has not answered the request yet: nothing to fork from.
+  expect(forked).toHaveLength(0)
+  forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }, { op: 'add', nodes: [{ title: '리뷰 반영', detail: '받은 리뷰를 고친다.' }] }, { op: 'cancel' }])
+  await step($, '')
+  expect(forked).toHaveLength(1)
+  expect(forked[0]).toContain('Plan: 로그인 기능 추가')
+  const board = await shown($)
+  expect(board).toContain('Goal: 아이디로 로그인할 수 있다')
+  expect(board).toContain('리뷰 반영')
+  // The fork reshapes the plan; it does not end it.
+  expect(board).toContain('Plan: 로그인 기능 추가')
+  // Once per request: more steps and looks fork nothing more.
+  await plan($, { op: 'update', goal: '로그인과 회원가입' })
+  await step($, '')
+  expect(forked).toHaveLength(1)
+  // A request the planner leaves alone forks nothing.
+  await $.prompt.submit({ text: '이거 뭐야?', wait: false, origin: { kind: 'composer' } })
+  await step($, '설명할게요', true)
+  await plan($)
+  expect(forked).toHaveLength(1)
 })
 
 test("a subagent's calls reach the planner as the subagent's", KO, async ($, on) => {

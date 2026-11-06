@@ -27,11 +27,11 @@ export const ANSWER_LIMIT = 4000
 
 export const TOOL_DESCRIPTION = [
   'The plan board for the current task; the person watches it on screen while you work.',
-  'op "set" starts it: a title, a "goal" (one sentence on what the work is for, shown under the title) and the steps, nested as stages, tasks and checkpoints (3 levels at most): a few stages in order, each holding its tasks, never one flat list.',
+  'op "set" starts it: a title, a "goal" (one sentence on the end the work reaches for the person, shown under the title) and the steps, nested as stages, tasks and checkpoints (3 levels at most): a few stages in order, each holding its tasks, never one flat list.',
   'Each step has a short title and a "detail": one plain sentence on what it does and why, shown under the step while it runs.',
   'Steps that do not depend on each other go under one node with "parallel": true and are worked on together; the step after the group waits for all of them.',
   'op "next" says the running step is done and starts the one after it (give "id" when several run and a particular one finished).',
-  'op "update" changes steps by id: status, title, detail, links, or a note (say why a step is blocked or skipped, or what the person should check); its "goal" rewrites the plan\'s goal when the work widens, and its "title" renames the plan.',
+  'op "update" changes steps by id: status, title, detail, links, or a note (say why a step is blocked or skipped, or what the person should check); its "goal" rewrites the plan\'s goal when that end changes, and its "title" renames the plan.',
   'op "add" puts new steps under "parent" (or at the top; a leaf may get children when a step turns out bigger), op "remove" drops a step with everything under it, op "move" puts a step before its sibling "before" (or last), op "show" answers the plan with its ids.',
   'A step with children takes its status from them, so only leaves get a status; status "pending" on a finished step or parent reopens it to redo.',
   'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
@@ -47,7 +47,7 @@ export const PLAN_RULES = [
   'Every title is at most 4 words.',
   'Steps are checkpoints for following where the work stands, not the edits: the deepest level is something the person would recognise as done (a screen works, a test proves it), and the file-by-file changes stay out of the plan.',
   'Give every step a detail: one plain sentence saying what it does and why, with no file names, code or commands, in words the person already uses.',
-  'The goal is one sentence on what the work is for; rewrite it with op "update" and "goal" when the work widens.',
+  'The goal is the end the person is after, in one sentence: what will be true or exist for them once the work is done (a bug no longer loses data, a feature ships to users), never the steps, their order or what has been done so far; rewrite it with op "update" and "goal" only when that end changes or widens.',
   'The title and the goal name the work by its subject (what the change does, the feature, the bug), never "this" or "current" and never a bare number, so the person can tell the session apart from the others; when the request names its subject only that way, rename the plan with op "update" and "title" and "goal" once the calls or answers show it.',
   'When a step produced something the person may open (a PR, an issue, a commit, an artifact, a file), attach it with op "update" and "links": the full URL or an absolute path, only as it appears in what happened.',
   'A step only the person can confirm (a device in hand, a sign-in, a taste call) goes to "needs_check" with a note naming what to look at.',

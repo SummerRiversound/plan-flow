@@ -211,3 +211,22 @@ test('the band ends its title line in the flowchart button, the one framed butto
     expect(cells(lineText(line)) + 4).toBeLessThanOrEqual(width)
   }
 })
+
+test('work expected after the plan hangs dotted under its last row, dim, and never counts', () => {
+  const p = { ...ok(nextStep(ok(setPlan(emptyPlan(), '헤더 다듬기', [{ title: '헤더 적용' }, { title: '변경 올리기' }], 0)), undefined, 1)), expected: ['리뷰 반영', '릴리즈'] }
+  const lines = drawTree(p, idleActivity(), { maxRows: 20, width: 60, now: 0 })
+  const text = lines.map(lineText)
+  const at = text.findIndex(l => l.includes('변경 올리기'))
+  expect(text.slice(at + 1, at + 4)).toEqual(['   ┆', '   ┆ ◌ 리뷰 반영', '   ┆ ◌ 릴리즈'])
+  expect(lines[at + 2]?.every(s => s.color === 'inactive' && s.dim === true)).toBe(true)
+  expect(text.join('\n')).toContain('0/2')
+  // A finished plan shows none.
+  const done = ok(updateNodes(p, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }], 2))
+  expect(drawTree(done, idleActivity(), { maxRows: 20, width: 60, now: 0 }).map(lineText).join('\n')).not.toContain('◌')
+})
+
+test('the band keeps its rows for the steps: expected work shows only when the end of the plan is in view', () => {
+  const steps = [...Array(12).keys()].map(i => ({ title: `단계 ${i + 1}` }))
+  const p = { ...ok(nextStep(ok(setPlan(emptyPlan(), '긴 계획', steps, 0)), undefined, 1)), expected: ['리뷰 반영'] }
+  expect(drawTree(p, idleActivity(), { maxRows: 16, width: 60, now: 0 }).map(lineText).join('\n')).not.toContain('◌')
+})

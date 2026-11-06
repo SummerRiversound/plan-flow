@@ -371,8 +371,9 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = f
   // margin, or wider to keep the longest title whole.
   const span = oddFit(Math.max(MIN_BOX, width - 8, ...stages.filter(n => n.parallel !== true).map(n => natural(ctx, n))), width)
   const close = summaryRows(plan, span - 4)
+  const ahead = hasOpenWork(plan) ? (plan.expected ?? []) : []
   stages.forEach((n, i) => {
-    const last = i === stages.length - 1 && close.length === 0
+    const last = i === stages.length - 1 && close.length === 0 && ahead.length === 0
     if (n.parallel === true) {
       lines.push(...branches(ctx, n, span, axis, i === 0, last))
       if (!last && stages[i + 1]?.parallel !== true) lines.push(arrows([axis]))
@@ -387,6 +388,19 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = f
     if (stages.at(-1)?.parallel !== true) lines.push(arrows([axis]))
     const edge = { color: 'inactive' }
     const rows: Line[] = [[{ text: `╭${'─'.repeat(span - 2)}╮`, ...edge }], ...close.map((r): Line => [{ text: '│ ', ...edge }, ...pad(r, span - 4), { text: ' │', ...edge }]), [{ text: `╰${'─'.repeat(span - 2)}╯`, ...edge }]]
+    for (const l of rows) lines.push(place([{ x: axis - (span - 1) / 2, line: l }]))
+  }
+  // Work expected after the plan: dotted boxes on dotted lines, dim, as wide as the stages.
+  const faint = { color: 'inactive', dim: true }
+  for (const title of ahead) {
+    const tag = t().expected
+    const name = fitLine([{ text: `◌ ${title}`, ...faint }], span - 4 - cells(tag) - 1)
+    const rows: Line[] = [
+      [{ text: `╭${'┄'.repeat(span - 2)}╮`, ...faint }],
+      [{ text: '┆ ', ...faint }, ...pad(name, span - 4 - cells(tag)), { text: tag, ...faint }, { text: ' ┆', ...faint }],
+      [{ text: `╰${'┄'.repeat(span - 2)}╯`, ...faint }],
+    ]
+    lines.push(place([{ x: axis, line: [{ text: '┆', ...faint }] }]))
     for (const l of rows) lines.push(place([{ x: axis - (span - 1) / 2, line: l }]))
   }
 

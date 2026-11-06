@@ -3,7 +3,7 @@
 import type { Board, Previous } from './board'
 import { cancelBoard, resumeBoard, setBoard, settle } from './board'
 import type { NodeUpdate, Plan, PlanInput } from './plan'
-import { addNodes, closing, finishedAt, hasOpenWork, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes, withGoal, withTitle } from './plan'
+import { addNodes, closing, finishedAt, hasOpenWork, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes, withExpected, withGoal, withTitle } from './plan'
 import { clean } from './sanitize'
 
 export const TOOL_NAME = 'plan'
@@ -11,9 +11,9 @@ export const OPS = ['set', 'next', 'update', 'add', 'remove', 'move', 'resume', 
 export type OpName = (typeof OPS)[number]
 
 export type PlanOp =
-  | { op: 'set'; title: string; nodes: PlanInput[]; previous?: Previous; goal?: string }
+  | { op: 'set'; title: string; nodes: PlanInput[]; previous?: Previous; goal?: string; expected?: string[] }
   | { op: 'next'; id?: string; summary?: SummaryInput }
-  | { op: 'update'; updates: NodeUpdate[]; summary?: SummaryInput; goal?: string; title?: string }
+  | { op: 'update'; updates: NodeUpdate[]; summary?: SummaryInput; goal?: string; title?: string; expected?: string[] }
   | { op: 'add'; parent: string | null; nodes: PlanInput[] }
   | { op: 'remove'; id: string }
   | { op: 'move'; id: string; before?: string }
@@ -37,6 +37,7 @@ export const TOOL_DESCRIPTION = [
   'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
   'op "resume" brings back a shelved plan ("title", else the newest parked), op "cancel" drops the plan in hand and brings back the newest parked one.',
   'With the op that finishes the last step (op "next", or op "update" alone), give "summary": what the plan was for and how that was reached; it closes the plan at the end of the drawer.',
+  '"expected" on op "set" or op "update" lists up to 2 short titles of work very likely to follow the plan that nobody has asked for yet (review comments to apply once a pull request is open, a release after a merge where the repo releases); they are drawn dotted after the last stage and never counted. Leave it out when unsure; [] clears it. When that work starts, add it as a step of the same title and it leaves the list.',
 ].join(' ')
 
 // How a good plan is shaped, for whoever keeps the board.
@@ -162,6 +163,9 @@ const readSummary = (raw: Raw): Parsed<SummaryInput | undefined> => {
   return typeof v.result === 'string' ? { value: { goal: v.goal, result: v.result } } : bad(`summary.result must be text, not ${kind(v.result)}`)
 }
 
+// The titles in "expected"; anything that is not text is left out rather than refusing the op.
+const readExpected = (raw: Raw): string[] | undefined => (Array.isArray(raw.expected) ? raw.expected.filter((s): s is string => typeof s === 'string') : undefined)
+
 // Reads the tool's input, which comes from the model and is checked field by field.
 export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
   if (!isObject(raw)) return bad(`the plan tool takes an object with an "op", not ${kind(raw)}`)
@@ -185,6 +189,7 @@ export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
           nodes: nodes.value,
           ...(previous.value === undefined ? {} : { previous: previous.value }),
           ...(goal.value === undefined ? {} : { goal: goal.value }),
+          ...(readExpected(raw) === undefined ? {} : { expected: readExpected(raw) }),
         },
       }
     }
@@ -225,7 +230,8 @@ export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
       if ('error' in goal) return goal
       const title = optionalText(raw, 'title', '')
       if ('error' in title) return title
-      const updates = raw.updates === undefined && (summary.value !== undefined || goal.value !== undefined || title.value !== undefined) ? { value: [] } : readUpdates(raw.updates)
+      const expected = readExpected(raw)
+      const updates = raw.updates === undefined && (summary.value !== undefined || goal.value !== undefined || title.value !== undefined || expected !== undefined) ? { value: [] } : readUpdates(raw.updates)
       if ('error' in updates) return updates
 
       return {
@@ -235,6 +241,7 @@ export const parseOp = (raw: unknown): { op: PlanOp } | { error: string } => {
           ...(summary.value === undefined ? {} : { summary: summary.value }),
           ...(goal.value === undefined ? {} : { goal: goal.value }),
           ...(title.value === undefined ? {} : { title: title.value }),
+          ...(expected === undefined ? {} : { expected }),
         },
       }
     }
@@ -281,6 +288,7 @@ export const describePlan = (plan: Plan): string => {
     size += 1 + row.length
   }
 
+  if (plan.expected !== undefined) out.push(`Expected after the plan, not counted: ${plan.expected.join('; ')}`)
   if (plan.summary !== undefined) out.push(`Summary: ${plan.summary.goal} / ${plan.summary.result}`)
 
   return out.join('\n')
@@ -355,6 +363,9 @@ export const runOp = (board: Board, op: PlanOp, now: number): { board: Board; te
               now,
             )
   if ('error' in result) return bad(result.error)
+  // Expected work follows every op: replaced when the op gives it, trimmed as steps arrive or the plan finishes.
+  const tidied = withExpected(result.board.plan, op.op === 'set' || op.op === 'update' ? op.expected : undefined)
+  if (tidied !== result.board.plan) result.board = { ...result.board, plan: tidied }
   const flat = (op.op === 'set' || op.op === 'add') && isFlat(result.board.plan) ? `\n${FLAT_HINT}` : ''
   const routine = op.op === 'set' && flat === '' ? routineStages(result.board.plan) : []
   const named = routine.length > 0 ? `\n${routineHint(routine)}` : ''

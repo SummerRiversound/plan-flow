@@ -34,7 +34,8 @@ The board follows the work of the whole session, not each message:
 - More work on the same task joins the current plan, under the stage it continues; a new stage is added only for a new part of the work.
 - A detour (say, a quick bug fix in the middle) puts the current plan on a shelf, and it comes back when the detour is done. The shelf sits at the bottom of the drawer; press a parked plan to see its steps.
 - Starting over cancels the current plan.
-- A step that has to be redone opens again and is marked `↺`.
+- A step that has to be redone opens again and is marked `↺` until it is done.
+- Work likely to follow the plan (say, review comments once a pull request is open) hangs dim and dotted after the last stage, two at most. It does not count towards progress, becomes a step when it starts, and goes when the plan finishes.
 - A new task after a finished plan starts a new plan, and the finished one stays on the shelf.
 
 The mod's planner decides which of these fits, from your messages, the calls Claude makes and Claude's answers. Claude itself never sees the board: nothing is added to what it reads, so the mod does not change how it works.

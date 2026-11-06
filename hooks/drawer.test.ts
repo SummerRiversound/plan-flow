@@ -455,3 +455,16 @@ test('tasks that run together sit in a closed box: each row inside starts and en
     expect(lines.every(l => cells(l) <= width)).toBe(true)
   }
 })
+
+test('the flowchart ends in a dotted box for each piece of work expected after the plan', () => {
+  const p = { ...ok(nextStep(ok(setPlan(emptyPlan(), '헤더 다듬기', [{ title: '헤더 적용' }, { title: '변경 올리기' }], 0)), undefined, 1)), expected: ['리뷰 반영'] }
+  const text = drawFlow(p, { open: {}, focus: null }, { width: 53, now: 0 }).lines.map(lineText)
+  const at = text.findIndex(l => l.includes('변경 올리기'))
+  const rest = text.slice(at + 1).map(l => l.trim())
+  expect(rest[0]).toMatch(/^╰─+┬─+╯$/)
+  expect(rest[1]).toBe('┆')
+  expect(rest[2]).toMatch(/^╭┄+╮$/)
+  expect(rest[3]).toMatch(/^┆ ◌ 리뷰 반영 +예상 ┆$/)
+  expect(rest[4]).toMatch(/^╰┄+╯$/)
+  expect(cells(text[at + 4] ?? '')).toBe(cells(text[at - 1] ?? ''))
+})

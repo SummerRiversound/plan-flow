@@ -39,6 +39,7 @@ export type AxisItem =
   | { kind: 'stage'; stage: CardStep }
   | { kind: 'split'; stages: CardStep[] }
   | { kind: 'summary'; goal: string; result: string; links: string[] }
+  | { kind: 'expected'; title: string }
 
 // The terminal draws these labels' brackets as text; a real button needs none.
 const bare = (label: string): string => label.replace(/^\[ (.*) \]$/, '$1')
@@ -78,6 +79,7 @@ export const cardsOf = (plan: Plan, drawer: DrawerState): AxisItem[] => {
   )
   const s = plan.summary
   if (s !== undefined && !hasOpenWork(plan)) axis.push({ kind: 'summary', goal: s.goal, result: s.result, links: [...new Set(plan.nodes.flatMap(n => n.links ?? []))] })
+  if (hasOpenWork(plan)) for (const title of plan.expected ?? []) axis.push({ kind: 'expected', title })
 
   return axis
 }

@@ -36,6 +36,8 @@ export type Plan = {
   marks?: Record<string, 'new' | 'redo'>
   // The closing note Claude gives with the op that finishes the last step; dropped when a step reopens.
   summary?: Summary
+  // Work likely to follow the plan, drawn dotted after its last stage and never counted.
+  expected?: string[]
 }
 
 export type Summary = { goal: string; result: string }
@@ -84,6 +86,7 @@ declare module 'claude-code' {
         startedAt: number
         marks?: Record<string, 'new' | 'redo'>
         summary?: { goal: string; result: string }
+        expected?: string[]
       }
       activity: {
         phase: 'idle' | 'working' | 'tool' | 'permission' | 'question' | 'compacting' | 'interrupted' | 'error'
@@ -112,6 +115,7 @@ declare module 'claude-code' {
           startedAt: number
           marks?: Record<string, 'new' | 'redo'>
           summary?: { goal: string; result: string }
+          expected?: string[]
         }
         state: 'parked' | 'cancelled' | 'done'
         at: number

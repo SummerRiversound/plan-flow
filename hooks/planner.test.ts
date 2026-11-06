@@ -40,7 +40,7 @@ test("the planner's answer is read as ops; prose, fences, bad ops and show are l
 })
 
 test('the planner is told the field names the board reads, so its steps are not dropped', () => {
-  for (const field of ['"nodes"', '"children"', '"updates"', '"parent"']) expect(PLANNER_SYSTEM).toContain(field)
+  for (const field of ['"nodes"', '"children"', '"updates"', '"parent"', '"expected"']) expect(PLANNER_SYSTEM).toContain(field)
   const ops = parseOps('[{"op":"set","title":"Coupons","goal":"Carts take coupons.","nodes":[{"title":"Fixed coupon","detail":"Takes an amount off.","children":[{"title":"Its test","detail":"Proves it."}]}]}]')
   expect(ops).toHaveLength(1)
 })

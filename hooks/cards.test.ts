@@ -105,5 +105,16 @@ test('the head carries the title, goal, one progress slot per step in order, the
   expect(head.slots.slice(0, 4)).toEqual(['check', 'done', 'todo', 'todo'])
   expect(head.checks).toEqual(['조사'])
   expect(head.activity).toMatchObject({ text: 'Edit 실행 중', color: 'text' })
-  expect(headOf(p, 0, { phase: 'idle', running: [] }).activity).toBeUndefined()
+  // A turn that ended with work open waits for an answer, in its own colour.
+  expect(headOf(p, 0, { phase: 'idle', running: [] }).activity).toMatchObject({ text: '답변 기다리는 중', color: 'permission' })
+})
+
+test('while Claude waits on the person the running step card says so in the waiting colour', () => {
+  const p = ok(nextStep(ok(setPlan(emptyPlan(), '헤더 다듬기', [{ title: '헤더 적용' }, { title: '변경 올리기' }], 0)), undefined, 1))
+  const first = (waiting: boolean) => {
+    const a = cardsOf(p, { open: {}, focus: null }, waiting)[0]
+    return a?.kind === 'stage' ? a.stage : undefined
+  }
+  expect(first(true)).toMatchObject({ glyph: { color: 'permission' }, right: { text: '답변 기다림', color: 'permission' } })
+  expect(first(false)).toMatchObject({ glyph: { color: 'text' }, right: { text: '진행 중' } })
 })

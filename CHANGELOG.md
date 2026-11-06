@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.34 — 2026-11-06
+
+### Changed
+
+- When Claude waits on you, the board says so in a third colour, the one Claude Code gives its permission prompts: `● 답변 기다리는 중` under the progress bar, and the running step's mark and `답변 기다림` in place of `진행 중`. Besides an open question or permission, a turn that ended with work still open now counts as waiting, so a step no longer sits at `진행 중` without moving while Claude waits for your reply.
+
 ## 0.1.33 — 2026-11-06
 
 ### Changed

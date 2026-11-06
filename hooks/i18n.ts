@@ -9,6 +9,7 @@ export type Language = (typeof LANGUAGES)[number]
 
 const en = {
   parallel: 'parallel',
+  waiting: 'Your turn',
   expected: 'expected',
   line: 'Line between steps',
   divider: 'Divider',
@@ -85,6 +86,7 @@ export type Strings = typeof en
 
 const ko: Strings = {
   parallel: '동시에',
+  waiting: '답변 기다림',
   expected: '예상',
   line: '단계 사이 연결선',
   divider: '구분선',

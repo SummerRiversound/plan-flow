@@ -20,7 +20,7 @@ import { dottedTrunkSvg, joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunk
 import type { Line } from './tree'
 import type { BandRow } from './tree'
 import type { StepRowProps } from './step-row'
-import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, noteText, planHead } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, WAIT_COLOR, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, isWaiting, noteText, planHead } from './tree'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
@@ -161,7 +161,7 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
     const parent = hasChildren(plan.nodes, n.id)
     const spin = n.status === 'in_progress' && !parent && live && Svg !== null
     const done = isFinished(n.status) && n.status !== 'needs_check'
-    const glyph = glyphSeg(n)
+    const glyph = glyphSeg(n, isWaiting(plan, activity))
     const note = noteText(n)
     return (
       <Box key={n.id} flexDirection="row" alignItems="center" gap="xs" paddingLeft={depth(n) * 2}>
@@ -240,7 +240,8 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   // Too narrow for the cards side by side, as the terminal judges it: the list, with no switch.
   const narrow = drawFlow(plan, drawer, { width, now }).cut
   const list = drawer.list === true || narrow
-  const axis = cardsOf(plan, drawer)
+  const waiting = isWaiting(plan, activity)
+  const axis = cardsOf(plan, drawer, waiting)
   const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
   const ring = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && cardButtons(axis).includes(id)) ?? null
   const parked = shelf.filter(s => s.state === 'parked')
@@ -454,8 +455,8 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       const n = r.node
       const parent = hasChildren(plan.nodes, n.id)
       const spin = n.status === 'in_progress' && !parent && live && Svg !== null
-      const glyph = glyphSeg(n)
-      const right = parent ? `${counts(plan, n.id)}${r.folded ? ' ▸' : ''}` : n.status === 'in_progress' ? t().running : null
+      const glyph = glyphSeg(n, waiting)
+      const right = parent ? `${counts(plan, n.id)}${r.folded ? ' ▸' : ''}` : n.status === 'in_progress' ? (waiting ? t().waiting : t().running) : null
       const props: StepRowProps = {
         id: n.id,
         guide,
@@ -467,7 +468,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         redo: plan.marks?.[n.id] === 'redo',
         pill: n.parallel === true ? t().parallel : null,
         after: null,
-        right: right === null ? null : { text: right, color: 'inactive' },
+        right: right === null ? null : { text: right, color: waiting && !parent && n.status === 'in_progress' ? WAIT_COLOR : 'inactive' },
         hover: HOVER,
         edge: EDGE,
       }

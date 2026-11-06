@@ -6,9 +6,8 @@ import type { DrawerState } from '../types'
 import type { Plan, PlanNode, PlanStatus } from './plan'
 import { checksOf, childrenOf, hasChildren, hasOpenWork, isFinished, leavesOf, progress, runningLeaves } from './plan'
 import type { Activity } from './activity'
-import { activityLabel } from './activity'
 import type { Seg } from './tree'
-import { glyphColor, glyphSeg, noteText } from './tree'
+import { WAIT_COLOR, activityWords, glyphColor, glyphSeg, isWaiting, noteText } from './tree'
 import { ASK, CONFIRM, isOpen, stepRight } from './drawer'
 import { t } from './i18n'
 
@@ -44,7 +43,8 @@ export type AxisItem =
 // The terminal draws these labels' brackets as text; a real button needs none.
 const bare = (label: string): string => label.replace(/^\[ (.*) \]$/, '$1')
 
-const step = (plan: Plan, drawer: DrawerState, n: PlanNode): CardStep => {
+// `waiting`: Claude waits on the person, so the running step says so.
+const step = (plan: Plan, drawer: DrawerState, n: PlanNode, waiting: boolean): CardStep => {
   const parent = hasChildren(plan.nodes, n.id)
   const open = parent && isOpen(plan, drawer, n.id)
   const picked = !parent && drawer.pick === n.id
@@ -56,26 +56,26 @@ const step = (plan: Plan, drawer: DrawerState, n: PlanNode): CardStep => {
     id: n.id,
     title: n.title,
     status: n.status,
-    glyph: glyphSeg(n),
+    glyph: glyphSeg(n, waiting),
     running,
     redo: plan.marks?.[n.id] === 'redo',
     parent,
     open,
-    right: stepRight(plan, drawer, n),
+    right: stepRight(plan, drawer, n, waiting),
     ...(detail === undefined ? {} : { detail }),
     ...(n.note === undefined || n.note === '' ? {} : { note: n.note }),
     links: parent && !open ? [] : (n.links ?? []),
     actions: picked ? [...(n.status === 'needs_check' ? [[CONFIRM, bare(t().confirm)] as [string, string]] : []), [ASK, bare(t().discuss)]] : [],
-    children: open ? items(plan, drawer, n.id) : [],
+    children: open ? items(plan, drawer, n.id, waiting) : [],
   }
 }
 
-const items = (plan: Plan, drawer: DrawerState, id: string): CardItem[] =>
-  childrenOf(plan.nodes, id).map(n => (n.parallel === true ? { kind: 'together', items: items(plan, drawer, n.id) } : { kind: 'step', step: step(plan, drawer, n) }))
+const items = (plan: Plan, drawer: DrawerState, id: string, waiting: boolean): CardItem[] =>
+  childrenOf(plan.nodes, id).map(n => (n.parallel === true ? { kind: 'together', items: items(plan, drawer, n.id, waiting) } : { kind: 'step', step: step(plan, drawer, n, waiting) }))
 
-export const cardsOf = (plan: Plan, drawer: DrawerState): AxisItem[] => {
+export const cardsOf = (plan: Plan, drawer: DrawerState, waiting = false): AxisItem[] => {
   const axis: AxisItem[] = childrenOf(plan.nodes, null).map(n =>
-    n.parallel === true ? { kind: 'split', stages: childrenOf(plan.nodes, n.id).map(c => step(plan, drawer, c)) } : { kind: 'stage', stage: step(plan, drawer, n) },
+    n.parallel === true ? { kind: 'split', stages: childrenOf(plan.nodes, n.id).map(c => step(plan, drawer, c, waiting)) } : { kind: 'stage', stage: step(plan, drawer, n, waiting) },
   )
   const s = plan.summary
   if (s !== undefined && !hasOpenWork(plan)) axis.push({ kind: 'summary', goal: s.goal, result: s.result, links: [...new Set(plan.nodes.flatMap(n => n.links ?? []))] })
@@ -112,7 +112,7 @@ export type CardHead = {
 
 export const headOf = (plan: Plan, parked: number, activity: Activity): CardHead => {
   const { done, total } = progress(plan)
-  const words = activityLabel(activity)
+  const words = activityWords(plan, activity)
   const run = runningLeaves(plan)[0]
 
   return {
@@ -124,6 +124,6 @@ export const headOf = (plan: Plan, parked: number, activity: Activity): CardHead
     parked,
     slots: leavesOf(plan).map(n => (n.status === 'needs_check' ? 'check' : isFinished(n.status) ? 'done' : 'todo')),
     checks: checksOf(plan).map(n => `${n.title}${noteText(n)}`),
-    ...(words === undefined ? {} : { activity: { text: words, color: activity.phase === 'error' ? 'error' : run === undefined ? 'text' : glyphColor(run) } }),
+    ...(words === undefined ? {} : { activity: { text: words, color: activity.phase === 'error' ? 'error' : isWaiting(plan, activity) ? WAIT_COLOR : run === undefined ? 'text' : glyphColor(run) } }),
   }
 }

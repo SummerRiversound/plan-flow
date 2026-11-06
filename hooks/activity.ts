@@ -22,6 +22,7 @@ export type ActivityEvent =
   | { type: 'compactStart' }
   | { type: 'compactEnd' }
   | { type: 'failure'; detail: string }
+  | { type: 'background'; count: number }
 
 export const idleActivity = (): Activity => ({ phase: 'idle', running: [] })
 
@@ -40,8 +41,17 @@ export const step = (a: Activity, e: ActivityEvent): Activity => {
   switch (e.type) {
     case 'turnStart':
       return { phase: 'working', running: [] }
-    case 'turnEnd':
-      return { phase: e.reason === 'aborted' ? 'interrupted' : e.reason === 'error' || e.reason === 'refusal' ? 'error' : 'idle', running: [] }
+    case 'turnEnd': {
+      const phase = e.reason === 'aborted' ? 'interrupted' : e.reason === 'error' || e.reason === 'refusal' ? 'error' : 'idle'
+
+      // The count of background work may come before the turn's end; it stays until the next turn.
+      return { phase, running: [], ...(a.background === undefined ? {} : { background: a.background }) }
+    }
+    case 'background': {
+      const { background: _old, ...rest } = a
+
+      return e.count > 0 ? { ...rest, background: e.count } : rest
+    }
     case 'toolStart': {
       const next = [...running, { id: e.id, tool: clean(e.tool) || 'tool' }]
 
@@ -88,6 +98,6 @@ export const activityLabel = (a: Activity): string | undefined => {
     case 'error':
       return a.detail === undefined || a.detail === '' ? t().activity.error : t().activity.errorWith(a.detail)
     case 'idle':
-      return undefined
+      return a.background === undefined ? undefined : t().activity.background(a.background)
   }
 }

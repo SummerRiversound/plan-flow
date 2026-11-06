@@ -61,7 +61,7 @@ Three colours, each with one meaning; everything else is plain text or muted. Mo
 
 - **Success (#5cc072, `success`):** done marks and the filled part of the progress bar.
 - **Error (#ff6b80, `error`):** a blocked step and its note.
-- **Waiting (#b1b9f9, `permission`):** Claude waits on you (a question, a permission, or a turn that ended with work open): the `● 답변 기다리는 중` line and the running step's mark and its `답변 기다림`. The colour Claude Code gives its own permission prompts, so it reads as your turn.
+- **Waiting (#b1b9f9, `permission`):** Claude waits on you (a question, a permission, or a turn that ended with work open and no background work still running; while that runs the line reads `백그라운드 작업 N개 진행 중` in plain text): the `● 답변 기다리는 중` line and the running step's mark and its `답변 기다림`. The colour Claude Code gives its own permission prompts, so it reads as your turn.
 - **Text (#e8e6e3, `text`):** step names, the running mark and the running box's border; bold for buttons, the running step and the plan title.
 - **Muted (#9a968f, `inactive`):** waiting and skipped steps, borders, connectors, counts.
 

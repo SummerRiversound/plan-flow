@@ -253,4 +253,9 @@ test('a turn that ended with work open reads as waiting for an answer, in its ow
   // A finished plan waits for nothing.
   const done = ok(updateNodes(p, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }], 2))
   expect(drawTree(done, idleActivity(), { maxRows: 20, width: 60, now: 0 }).map(lineText).join('\n')).not.toContain('기다리는')
+  // A turn that ended with background work in flight waits on that work, not on the person.
+  const bg = drawTree(p, { phase: 'idle', running: [], background: 2 }, { maxRows: 20, width: 60, now: 0 })
+  expect(bg.map(lineText).join('\n')).toContain('백그라운드 작업 2개 진행 중')
+  expect(bg.map(lineText).join('\n')).not.toContain('답변 기다리는 중')
+  expect(bg.find(l => lineText(l).includes('헤더 적용'))?.find(s => s.text === '●')?.color).not.toBe('permission')
 })

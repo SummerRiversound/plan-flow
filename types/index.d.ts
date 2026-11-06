@@ -49,6 +49,8 @@ export type Activity = {
   tool?: string
   detail?: string
   running: Array<{ id: string; tool: string }>
+  // Background work (agents, workflows, shells) still running when the turn ended: Claude waits on it, not on the person.
+  background?: number
 }
 
 // A plan set aside: parked to come back to, cancelled, or done. The shelf is newest first.
@@ -93,6 +95,7 @@ declare module 'claude-code' {
         tool?: string
         detail?: string
         running: Array<{ id: string; tool: string }>
+        background?: number
       }
       shelf: Array<{
         plan: {

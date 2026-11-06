@@ -975,6 +975,8 @@ export const register: Register = (on, options) => {
 
     return next(e)
   })
+  // Background work still in flight when the main turn stops: the session waits on it, not on the person.
+  on('classic.Stop', async ($, e, next) => (await act($, { type: 'background', count: e.background_tasks?.length ?? 0 }), next(e)))
   on('classic.PreCompact', async ($, e, next) => (await act($, { type: 'compactStart' }), next(e)))
   on('classic.PostCompact', async ($, e, next) => (await act($, { type: 'compactEnd' }), next(e)))
 

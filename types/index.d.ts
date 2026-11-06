@@ -129,6 +129,8 @@ declare module 'claude-code' {
       pane: boolean
       // The band folded to its title and progress lines.
       fold: boolean
+      // A finished plan's band was opened by a press; it folds again when the next plan finishes.
+      doneOpen: boolean
       // A newer plan-flow installed beside this one, or out in its repository; null when this one is the newest.
       newer: { kind: 'installed' | 'released'; version: string } | null
     }

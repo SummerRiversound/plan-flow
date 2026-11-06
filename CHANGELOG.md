@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.33 — 2026-11-06
+
+### Changed
+
+- A finished plan no longer leaves the band above the prompt after 5 seconds. It folds to its title, goal and full progress bar and stays until the next plan starts; press the title to open it. The fold you set while work runs is kept apart.
+
 ## 0.1.32 — 2026-11-06
 
 ### Fixed

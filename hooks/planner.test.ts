@@ -44,3 +44,7 @@ test('the planner is told the field names the board reads, so its steps are not 
   const ops = parseOps('[{"op":"set","title":"Coupons","goal":"Carts take coupons.","nodes":[{"title":"Fixed coupon","detail":"Takes an amount off.","children":[{"title":"Its test","detail":"Proves it."}]}]}]')
   expect(ops).toHaveLength(1)
 })
+
+test('the planner keeps a step open while Claude waits for the person to answer, so the board can say it waits', () => {
+  expect(PLANNER_SYSTEM).toContain('When Claude\'s answer asks the person to approve, choose or say whether to go on')
+})

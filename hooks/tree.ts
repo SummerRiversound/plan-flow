@@ -264,27 +264,31 @@ export type BandRow =
   | { kind: 'more'; text: string; line: Line }
   | { kind: 'expected'; text: string; line: Line }
 
-// Work expected after the plan, hanging dotted and dim under its last row: a lone `┆`, then one row
-// each. `text` is the title, '' on the lone row.
-export const expectedRows = (plan: Plan, width: number): BandRow[] => {
-  if (plan.expected === undefined || plan.expected.length === 0 || !hasOpenWork(plan)) return []
+// Work expected after the plan, hanging dotted and dim under its last row, in the most rows it
+// may take: a lone `┆` then one row each, else one row each, else all in one row. `text` is
+// what the row names, '' on the lone row.
+export const expectedRows = (plan: Plan, width: number, rows = Infinity): BandRow[] => {
+  const titles = plan.expected ?? []
+  if (titles.length === 0 || !hasOpenWork(plan) || rows < 1) return []
   const faint = { color: 'inactive', dim: true }
+  const row = (text: string): BandRow => ({ kind: 'expected', text, line: fitLine([{ text: '   ┆ ', ...faint }, { text: `◌ ${text}`, ...faint }], width) })
+  const each = titles.map(row)
+  if (rows > titles.length) return [{ kind: 'expected', text: '', line: [{ text: '   ┆', ...faint }] }, ...each]
 
-  return [
-    { kind: 'expected', text: '', line: [{ text: '   ┆', ...faint }] },
-    ...plan.expected.map((title): BandRow => ({ kind: 'expected', text: title, line: fitLine([{ text: '   ┆ ', ...faint }, { text: `◌ ${title}`, ...faint }], width) })),
-  ]
+  return rows === titles.length ? each : [row(titles.join(' · '))]
 }
 
-// The steps first: expected work takes rows only when the end of the plan still shows with it.
+// The steps first: expected work takes the rows left once the end of the plan shows.
 export const bandRows = (plan: Plan, activity: Activity, budget: number, width: number, now: number): BandRow[] => {
-  const tail = expectedRows(plan, width)
-  if (tail.length > 0 && budget - tail.length >= 3) {
+  const all = stepRows(plan, activity, budget, width, now)
+  for (const room of [Infinity, (plan.expected ?? []).length, 1]) {
+    const tail = expectedRows(plan, width, room)
+    if (tail.length === 0 || budget - tail.length < 1) continue
     const steps = stepRows(plan, activity, budget - tail.length, width, now)
     if (steps.end) return [...steps.rows, ...tail]
   }
 
-  return stepRows(plan, activity, budget, width, now).rows
+  return all.rows
 }
 
 // The steps' rows in `budget` rows, and whether they reach the end of the plan.
@@ -306,7 +310,7 @@ const stepRows = (plan: Plan, activity: Activity, budget: number, width: number,
   }
   const body = rowsFor(foldedParents(plan))
   // Too few rows for a window: rows give way instead.
-  if (body.length <= budget || budget < 3) return { rows: fitRows(plan, budget, rowsFor, overflow), end: true }
+  if (body.length <= budget || budget < 3) return { rows: fitRows(plan, budget, rowsFor, overflow), end: body.length <= budget }
   // A window around the current step; the drawer has the rest.
   const at = body.findIndex(r => marked.has(r.node.id))
   const offset = Math.max(0, Math.min(body.length - budget, at < 0 ? 0 : at - Math.floor(budget / 2)))

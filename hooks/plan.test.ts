@@ -292,3 +292,8 @@ test('steps under a finished stage do not count toward the cap, so a long sessio
   expect(p.nodes.length).toBeGreaterThan(MAX_NODES)
   expect(fails(setPlan(emptyPlan(), '처음부터 큰 계획', Array.from({ length: MAX_NODES + 1 }, (_, i) => ({ title: `${i}` })), 0))).toContain(`at most ${MAX_NODES}`)
 })
+
+test('progress counts the steps only, never what is expected after them', () => {
+  const p = { ...ok(setPlan(emptyPlan(), 'T', [{ title: 'a' }], 0)), expected: ['b'] }
+  expect(progress(p)).toEqual({ done: 0, total: 1 })
+})

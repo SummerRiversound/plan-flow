@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.31 — 2026-11-06
+
+### Added
+
+- Work likely to follow the plan, such as review comments once a pull request is open, hangs dim and dotted after the last stage: in the band, in the drawer's flowchart and list, and as faint cards on the desktop app. Two at most; it does not count towards progress, becomes a step when it starts, and goes when the plan finishes.
+
 ## 0.1.30 — 2026-11-06
 
 ### Changed

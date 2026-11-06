@@ -288,3 +288,20 @@ test('stages named for an outcome, a plan of one stage and steps added later car
   const set = apply(emptyPlan(), { op: 'set', title: '메모 표시', nodes: outcome })
   expect(apply(set.plan, { op: 'add', nodes: [{ title: '커밋', detail: '왜' }] }).text).not.toContain('named for the routine')
 })
+
+test('expected steps ride after the plan: at most two, never counted, gone once one is on the plan or the plan is done', () => {
+  let { plan, text } = apply(emptyPlan(), { op: 'set', title: '헤더 다듬기', goal: 'g', nodes: [{ title: '헤더 적용' }, { title: '변경 올리기' }], expected: ['리뷰 반영', '릴리즈', '배포 확인', 7] })
+  expect(plan.expected).toEqual(['리뷰 반영', '릴리즈'])
+  expect(text).toContain('Expected after the plan, not counted: 리뷰 반영; 릴리즈')
+  expect(text).toContain('(0/2 done)')
+  // A step of the same title on the plan takes its place.
+  plan = apply(plan, { op: 'add', nodes: [{ title: '리뷰 반영', detail: 'd' }] }).plan
+  expect(plan.expected).toEqual(['릴리즈'])
+  // Op update replaces the list; an empty one clears it.
+  plan = apply(plan, { op: 'update', expected: ['릴리즈 노트'] }).plan
+  expect(plan.expected).toEqual(['릴리즈 노트'])
+  expect(apply(plan, { op: 'update', expected: [] }).plan.expected).toBeUndefined()
+  // Finishing the plan drops what was only expected.
+  plan = apply(plan, { op: 'update', updates: ['1', '2', '3'].map(id => ({ id, status: 'completed' })) }).plan
+  expect(plan.expected).toBeUndefined()
+})

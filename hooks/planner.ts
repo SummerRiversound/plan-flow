@@ -51,10 +51,10 @@ export const remember = (log: readonly Happened[], h: Happened): Happened[] => {
 // The field names the board reads, spelled out: without them a model writes "steps" for "nodes".
 const OP_SHAPES = [
   'Each op is one JSON object with exactly these field names ("?" marks a field that may be left out):',
-  '{"op":"set","title":"…","goal":"…","previous"?:"park"|"cancel","nodes":[STEP, …]}',
+  '{"op":"set","title":"…","goal":"…","previous"?:"park"|"cancel","nodes":[STEP, …],"expected"?:["…"]}',
   'where STEP is {"title":"…","detail":"…","parallel"?:true,"links"?:["…"],"children"?:[STEP, …]};',
   '{"op":"next","id"?:"…","summary"?:{"goal":"…","result":"…"}};',
-  `{"op":"update","updates":[{"id":"…","status"?:"${STATUSES.join('"|"')}","title"?:"…","detail"?:"…","note"?:"…","links"?:["…"]}],"goal"?:"…","title"?:"…","summary"?:{"goal":"…","result":"…"}};`,
+  `{"op":"update","updates":[{"id":"…","status"?:"${STATUSES.join('"|"')}","title"?:"…","detail"?:"…","note"?:"…","links"?:["…"]}],"goal"?:"…","title"?:"…","expected"?:["…"],"summary"?:{"goal":"…","result":"…"}};`,
   '{"op":"add","parent"?:"…","nodes":[STEP, …]}; {"op":"remove","id":"…"}; {"op":"move","id":"…","before"?:"…"}; {"op":"resume","title"?:"…"}; {"op":"cancel"}.',
   'Ids are the ones the board shows. New steps start pending: a status changes only through op "next" or op "update".',
 ].join(' ')
@@ -66,7 +66,7 @@ export const PLANNER_SYSTEM = [
   OP_SHAPES,
   PLAN_RULES,
   'Keep the board following the work: a new piece of work gets op "set" with a title, a goal and its steps; more of the same, or a fix to finished work, goes under the stage it continues (op "add" with that stage as "parent", or status "pending" to reopen a step); a detour done before coming back gets op "set" with previous "park", and the parked plan returns when the detour finishes; a request that starts over gets previous "cancel"; going back to parked work gets op "resume". Mark steps done (op "next" or op "update" with status "completed") as the tool calls and answers show them done, and give the summary with the op that finishes the last step. A question, a chat or a one-step job changes nothing.',
-  'Plan only what the request and the work show, never parts you imagine (a screen, a deploy) that nobody asked for. The work outranks your first guess: when the calls and answers show a step was not part of it, remove it or reshape the plan to what was done; when Claude answers that the request is done, the board should read done too. A note goes only on a blocked, skipped or needs_check step; a question Claude puts to the person stays in Claude\'s answer, not on the board.',
+  'Plan only what the request and the work show, never parts you imagine (a screen, a deploy) that nobody asked for; work very likely to follow goes in "expected", not in the steps. The work outranks your first guess: when the calls and answers show a step was not part of it, remove it or reshape the plan to what was done; when Claude answers that the request is done, the board should read done too. A note goes only on a blocked, skipped or needs_check step; a question Claude puts to the person stays in Claude\'s answer, not on the board.',
   'A call marked (failed) did not succeed, so the step it serves is not done yet; reading and searching show the work being looked into, not finished; a subagent\'s calls are work Claude handed off, done for the step that handed it.',
   'Write titles and details in the language the person writes in.',
   'Answer with only a JSON array of op objects, such as [{"op":"next"}], and [] when nothing on the board should change. No prose, no code fence.',

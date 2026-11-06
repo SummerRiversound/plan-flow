@@ -8,15 +8,18 @@ const SPIN_S = 1
 const W = 1200
 const H = 48
 const MID = W / 2
-const line = (d: string, h = H): string =>
+const line = (d: string, h = H, dotted = false): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}" viewBox="0 0 ${W} ${h}">` +
   '<style>.l{stroke:#c9c5bd}@media (prefers-color-scheme:dark){.l{stroke:#5a5752}}</style>' +
-  `<path class="l" d="${d}" fill="none" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/></svg>`
+  `<path class="l" d="${d}" fill="none" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round"${dotted ? ' stroke-dasharray="4 6"' : ''}/></svg>`
 
 const middles = (n: number): number[] => [...Array(n).keys()].map(i => Math.round((W * (2 * i + 1)) / (2 * n)))
 
 // Straight down from one card to the next.
 export const trunkSvg = (): string => line(`M${MID} 0 V${H}`)
+
+// Dotted, down to work only expected after the plan.
+export const dottedTrunkSvg = (): string => line(`M${MID} 0 V${H}`, H, true)
 
 // From the card above out to the middle of each card below.
 export const splitSvg = (n: number): string => {

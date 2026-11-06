@@ -16,7 +16,7 @@ import type { Happened } from './planner'
 import { GUARDED, noticeLine, PERSON, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
-import { joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
+import { dottedTrunkSvg, joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
 import type { BandRow } from './tree'
 import type { StepRowProps } from './step-row'
@@ -141,6 +141,12 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
       return (
         <Text size="footnote" color="inactive">
           {r.text}
+        </Text>
+      )
+    if (r.kind === 'expected')
+      return (
+        <Text size="footnote" color="inactive" dimColor>
+          {r.text === '' ? ' ┆' : ` ┆ ◌ ${r.text}`}
         </Text>
       )
     if (r.kind === 'detail')
@@ -387,6 +393,22 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     )
   }
 
+  // Work expected after the plan: a faint card with no row to press, tagged as expected.
+  const ahead = (title: string) => (
+    <Box flexDirection="row" alignItems="center" gap="xs" borderStyle="round" borderColor={EDGE} paddingX="sm" paddingY="xs">
+      <Text color="inactive" dimColor>
+        ◌
+      </Text>
+      <Text color="inactive" dimColor wrap="truncate-end">
+        {title}
+      </Text>
+      <Box flexGrow={1} />
+      <Text size="caption" color="inactive">
+        {t().expected}
+      </Text>
+    </Box>
+  )
+
   // The list keeps the tree's guides, which show the levels best, monospaced at each row's start so they
   // line up; the rest of a row is in the app's type, and the whole row is pressable where Clients draw.
   const listRows = (): RenderChildren[] => {
@@ -410,6 +432,14 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
         out.push(
           <Text size="footnote" color="inactive">
             {r.text}
+          </Text>,
+        )
+        continue
+      }
+      if (r.kind === 'expected') {
+        out.push(
+          <Text mono color="inactive" dimColor>
+            {r.line.map(s => s.text).join('')}
           </Text>,
         )
         continue
@@ -506,10 +536,11 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
       if (!last) flow.push(pic(joinSvg(a.stages.length), `join-${i}`))
       return
     }
-    if (!first && axis[i - 1]?.kind !== 'split') flow.push(pic(trunkSvg(), `trunk-${i}`))
+    if (a.kind === 'expected') flow.push(pic(dottedTrunkSvg(), `trunk-${i}`))
+    else if (!first && axis[i - 1]?.kind !== 'split') flow.push(pic(trunkSvg(), `trunk-${i}`))
     flow.push(
       <Box flexDirection="column" paddingX="xs">
-        {a.kind === 'stage' ? card(a.stage) : summary(a)}
+        {a.kind === 'stage' ? card(a.stage) : a.kind === 'expected' ? ahead(a.title) : summary(a)}
       </Box>,
     )
   })

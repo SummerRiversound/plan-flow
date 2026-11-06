@@ -608,3 +608,20 @@ test('the band keeps what another plugin draws above the prompt, under the tree'
   expect(await band.find({ type: 'Text', text: 'engine' })).toBeDefined()
   await band.unmount()
 })
+
+test('on the desktop app expected work follows the last card on a dotted line, faint and tagged, and the band lists it dim', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await plan($, { ...PLAN, expected: ['리뷰 반영'] })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const drawn = JSON.stringify(await pane.drawn())
+  expect(drawn).toContain('리뷰 반영')
+  expect(drawn).toContain('예상')
+  expect((await pane.findAll({ type: 'Svg' })).some(s => String(s.props.source).includes('stroke-dasharray'))).toBe(true)
+  // Not a step: no row to press.
+  expect((await pane.findAll({ type: 'Client' })).map(c => c.key)).not.toContain('step-리뷰 반영')
+  await pane.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ type: 'Text', text: /◌ 리뷰 반영/ })).toBeDefined()
+  await band.unmount()
+})

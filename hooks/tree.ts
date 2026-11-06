@@ -4,7 +4,7 @@ import type { Activity } from '../types'
 import { activityLabel } from './activity'
 import { fitRows, foldedParents } from './fit'
 import type { Plan, PlanNode, PlanStatus } from './plan'
-import { checksOf, childrenOf, currentLeaf, hasChildren, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
+import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
 import { cells, fit, padRight, wrap } from './width'
 import { t } from './i18n'
 
@@ -262,8 +262,33 @@ export type BandRow =
   | { kind: 'step'; node: PlanNode; folded: boolean; line: Line }
   | { kind: 'detail'; node: PlanNode; text: string; line: Line }
   | { kind: 'more'; text: string; line: Line }
+  | { kind: 'expected'; text: string; line: Line }
 
+// Work expected after the plan, hanging dotted and dim under its last row: a lone `┆`, then one row
+// each. `text` is the title, '' on the lone row.
+export const expectedRows = (plan: Plan, width: number): BandRow[] => {
+  if (plan.expected === undefined || plan.expected.length === 0 || !hasOpenWork(plan)) return []
+  const faint = { color: 'inactive', dim: true }
+
+  return [
+    { kind: 'expected', text: '', line: [{ text: '   ┆', ...faint }] },
+    ...plan.expected.map((title): BandRow => ({ kind: 'expected', text: title, line: fitLine([{ text: '   ┆ ', ...faint }, { text: `◌ ${title}`, ...faint }], width) })),
+  ]
+}
+
+// The steps first: expected work takes rows only when the end of the plan still shows with it.
 export const bandRows = (plan: Plan, activity: Activity, budget: number, width: number, now: number): BandRow[] => {
+  const tail = expectedRows(plan, width)
+  if (tail.length > 0 && budget - tail.length >= 3) {
+    const steps = stepRows(plan, activity, budget - tail.length, width, now)
+    if (steps.end) return [...steps.rows, ...tail]
+  }
+
+  return stepRows(plan, activity, budget, width, now).rows
+}
+
+// The steps' rows in `budget` rows, and whether they reach the end of the plan.
+const stepRows = (plan: Plan, activity: Activity, budget: number, width: number, now: number): { rows: BandRow[]; end: boolean } => {
   const marked = markedLeaves(plan)
   const rowsFor = (folded: ReadonlySet<string>) =>
     plan.nodes
@@ -281,12 +306,12 @@ export const bandRows = (plan: Plan, activity: Activity, budget: number, width: 
   }
   const body = rowsFor(foldedParents(plan))
   // Too few rows for a window: rows give way instead.
-  if (body.length <= budget || budget < 3) return fitRows(plan, budget, rowsFor, overflow)
+  if (body.length <= budget || budget < 3) return { rows: fitRows(plan, budget, rowsFor, overflow), end: true }
   // A window around the current step; the drawer has the rest.
   const at = body.findIndex(r => marked.has(r.node.id))
   const offset = Math.max(0, Math.min(body.length - budget, at < 0 ? 0 : at - Math.floor(budget / 2)))
 
-  return body.slice(offset, offset + budget).map(r => r.line)
+  return { rows: body.slice(offset, offset + budget).map(r => r.line), end: offset + budget >= body.length }
 }
 
 export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice }: TreeOptions): Line[] => {

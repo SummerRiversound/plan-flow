@@ -158,15 +158,21 @@ export const rollup = (plan: Plan): Plan => {
     if (parent.status === 'completed' && ends.length > 0) parent.doneAt = Math.max(...ends)
     else delete parent.doneAt
   }
+  // ↺ says a step is being redone, so it goes once the step is finished again.
+  if (plan.marks === undefined) return { ...plan, nodes }
+  const marks = Object.fromEntries(Object.entries(plan.marks).filter(([id, m]) => m !== 'redo' || !isFinished(nodes.find(n => n.id === id)?.status ?? 'completed')))
 
-  return { ...plan, nodes }
+  return { ...plan, nodes, marks }
 }
 
 // Moves a leaf to `status`, stamping when it starts and when it is done.
 const setStatus = (node: PlanNode, status: PlanStatus, now: number): void => {
   if (status === 'in_progress' && node.startedAt === undefined) node.startedAt = now
-  if (status === 'completed') node.doneAt = now
-  else delete node.doneAt
+  if (status === 'completed') {
+    node.doneAt = now
+    // The note said why it waited or was stuck; once done it would read as an open question.
+    delete node.note
+  } else delete node.doneAt
   if (status === 'pending') delete node.startedAt
   node.status = status
 }

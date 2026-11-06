@@ -216,6 +216,30 @@ test('reopening finished work marks it redo, and pending on a parent reopens all
   expect(clearMarks(whole).marks).toBeUndefined()
 })
 
+test('a reopened step loses its redo mark once it is done again, by update or by next', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a', children: [{ title: 'x' }, { title: 'y' }] }, { title: 'b' }], 0))
+  p = ok(updateNodes(p, [{ id: '1.1', status: 'needs_check' }], 1))
+  p = ok(updateNodes(p, [{ id: '1.1', status: 'in_progress' }], 2))
+  expect(p.marks).toEqual({ '1.1': 'redo' })
+  expect(ok(updateNodes(p, [{ id: '1.1', status: 'completed' }], 3)).marks).toEqual({})
+  expect(ok(nextStep(p, '1.1', 3)).marks).toEqual({})
+  // A reopened parent keeps its mark while any step under it is open.
+  let whole = ok(updateNodes(p, [{ id: '1.1', status: 'completed' }, { id: '1.2', status: 'completed' }], 3))
+  whole = ok(updateNodes(whole, [{ id: '1', status: 'pending' }], 4))
+  whole = ok(updateNodes(whole, [{ id: '1.1', status: 'completed' }], 5))
+  expect(whole.marks).toEqual({ '1': 'redo' })
+})
+
+test('a step that is done drops the note it carried while it waited or was blocked', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a' }, { title: 'b' }], 0))
+  p = ok(updateNodes(p, [{ id: '1', status: 'needs_check', note: '시안을 골라주세요' }, { id: '2', status: 'blocked', note: '권한 없음' }], 1))
+  p = ok(updateNodes(p, [{ id: '1', status: 'completed' }], 2))
+  expect(p.nodes.find(n => n.id === '1')?.note).toBeUndefined()
+  expect(p.nodes.find(n => n.id === '2')?.note).toBe('권한 없음')
+  p = ok(updateNodes(p, [{ id: '2', status: 'in_progress' }], 3))
+  expect(ok(nextStep(p, '2', 4)).nodes.find(n => n.id === '2')?.note).toBeUndefined()
+})
+
 test('added steps go after what is already under their parent and are marked new', () => {
   let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a', children: [{ title: 'x' }] }, { title: 'b' }], 0))
   p = ok(addNodes(p, '1', [{ title: 'z', children: [{ title: 'z1' }] }], 1))

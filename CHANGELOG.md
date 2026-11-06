@@ -2,6 +2,13 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.30 — 2026-11-06
+
+### Changed
+
+- `↺` shows only while a reopened step is still open; once it is done again the mark goes.
+- A step that is done drops the note it carried while it waited for a check or was blocked, so a question already answered does not stay on the board.
+
 ## 0.1.29 — 2026-11-06
 
 ### Fixed

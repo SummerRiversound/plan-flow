@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.37 — 2026-11-06
+
+### Changed
+
+- While Claude works, the planner looks at most once every 20 seconds, and what Claude said meanwhile goes with the next look, so many open sessions do not each call it several times a minute. Your messages, Claude's answers and a new plan's design are still looked at at once.
+
 ## 0.1.36 — 2026-11-06
 
 ### Changed

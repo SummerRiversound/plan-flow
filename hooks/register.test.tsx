@@ -229,6 +229,25 @@ test("what Claude says between its calls reaches the planner and makes it look; 
   expect(asked).toHaveLength(1)
 })
 
+test('while Claude works the planner looks at most once every 20 seconds, and what came in meanwhile goes with the next look', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await step($, '먼저 구조를 볼게요')
+  expect(asked).toHaveLength(1)
+  await step($, '이제 화면을 고칠게요')
+  await step($, '테스트를 돌릴게요')
+  expect(asked).toHaveLength(1)
+  await theClock?.advance(20_000)
+  await plannerIdle()
+  expect(asked).toHaveLength(2)
+  expect(asked[1]).toContain('Claude said: 이제 화면을 고칠게요')
+  expect(asked[1]).toContain('Claude said: 테스트를 돌릴게요')
+  // The answer is looked at at once.
+  await plan($)
+  expect(asked).toHaveLength(3)
+})
+
 test('a new plan is designed once by a fork of the main conversation, after Claude has taken the request', KO, async ($, on) => {
   engine(on)
   await start($)

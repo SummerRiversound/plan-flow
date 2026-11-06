@@ -372,7 +372,7 @@ export const drawFlow = (plan: Plan, drawer: DrawerState, { width, now, live = f
   // margin, or wider to keep the longest title whole.
   const span = oddFit(Math.max(MIN_BOX, width - 8, ...stages.filter(n => n.parallel !== true).map(n => natural(ctx, n))), width)
   const close = summaryRows(plan, span - 4)
-  const ahead = hasOpenWork(plan) ? (plan.expected ?? []) : []
+  const ahead = plan.expected ?? []
   stages.forEach((n, i) => {
     const last = i === stages.length - 1 && close.length === 0 && ahead.length === 0
     if (n.parallel === true) {

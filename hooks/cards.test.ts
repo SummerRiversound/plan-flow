@@ -95,6 +95,8 @@ test('a finished plan with a summary ends in the closing note', () => {
   p = { ...p, summary: { goal: '로그인되게 한다', result: '화면과 API를 만들고 확인했다' } }
   const last = cardsOf(p, closed).at(-1)
   expect(last).toMatchObject({ kind: 'summary', goal: '로그인되게 한다', result: '화면과 API를 만들고 확인했다' })
+  // Work expected next still hangs after the closing note.
+  expect(cardsOf({ ...p, expected: ['배포'] }, closed).slice(-2)).toMatchObject([{ kind: 'summary' }, { kind: 'expected', title: '배포' }])
 })
 
 test('the head carries the title, goal, one progress slot per step in order, the steps to check and what Claude is doing', () => {

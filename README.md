@@ -35,7 +35,7 @@ The board follows the work of the whole session, not each message:
 - A detour (say, a quick bug fix in the middle) puts the current plan on a shelf, and it comes back when the detour is done. The shelf sits at the bottom of the drawer; press a parked plan to see its steps.
 - Starting over cancels the current plan.
 - A step that has to be redone opens again and is marked `↺` until it is done.
-- Work likely to follow the plan (say, review comments once a pull request is open) hangs dim and dotted after the last stage, two at most. It does not count towards progress, becomes a step when it starts, and goes when the plan finishes.
+- Work Claude goes on with without asking is a step, the review, merge or release that follows the request included. Work after the plan that waits on your go-ahead or on someone else (say, a merge you decide on, or review comments still to come) hangs dim and dotted after the last stage, two at most. It does not count towards progress, becomes a step when it starts, and stays after the plan finishes.
 - A new task after a finished plan starts a new plan, and the finished one stays on the shelf.
 
 The mod's planner decides which of these fits, from your messages, the calls Claude makes and what Claude says. When a plan starts or its goal changes, a copy of the conversation asks Claude once to design it: the goal as the end you are after, and the stages the whole way there. The working conversation never sees the board: nothing is added to what it reads, so the mod does not change how it works.

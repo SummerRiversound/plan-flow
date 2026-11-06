@@ -220,9 +220,9 @@ test('work expected after the plan hangs dotted under its last row, dim, and nev
   expect(text.slice(at + 1, at + 4)).toEqual(['   ┆', '   ┆ ◌ 리뷰 반영', '   ┆ ◌ 릴리즈'])
   expect(lines[at + 2]?.every(s => s.color === 'inactive' && s.dim === true)).toBe(true)
   expect(text.join('\n')).toContain('0/2')
-  // A finished plan shows none.
+  // A finished plan keeps it: that work is still to come.
   const done = ok(updateNodes(p, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }], 2))
-  expect(drawTree(done, idleActivity(), { maxRows: 20, width: 60, now: 0 }).map(lineText).join('\n')).not.toContain('◌')
+  expect(drawTree(done, idleActivity(), { maxRows: 20, width: 60, now: 0 }).map(lineText).join('\n')).toContain('◌ 리뷰 반영')
 })
 
 test('the band keeps its rows for the steps: expected work shows only when the end of the plan is in view', () => {

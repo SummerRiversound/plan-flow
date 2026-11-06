@@ -37,8 +37,12 @@ export const TOOL_DESCRIPTION = [
   'The board keeps one plan in hand and a shelf: op "set" with a different title while steps are open needs "previous": "park" (set it aside; it comes back when the new plan finishes) or "cancel" (start over).',
   'op "resume" brings back a shelved plan ("title", else the newest parked), op "cancel" drops the plan in hand and brings back the newest parked one.',
   'With the op that finishes the last step (op "next", or op "update" alone), give "summary": what the plan was for and how that was reached; it closes the plan at the end of the drawer.',
-  '"expected" on op "set" or op "update" lists up to 2 short titles of work very likely to follow the plan that nobody has asked for yet (review comments to apply once a pull request is open, a release after a merge where the repo releases); they are drawn dotted after the last stage and never counted. Leave it out when unsure; [] clears it. When that work starts, add it as a step of the same title and it leaves the list.',
+  '"expected" on op "set" or op "update" lists up to 2 short titles of the work that waits after the plan; they are drawn dotted after the last stage, never counted, and stay once the plan is finished. Leave it out when unsure; [] clears it. When that work starts, add it as a step of the same title and it leaves the list.',
 ].join(' ')
+
+// Solid or dotted: what Claude goes on with is a step, what waits on someone is expected.
+export const EXPECTED_RULE =
+  'Work Claude goes on with without asking, the routine that follows from the request included (a review, merge or release it does on its own), is a step, drawn solid. "expected" holds only work very likely to follow that Claude will not start on its own: it waits on the person\'s go-ahead (a merge into the default branch, a deploy or release they decide on) or on someone else (review comments still to come); work only someone else does stays off the board.'
 
 // How a good plan is shaped, for whoever keeps the board.
 export const PLAN_RULES = [
@@ -47,6 +51,7 @@ export const PLAN_RULES = [
   'Every title is at most 4 words.',
   'Steps are checkpoints for following where the work stands, not the edits: the deepest level is something the person would recognise as done (a screen works, a test proves it), and the file-by-file changes stay out of the plan.',
   'Give every step a detail: one plain sentence saying what it does and why, with no file names, code or commands, in words the person already uses.',
+  EXPECTED_RULE,
   'The goal is the end the person is after, in one sentence: what will be true or exist for them once the work is done (a bug no longer loses data, a feature ships to users), never the steps, their order or what has been done so far; rewrite it with op "update" and "goal" only when that end changes or widens.',
   'The title and the goal name the work by its subject (what the change does, the feature, the bug), never "this" or "current" and never a bare number, so the person can tell the session apart from the others; when the request names its subject only that way, rename the plan with op "update" and "title" and "goal" once the calls or answers show it.',
   'When a step produced something the person may open (a PR, an issue, a commit, an artifact, a file), attach it with op "update" and "links": the full URL or an absolute path, only as it appears in what happened.',

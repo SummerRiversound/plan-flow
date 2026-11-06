@@ -278,7 +278,7 @@ export type BandRow =
 // what the row names, '' on the lone row.
 export const expectedRows = (plan: Plan, width: number, rows = Infinity): BandRow[] => {
   const titles = plan.expected ?? []
-  if (titles.length === 0 || !hasOpenWork(plan) || rows < 1) return []
+  if (titles.length === 0 || rows < 1) return []
   const faint = { color: 'inactive', dim: true }
   const row = (text: string): BandRow => ({ kind: 'expected', text, line: fitLine([{ text: '   ┆ ', ...faint }, { text: `◌ ${text}`, ...faint }], width) })
   const each = titles.map(row)

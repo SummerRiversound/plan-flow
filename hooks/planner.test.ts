@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
-import { MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
+import { EXPECTED_RULE } from './plan-tool'
+import { designPrompt, MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
 import type { Happened } from './planner'
 
 test('a tool call is one line: what it says it is for, else the file it touches, never a whole command or file', () => {
@@ -47,4 +48,13 @@ test('the planner is told the field names the board reads, so its steps are not 
 
 test('the planner keeps a step open while Claude waits for the person to answer, so the board can say it waits', () => {
   expect(PLANNER_SYSTEM).toContain('When Claude\'s answer asks the person to approve, choose or say whether to go on')
+})
+
+test('work Claude goes on with unasked is a step; only work waiting on the person or someone else hangs dotted', () => {
+  const board = { plan: emptyPlan(), shelf: [] }
+  for (const prompt of [PLANNER_SYSTEM, designPrompt(board as never)]) expect(prompt).toContain(EXPECTED_RULE)
+  expect(EXPECTED_RULE).toContain('without asking')
+  expect(EXPECTED_RULE).toContain('waits on the person')
+  // The design no longer turns every merge or release into a step of its own.
+  expect(designPrompt(board as never)).not.toContain('review, merge or release where')
 })

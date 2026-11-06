@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.29 — 2026-11-06
+
+### Fixed
+
+- The running step moves again while Claude works. The side planner often marked steps done without starting the next one, so no step was running and nothing was drawn as running; now, after each look, open work always has a step running.
+
 ## 0.1.28 — 2026-11-06
 
 ### Changed

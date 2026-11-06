@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.35 — 2026-11-06
+
+### Fixed
+
+- When Claude asks you to approve, choose or say whether to go on, the planner keeps the step waiting on your answer open instead of closing the plan, so the board shows `● 답변 기다리는 중` rather than reading 100% done.
+
 ## 0.1.34 — 2026-11-06
 
 ### Changed

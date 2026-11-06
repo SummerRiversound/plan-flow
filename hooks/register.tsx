@@ -809,6 +809,8 @@ const PLANNER_MODEL = 'haiku'
 const PLAN_EVERY = 6
 // While Claude only reads, the planner still looks once this long has passed since its last look.
 const LOOK_EVERY_MS = 60_000
+// While Claude works, looks are at least this far apart; what comes in meanwhile waits for the next.
+const LOOK_GAP_MS = 20_000
 let fresh: Happened[] = []
 let request = ''
 let calls = 0
@@ -816,6 +818,7 @@ let lastLook = 0
 let busy: Promise<void> | null = null
 let queued = false
 let again = false
+let held = false
 // A plan the planner starts or widens is designed once per request by a fork of the main conversation,
 // after a main request of that turn is out, so the fork holds the request and reads it from the cache.
 let design: 'none' | 'wanted' | 'done' = 'none'
@@ -893,6 +896,19 @@ function planSoon($: $): void {
   })
 }
 
+// A look asked for while Claude works: at once when the last is LOOK_GAP_MS old (or there was none),
+// else once when it is.
+async function planWhileWorking($: $): Promise<void> {
+  const wait = lastLook === 0 ? 0 : lastLook + LOOK_GAP_MS - (await $.clock.now())
+  if (wait <= 0) return planSoon($)
+  if (held) return
+  held = true
+  $.clock.after(wait, () => {
+    held = false
+    planSoon($)
+  })
+}
+
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
 
@@ -943,7 +959,7 @@ export const register: Register = (on, options) => {
       const line = toolLine(e.tool, e as unknown as Record<string, unknown>)
       fresh = remember(fresh, { kind: sub ? 'subagent' : 'tool', text: out.isError === true ? `${line} (failed)` : line })
       if (out.isReadOnly !== true && GUARDED.has(e.tool)) calls++
-      if (calls >= PLAN_EVERY || (await $.clock.now()) - lastLook >= LOOK_EVERY_MS) planSoon($)
+      if (calls >= PLAN_EVERY || (await $.clock.now()) - lastLook >= LOOK_EVERY_MS) await planWhileWorking($)
 
       return out
     } finally {
@@ -977,10 +993,11 @@ export const register: Register = (on, options) => {
     const r = yield* next(e)
     if (e.agentId !== undefined) return r
     stepped = true
-    if (r.toolUses.length > 0 && r.answer.trim() !== '') {
-      fresh = remember(fresh, { kind: 'said', text: r.answer })
-      planSoon($)
-    } else if (design === 'wanted') planSoon($)
+    const said = r.toolUses.length > 0 && r.answer.trim() !== ''
+    if (said) fresh = remember(fresh, { kind: 'said', text: r.answer })
+    // A plan waiting for its design is not held back by the gap.
+    if (design === 'wanted') planSoon($)
+    else if (said) await planWhileWorking($)
 
     return r
   })

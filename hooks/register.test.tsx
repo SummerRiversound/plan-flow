@@ -486,17 +486,27 @@ test('/flow opens the drawer and closes it again', KO, async ($, on) => {
   expect((await $.command.run(FLOW)).text).toBe('흐름도를 닫았어요')
 })
 
-test('the tree hides five seconds after everything is done', KO, async ($, on) => {
+test('a finished plan stays above the prompt folded to its title and progress, and a press opens it', KO, async ($, on) => {
   const clock = engine(on)
   await start($)
-  await plan($, { op: 'set', title: '짧은 일', nodes: [{ title: '하나' }] })
-  await plan($, { op: 'next' })
-  await plan($, { op: 'next' })
+  await plan($, { op: 'set', title: '짧은 일', nodes: [{ title: '하나' }, { title: '둘' }] })
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await band.find({ type: 'Text', text: /짧은 일/ })).toBeDefined()
-  await clock.advance(6_000)
+  // While it runs the band is open.
+  expect(await band.find({ type: 'Text', text: /하나/ })).toBeDefined()
+  await plan($, { op: 'next' })
+  await plan($, { op: 'next' })
+  await clock.advance(60_000)
   await band.redraw()
-  expect(await band.find({ type: 'Text', text: /짧은 일/ })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /짧은 일/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /100%/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /하나/ })).toBeUndefined()
+  await band.press({ key: 'fold-band' })
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /하나/ })).toBeDefined()
+  // The next plan starts open again.
+  await plan($, { op: 'set', title: '다음 일', nodes: [{ title: '셋' }] })
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /셋/ })).toBeDefined()
   await band.unmount()
 })
 

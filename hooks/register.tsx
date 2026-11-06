@@ -27,7 +27,6 @@ import { manifestUrl, newerVersion, runningVersion, staleRelease } from './versi
 
 const PLUGIN = 'plan-flow'
 const PANE = 'plan-flow'
-const HIDE_AFTER_MS = 5000
 const KEPT_SESSIONS = 20
 
 const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan())
@@ -38,6 +37,7 @@ const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
 const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
 const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const foldAtom = atom({ plugin: 'plan-flow', key: 'fold' } as const, false)
+const doneOpenAtom = atom({ plugin: 'plan-flow', key: 'doneOpen' } as const, false)
 const newerAtom = atom({ plugin: 'plan-flow', key: 'newer' } as const, null as Newer | null)
 
 type $ = EngineInterface
@@ -637,11 +637,19 @@ async function shown($: $, autoShow: boolean): Promise<boolean> {
   return autoShow || (await read($, askedAtom))
 }
 
-// The tree steps aside a while after the last step is done.
 async function hidden($: $, plan: Plan, autoShow: boolean): Promise<boolean> {
-  const done = finishedAt(plan)
+  return plan.nodes.length === 0 || !(await shown($, autoShow))
+}
 
-  return plan.nodes.length === 0 || !(await shown($, autoShow)) || (done !== null && (await $.clock.now()) - done >= HIDE_AFTER_MS)
+// A finished plan stays above the prompt folded to its title and progress until a press opens it;
+// the fold the person set while work runs is kept apart.
+async function bandFolded($: $, plan: Plan): Promise<boolean> {
+  return finishedAt(plan) === null ? read($, foldAtom) : !(await read($, doneOpenAtom))
+}
+
+async function toggleBand($: $): Promise<void> {
+  if (finishedAt(await read($, planAtom)) === null) await update($, foldAtom, f => !f)
+  else await update($, doneOpenAtom, o => !o)
 }
 
 async function act($: $, ev: ActivityEvent): Promise<void> {
@@ -757,9 +765,7 @@ async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: stri
     if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
     await save($, plan, ran.board.shelf)
     await tick($, true)
-    if (finishedAt(plan) !== null) {
-      $.clock.after(HIDE_AFTER_MS + 100, () => $.ui.invalidate('ui.render'))
-    }
+    if (finishedAt(before) === null && finishedAt(plan) !== null) await update($, doneOpenAtom, () => false)
   }
 
   return { text: ran.text }
@@ -1001,13 +1007,13 @@ export const register: Register = (on, options) => {
       width,
       now,
       open: t().bandOpen,
-      folded: frame?.folded ?? (await read($, foldAtom)),
+      folded: frame?.folded ?? (await bandFolded($, plan)),
       parked,
       notice,
     })
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
-      if (id === FOLD_BUTTON) void update($, foldAtom, f => !f)
+      if (id === FOLD_BUTTON) void toggleBand($)
       if (id === DEMO_NEXT) void demo($, 'next')
       if (id === DEMO_PREV) void demo($, 'prev')
       if (id === DEMO_STOP) void demo($, 'stop')
@@ -1015,7 +1021,7 @@ export const register: Register = (on, options) => {
 
     // A surface with its own type draws the band natively; a demo's bar stays as lines over it.
     if (e.surface !== 'terminal') {
-      const folded = frame?.folded ?? (await read($, foldAtom))
+      const folded = frame?.folded ?? (await bandFolded($, plan))
       const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice).length
       return (
         <Box flexDirection="column" gap="xs">
@@ -1069,7 +1075,7 @@ export const register: Register = (on, options) => {
   on('ui.message', { component: 'AbovePrompt' }, async ($, e, next) => {
     const d = e.data
     if (typeof d === 'object' && d !== null && 'press' in d && d.press === FOLD_BUTTON) {
-      await update($, foldAtom, f => !f)
+      await toggleBand($)
       return {}
     }
     return next(e)

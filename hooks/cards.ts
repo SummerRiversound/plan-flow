@@ -79,7 +79,7 @@ export const cardsOf = (plan: Plan, drawer: DrawerState, waiting = false): AxisI
   )
   const s = plan.summary
   if (s !== undefined && !hasOpenWork(plan)) axis.push({ kind: 'summary', goal: s.goal, result: s.result, links: [...new Set(plan.nodes.flatMap(n => n.links ?? []))] })
-  if (hasOpenWork(plan)) for (const title of plan.expected ?? []) axis.push({ kind: 'expected', title })
+  for (const title of plan.expected ?? []) axis.push({ kind: 'expected', title })
 
   return axis
 }

@@ -268,11 +268,11 @@ export const withGoal = (r: PlanResult, goal: unknown): PlanResult => {
 export const MAX_EXPECTED = 2
 
 // Work likely to follow the plan: `list` replaces it when given. One leaves once a step of its
-// title is on the plan, and all go once the plan is finished, since the guess did not come true.
+// title is on the plan; a finished plan keeps the rest, since that work is still to come.
 export const withExpected = (plan: Plan, list?: readonly string[]): Plan => {
   const onPlan = new Set(plan.nodes.map(n => n.title.toLowerCase()))
   const titles = (list ?? plan.expected ?? []).map(s => clean(s).slice(0, MAX_TITLE)).filter(s => s !== '' && !onPlan.has(s.toLowerCase()))
-  const kept = hasOpenWork(plan) ? [...new Set(titles)].slice(0, MAX_EXPECTED) : []
+  const kept = [...new Set(titles)].slice(0, MAX_EXPECTED)
   if (kept.join('\n') === (plan.expected ?? []).join('\n')) return plan
   const { expected: _old, ...rest } = plan
 

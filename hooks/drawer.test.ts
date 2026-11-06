@@ -467,6 +467,10 @@ test('the flowchart ends in a dotted box for each piece of work expected after t
   expect(rest[3]).toMatch(/^┆ ◌ 리뷰 반영 +예상 ┆$/)
   expect(rest[4]).toMatch(/^╰┄+╯$/)
   expect(cells(text[at + 4] ?? '')).toBe(cells(text[at - 1] ?? ''))
+  // A finished plan keeps the dotted box after its closing note.
+  const done = { ...ok(updateNodes(p, [{ id: '2', status: 'completed' }], 2)), summary: { goal: '목적', result: '결과' } }
+  const after = drawFlow(done, { open: {}, focus: null }, { width: 53, now: 0 }).lines.map(lineText)
+  expect(after.findIndex(l => l.includes('◌ 리뷰 반영'))).toBeGreaterThan(after.findIndex(l => l.includes('완료 정리')))
 })
 
 test('in the drawer the running step says it waits for an answer once the turn ended with work open', () => {

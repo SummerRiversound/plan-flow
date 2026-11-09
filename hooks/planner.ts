@@ -13,6 +13,13 @@ export type Happened = { kind: 'request' | 'notice' | 'tool' | 'subagent' | 'sai
 // The calls that change something; these count towards the next look.
 export const GUARDED: ReadonlySet<string> = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash', 'Agent', 'Task', 'Workflow'])
 
+// State-changing calls in a turn before the planner looks again, so the board moves while Claude works.
+export const PLAN_EVERY = 6
+// While Claude only reads, the planner still looks once this long has passed since its last look.
+export const LOOK_EVERY_MS = 60_000
+// While Claude works, looks are at least this far apart; what comes in meanwhile waits for the next.
+export const LOOK_GAP_MS = 20_000
+
 export const MAX_LOG = 80
 const MAX_PROMPT_LOG = 6000
 const MAX_LINE = 160

@@ -16,7 +16,7 @@ import { setLanguage, t } from '../hooks/i18n'
 import { currentLeaf, hasOpenWork } from '../hooks/plan'
 import { describeBoard, runOp } from '../hooks/plan-tool'
 import type { Happened } from '../hooks/planner'
-import { PLANNER_SYSTEM, parseOps, plannerPrompt, remember } from '../hooks/planner'
+import { LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, parseOps, plannerPrompt, remember } from '../hooks/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
@@ -66,7 +66,7 @@ const ask = (model: string, system: string, prompt: string): string =>
   })
 
 // The side planner's looks, as the mod times them: on each request and answer, and while Claude
-// works once six state-changing calls or a minute have passed, never closer than 20 seconds.
+// works once enough state-changing calls or time have passed, never closer than the gap.
 // shortcut: no fork reshapes the plan after its first look (the mod's design step needs the live
 // conversation), and every Bash call counts as state-changing; add both if replays drift from real boards.
 const replay = (events: readonly Heard[]): Frame[] => {
@@ -95,14 +95,14 @@ const replay = (events: readonly Heard[]): Frame[] => {
   }
   for (const e of events) {
     fresh = remember(fresh, { kind: e.kind, text: e.text })
-    const gap = e.at - last >= 20_000
+    const gap = e.at - last >= LOOK_GAP_MS
     if (e.kind === 'request') {
       request = e.text
       look(e.at, '요청')
     } else if (e.kind === 'answer') look(e.at, '답')
     else if (e.kind === 'tool') {
       if (e.guarded === true) calls++
-      if (gap && (calls >= 6 || e.at - last >= 60_000)) look(e.at, '작업 중')
+      if (gap && (calls >= PLAN_EVERY || e.at - last >= LOOK_EVERY_MS)) look(e.at, '작업 중')
     } else if (e.kind === 'said' && gap) look(e.at, 'Claude가 진행 상황을 말함')
   }
 

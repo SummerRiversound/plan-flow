@@ -13,7 +13,7 @@ import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWor
 import type { PlanOp } from './plan-tool'
 import { runOp } from './plan-tool'
 import type { Happened } from './planner'
-import { DESIGN_OPS, designPrompt, GUARDED, noticeLine, PERSON, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
+import { DESIGN_OPS, designPrompt, GUARDED, LOOK_EVERY_MS, LOOK_GAP_MS, noticeLine, PERSON, PLAN_EVERY, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, toolLine } from './planner'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import { dottedTrunkSvg, joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
@@ -805,12 +805,6 @@ async function resolveLanguage($: $, option: unknown): Promise<void> {
 // The side planner's queue. shortcut: module variables, lost on a reload of the mod (the board itself
 // is kept); move them to $.state if a reload mid-turn drops too much.
 const PLANNER_MODEL = 'haiku'
-// State-changing calls in a turn before the planner looks again, so the board moves while Claude works.
-const PLAN_EVERY = 6
-// While Claude only reads, the planner still looks once this long has passed since its last look.
-const LOOK_EVERY_MS = 60_000
-// While Claude works, looks are at least this far apart; what comes in meanwhile waits for the next.
-const LOOK_GAP_MS = 20_000
 let fresh: Happened[] = []
 let request = ''
 let calls = 0

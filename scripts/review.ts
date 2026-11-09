@@ -23,7 +23,7 @@ import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
 import type { Heard } from './session'
 import { heard } from './session'
 
-declare const process: { argv: string[]; cwd: () => string; exit: (code: number) => never; stderr: { write: (s: string) => void } }
+declare const process: { argv: string[]; cwd: () => string; env: Record<string, string | undefined>; exit: (code: number) => never; stderr: { write: (s: string) => void } }
 declare const console: { log: (text: string) => void }
 
 setLanguage('ko')
@@ -76,6 +76,8 @@ const transcriptOf = (sid: string): string | undefined =>
 const ask = (model: string, system: string, prompt: string): string =>
   execFileSync('claude', ['-p', '--model', model, '--setting-sources', '', '--tools', '', '--no-session-persistence', '--system-prompt', system], {
     input: prompt,
+    // A terminal that wraps claude reports each run's status into the pane it runs in; these runs are not the session there.
+    env: { ...process.env, CMUX_CLAUDE_HOOKS_DISABLED: '1' },
     encoding: 'utf8',
     maxBuffer: 1 << 26,
     stdio: ['pipe', 'pipe', 'ignore'],

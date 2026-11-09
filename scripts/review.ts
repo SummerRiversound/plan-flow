@@ -37,7 +37,7 @@ const DRAWER_WIDTH = 90
 type Saved = Record<string, { plan: Board['plan']; shelf: Board['shelf']; savedAt: number }>
 type Frame = { at: number; why: string; board: Board; ops?: string }
 type Score = { name: string; score: number; why: string; fix: string }
-type Verdict = { verdict: string; scores: Score[]; breaks: Array<{ decision: string; where: string }> }
+type Verdict = { verdict: string; overall: number; scores: Score[]; breaks: Array<{ decision: string; where: string }> }
 
 const say = (s: string): void => process.stderr.write(`${s}\n`)
 
@@ -133,24 +133,37 @@ const drawer = (b: Board, at: number) => {
 }
 const asText = (lines: ReturnType<typeof band>): string => lines.map(l => lineText(l).replace(/\s+$/, '')).join('\n')
 
-const JUDGE = `당신은 plan-flow라는 Claude Code 플러그인의 개발자를 돕는 평가자입니다. plan-flow는 코딩 세션 옆에 계획판(입력창 위의 띠와 옆 서랍)을 그려서, 사람이 그 세션이 무엇을 하고 어디까지 왔는지 한눈에 파악하게 합니다.
-세션 기록과 그 세션의 계획판을 받아, 그 세션의 사람 입장에서 계획판이 쓸모 있었는지 평가하세요. 개발자가 정한 결정 목록이 기준입니다.
+// The rubric is the person's own bar, read from what they said about the board while using it.
+const JUDGE = `당신은 plan-flow라는 Claude Code 플러그인의 개발자를 돕는 평가자입니다. plan-flow는 코딩 세션 옆에 계획판(입력창 위의 띠와 옆 서랍)을 그립니다.
+이 판을 쓰는 사람은 세션을 20개쯤 동시에 켜 두고 탭을 바꿔 가며 일합니다. 탭을 바꾼 순간 판을 몇 초 훑고 "이 세션은 무엇을 위해 무엇을 하고 있고, 지금 어디까지 왔고, 다음은 뭐지"를 알아내는 게 판의 쓸모입니다. 판이 틀리면 그 사람은 판을 믿지 않게 되고, 그러면 판은 쓸모가 없습니다.
+그 사람이 판을 쓰면서 실제로 한 말이 기준입니다:
+- "탭전환하다가 이걸보면 그냥 '현재 PR' 혹은 번호로만 써있는걸 알아먹고 아 이세션은 무슨 작업을 하는 세션이구나 하고 알수있을것같냐?"
+- "써머리는, 내가 궁극적으로 하려는 무언가를 도출해낸느낌이아니라 현황 소개느낌이고, 여전히 단계도 이후 단계가 설계되어있지 않고 제안도 되지않는것같아"
+- "진행중인 체크포인트가 최신이 아닌것같은 현상"
+- "요청한 일에서 파생된 너가 정말 세워서 나한테 묻지않고 진행할 계획들은 실선으로그려져야하는데"
+- "각 항목이 너무 축약되어있어서 뭘하고있는지 이해가잘안되는데" / "몇줄 수정하는지까지 다보고싶은건 아니야. 상위레벨의 상황파악을위한 체크포인트들이 하이라키구조에 맞게"
+- "결정기록, 구현, pr 같은 걸로만 묶여버리는데 너무 단순화되고 항상 똑같은게 나올까 걱정" / "모든일이 pr 단위로 일어나지않잖아"
+- "그냥 히스토리 목록처럼 아까전까지 뭐했고 지금 뭐하고있다 하면서 마지막카드만 계속 바꾸는식으로" 동작하는 걸 싫어합니다. 판은 작업의 계획입니다.
+- 글을 읽을 때 막히는 곳은 어려운 개념이 아니라 처음 보는 이름·번호·약어입니다.
 
-항목(1~5점, 5가 가장 좋음):
-1. 한눈에 파악: 제목과 목표 한 줄만 봐도 이 세션이 무엇을 하는지 알 수 있는가
-2. 현재 위치: 어디까지 끝났고 지금 무엇을 하며 다음이 무엇인지 바로 보이는가
-3. 구조: 단계가 2~5개이고 각 단계 아래 체크포인트가 있는가, 단계 이름이 레포의 루틴(구현, PR)이 아니라 결과물 기준인가, 사람이 따로 확인할 것은 한 건씩 나뉘었는가
-4. 내용의 쓸모: 제목과 설명이 무엇을 왜 하는지 알려 주는가, 파일명·코드·명령 같은 코드 단위 내용이 없는가, 군더더기 없이 필요한 만큼인가
-5. 작업과 일치: 실제로 한 일이 빠지지 않았는가, 아무도 요청하지 않은 단계가 없는가, 완료·진행·확인 대기 표시가 실제 상태와 맞는가
-6. 흐름 관리: 이어지는 일은 그 일이 속한 단계 밑에 붙었는가, 곁가지는 보류됐다가 돌아왔는가, 새 일은 새 계획이 되었는가
-7. 완료 정리: 계획이 끝났다면 목적과 결과 정리가 쓸모 있는가 (끝나지 않았으면 점수 0, 이유에 "해당 없음")
+세션 기록과 그 세션의 계획판을 받아, 이 사람 입장에서 채점하세요. 각 점수의 뜻:
+5 = 훑고 그대로 믿고 넘어간다. 4 = 바로 알아보고, 사소한 흠은 있어도 행동이 달라지지 않는다. 3 = 알아보긴 하지만 한두 군데는 세션 본문을 다시 확인해야 한다. 2 = 판만 보면 헷갈리거나 일부를 잘못 안다. 1 = 판이 사실과 달라 잘못 판단하게 만든다.
 
+항목:
+1. 세션 알아보기: 제목이 번호나 일반어가 아니라 작업 주제로 이 세션을 알아보게 하는가, 목표가 현황 소개가 아니라 궁극적으로 얻으려는 것을 말하는가, 일이 넓어졌으면 그에 맞게 바뀌었는가
+2. 믿을 수 있는 현재 위치: 끝난 일은 끝났고 진행 중인 체크포인트가 최신이며, 세션 후반의 요청과 결과까지 반영됐는가. 판과 실제가 다르면 이 항목은 2점 이하
+3. 남은 길: Claude가 묻지 않고 할 다음 단계가 실선으로 설계돼 있고, 사람이나 외부를 기다리는 일은 점선 예상이나 확인할 것으로 보이는가
+4. 수준과 구조: 단계 아래 체크포인트로 나뉜 계층인가(평평한 목록이 아닌가), 단계가 결과물 이름이고 PR·구현·머지 같은 루틴 이름이 아닌가, 파일명·명령 같은 코드 단위가 아닌가
+5. 이해되는 문장: 각 단계가 무엇을 왜 하는지 알 수 있게 쓰였는가(너무 축약되지 않았는가), 처음 보는 번호·약어에 기대지 않는가, 군더더기는 없는가
+overall: 이 판이 이 사람에게 얼마나 쓸모 있었는지 하나의 점수. 2번이 낮으면 overall도 그보다 높을 수 없습니다.
+
+결정 목록은 참고 자료입니다. 이 사람이 실제로 불편해할 흠만 점수에 반영하고, 행동이 달라지지 않는 사소한 위반(링크 하나 누락, 완료 정리 문구 같은 것)은 점수를 깎지 말고 breaks에만 적으세요.
 각 항목의 이유와 고칠 점은 계획판의 실제 문구를 인용해 구체적으로 쓰세요. 고칠 점은 계획판을 만드는 지시문을 어떻게 바꾸면 좋을지로 씁니다.
 띠와 서랍의 활동 표시(작업 중, 답변 기다림 같은 말)는 저장된 판에 없는 정보라서 이 도구가 Claude가 쉬는 상태라고 가정하고 그린 것이에요. 평가에 넣지 마세요.
 결정 목록과 어긋난 곳은 breaks에 결정 요약과 계획판의 위치로 적으세요.
 모든 문장은 한국어 해요체로 씁니다.
 JSON 하나로만 답하세요. 코드 펜스와 다른 글은 쓰지 않습니다:
-{"verdict":"전체 판정 1~2문장","scores":[{"name":"한눈에 파악","score":4,"why":"…","fix":"…"}],"breaks":[{"decision":"…","where":"…"}]}`
+{"verdict":"전체 판정 1~2문장","overall":3,"scores":[{"name":"세션 알아보기","score":4,"why":"…","fix":"…"}],"breaks":[{"decision":"…","where":"…"}]}`
 
 const judge = (decisions: string, events: readonly Heard[], b: Board, at: number, label: string): Verdict | undefined => {
   const prompt = [
@@ -170,7 +183,7 @@ const judge = (decisions: string, events: readonly Heard[], b: Board, at: number
 const verdictHtml = (title: string, v: Verdict | undefined): string =>
   v === undefined
     ? `<h2>${esc(title)}</h2><p>평가 결과를 읽지 못했어요.</p>`
-    : `<h2>${esc(title)}</h2><p style="color:#e8e6e3">${esc(v.verdict)}</p>
+    : `<h2>${esc(title)} · 종합 ${v.overall}/5</h2><p style="color:#e8e6e3">${esc(v.verdict)}</p>
 <table><tr><th>항목</th><th>점수</th><th>이유</th><th>고칠 점</th></tr>${v.scores
         .map(s => `<tr><td>${esc(s.name)}</td><td class="n">${s.score === 0 ? '–' : s.score}</td><td>${esc(s.why)}</td><td>${esc(s.fix)}</td></tr>`)
         .join('')}</table>${

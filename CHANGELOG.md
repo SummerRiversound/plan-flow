@@ -2,6 +2,16 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.40 — 2026-11-09
+
+### Fixed
+
+- The board no longer stops following a long session partway through. Reshaping the plan with Claude no longer holds the side planner back, and the mod stops waiting for it after two minutes; a look that fails or times out is tried once more 15 seconds later.
+
+### Added
+
+- The mod keeps a short record of its recent model calls for each session in its own store, beside the saved boards: when, which call, how long it took and how it ended. Nothing of it reaches Claude.
+
 ## 0.1.39 — 2026-11-06
 
 ### Fixed

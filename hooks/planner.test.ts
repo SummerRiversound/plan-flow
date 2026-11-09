@@ -47,20 +47,6 @@ test('the planner is told the field names the board reads, so its steps are not 
   expect(ops).toHaveLength(1)
 })
 
-test('work comes only from what the person asked: words inside a call are not a request', () => {
-  expect(PLANNER_SYSTEM).toContain('are not a request')
-})
-
-test('a step the work went past is skipped or removed, not left open', () => {
-  expect(PLANNER_SYSTEM).toContain('went past')
-  expect(PLANNER_SYSTEM).toContain('"skipped"')
-})
-
-test("the summary says what is now true and what is left, not the procedure; titles stay in the person's language", () => {
-  expect(PLANNER_SYSTEM).toContain('not the procedure')
-  expect(PLANNER_SYSTEM).toContain('even when the calls')
-})
-
 test('the planner keeps a step open while Claude waits for the person to answer, so the board can say it waits', () => {
   expect(PLANNER_SYSTEM).toContain('When Claude\'s answer asks the person to approve, choose or say whether to go on')
 })

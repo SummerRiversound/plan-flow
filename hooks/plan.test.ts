@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { Plan, PlanInput, PlanResult } from './plan'
-import { MAX_NODES, addNodes, clearMarks, currentLeaf, emptyPlan, hasOpenWork, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
+import { MAX_NODES, addNodes, clearMarks, currentLeaf, emptyPlan, finishedAt, hasOpenWork, moveNode, nextStep, progress, removeNode, setPlan, updateNodes } from './plan'
 import { setLanguage } from './i18n'
 
 // The expectations below are written in Korean.
@@ -84,6 +84,23 @@ test('a parent takes its status from its children', () => {
   p = ok(updateNodes(p, [{ id: '1.1', status: 'completed' }, { id: '1.2', status: 'skipped' }], 5))
   expect(statusOf(p, '1')).toBe('completed')
   expect(fails(updateNodes(p, [{ id: '1', status: 'completed' }], 6))).toContain('children')
+})
+
+test('a task and its stage close on their own once every checkpoint under them is finished, and reopen with one', () => {
+  const stage: PlanInput[] = [{ title: '수정 반영', children: [{ title: '리뷰 정리', children: [{ title: 'PR 머지' }, { title: '확인' }] }] }, { title: '배포' }]
+  let p = ok(setPlan(emptyPlan(), 'T', stage, 0))
+  p = ok(nextStep(p, undefined, 1))
+  p = ok(nextStep(p, undefined, 2))
+  p = ok(updateNodes(p, [{ id: '1.1.2', status: 'needs_check' }], 3))
+  expect([statusOf(p, '1.1'), statusOf(p, '1')]).toEqual(['needs_check', 'needs_check'])
+  p = ok(updateNodes(p, [{ id: '1.1.2', status: 'completed' }, { id: '2', status: 'skipped' }], 4))
+  expect([statusOf(p, '1.1'), statusOf(p, '1')]).toEqual(['completed', 'completed'])
+  expect(progress(p)).toEqual({ done: 3, total: 3 })
+  expect(finishedAt(p)).toBe(4)
+  p = ok(updateNodes(p, [{ id: '1.1.1', status: 'pending' }], 5))
+  expect([statusOf(p, '1.1'), statusOf(p, '1')]).toEqual(['in_progress', 'in_progress'])
+  expect(p.marks).toEqual({ '1.1.1': 'redo' })
+  expect(finishedAt(p)).toBeNull()
 })
 
 test('updates stamp when a leaf starts and finishes, and parents span their children', () => {

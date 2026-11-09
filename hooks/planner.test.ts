@@ -12,6 +12,31 @@ test('a tool call is one line: what it says it is for, else the file it touches,
   expect(toolLine('WebFetch', { url: 'https://example.com' })).toBe('WebFetch')
 })
 
+test('a long text quoted in a bare command is cut out, so a prompt sent elsewhere does not read as a request', () => {
+  const line = toolLine('Bash', { command: 'tmux send-keys -t test "add a divide function to the calculator and run its tests" Enter' })
+  expect(line).not.toContain('divide')
+  expect(line).toContain('tmux send-keys')
+  expect(toolLine('Bash', { command: 'git commit -m "fix"' })).toBe('git commit -m "fix"')
+  expect(PLANNER_SYSTEM).toContain('Work comes only from the person\'s requests')
+})
+
+test('the board follows the whole session: a wrap-up or one-step follow-up joins the plan, and the title and goal are checked on each request', () => {
+  expect(PLANNER_SYSTEM).toMatch(/its wrap-up .* goes under the stage it continues/)
+  expect(PLANNER_SYSTEM).toContain('even when the plan had finished, even for a one-step request')
+  expect(PLANNER_SYSTEM).toContain('only a request after a different result starts a new plan')
+  expect(PLANNER_SYSTEM).toContain('On every request, before touching steps, check the title and goal')
+})
+
+test('the board shows what is left: a new plan holds the stages not started yet, and each thing left to the person is its own check', () => {
+  expect(PLANNER_SYSTEM).toContain('the ones not started yet included')
+  expect(PLANNER_SYSTEM).toMatch(/one checkpoint per thing .* "needs_check"/)
+})
+
+test('a step the work went past is skipped or removed, so the board does not start it after the work moved on', () => {
+  expect(PLANNER_SYSTEM).toMatch(/went past without doing.* "skipped"/)
+  expect(designPrompt({ plan: emptyPlan(), shelf: [] })).toMatch(/went past without doing.* is removed/)
+})
+
 test('the log keeps the newest lines and cuts long answers', () => {
   let log: Happened[] = []
   for (let i = 0; i < MAX_LOG + 5; i++) log = remember(log, { kind: 'tool', text: `call ${i}` })

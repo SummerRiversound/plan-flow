@@ -70,6 +70,8 @@ test('update renames the plan once its subject is known, keeping its steps and g
 
 test('the planner is told to name the work by its subject, not by "current" or a bare number', () => {
   expect(PLANNER_SYSTEM).toMatch(/never "this" or "current"/)
+  expect(PLANNER_SYSTEM).toMatch(/never words any session could carry/)
+  expect(PLANNER_SYSTEM).toContain('a number goes on its step as a link')
   expect(TOOL_DESCRIPTION).toMatch(/its "title" renames the plan/)
 })
 
@@ -125,7 +127,7 @@ test('the answer stays under 4000 characters for the largest plan', () => {
 
 test('the planner is told to keep titles short, in the language the person writes in, and to answer with ops alone', () => {
   expect(PLANNER_SYSTEM).toContain('4 words')
-  expect(PLANNER_SYSTEM).toContain('language the person writes in')
+  expect(PLANNER_SYSTEM).toContain('language the person writes in, even when the calls are in another')
   expect(PLANNER_SYSTEM).toMatch(/only a JSON array/)
 })
 
@@ -212,6 +214,7 @@ test('steps carry links: set with the step, added by update without repeats, cle
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['a b'] }] })).toMatch(/a link has no spaces/)
   expect(error(emptyPlan(), { op: 'set', title: 'T', nodes: [{ title: 'a', links: ['1', '2', '3', '4', '5', '6'] }] })).toMatch(/at most 5 links/)
   expect(PLANNER_SYSTEM).toContain('"links"')
+  expect(PLANNER_SYSTEM).toMatch(/as soon as its full URL or absolute path appears .* once, on the step that made it/)
 })
 
 test('the op that finishes the last step carries the summary; it is refused while steps are open and goes when one reopens', () => {
@@ -231,6 +234,8 @@ test('the op that finishes the last step carries the summary; it is refused whil
   expect(error(last.plan, { op: 'update', summary: { goal: '목적' } })).toContain('summary.result must be text')
   expect(apply(closed.plan, { op: 'update', updates: [{ id: '1', status: 'pending' }] }).plan.summary).toBeUndefined()
   expect(apply(closed.plan, { op: 'add', nodes: [{ title: '배포' }] }).plan.summary).toBeUndefined()
+  // The note tells what now holds, not the procedure that got there.
+  expect(TOOL_DESCRIPTION).toContain('what now holds for the person and anything left, not the steps taken')
 })
 
 test('a flat list of five or more steps is answered with a hint to group them under stages', () => {
@@ -250,6 +255,7 @@ test('the planner rules keep stages to parts of the outcome: no stage named for 
   expect(t).toMatch(/not phases/)
   expect(t).toMatch(/fit any other task unchanged/)
   expect(t).toMatch(/goes inside the stage it serves/)
+  expect(t).toMatch(/a stage per change, named for what it changes/)
   expect(t).toMatch(/more than half/)
   expect(t).toMatch(/single task/)
 })

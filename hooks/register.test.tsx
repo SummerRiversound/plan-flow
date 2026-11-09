@@ -549,6 +549,91 @@ test('with autoShow off, nothing shows above the prompt until /flow', { options:
   await band.unmount()
 })
 
+const flow = async ($: Engine, args: string) => (await $.command.run({ ...FLOW, args })).text
+
+test('/flow off hides the board and calls no model in this session, a reload keeps it off, and /flow on looks at once', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await plan($, PLAN)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
+  await $.command.run(FLOW)
+  expect(await flow($, 'off')).toMatch(/껐어요/)
+  // The drawer closes with it, and /flow says why it does not open.
+  expect(await flow($, '')).toMatch(/\/flow on/)
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeUndefined()
+  const looks = asked.length
+  const forks = forked.length
+  await $.prompt.submit({ text: '세션 저장도', wait: false, origin: { kind: 'composer' } })
+  await step($, '저장을 붙여요')
+  await plan($, { op: 'next' })
+  await theClock?.advance(120_000)
+  await plannerIdle()
+  expect(asked.length).toBe(looks)
+  expect(forked.length).toBe(forks)
+  // A reload keeps the choice.
+  await start($)
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeUndefined()
+  expect(await flow($, 'on')).toMatch(/켰어요/)
+  await theClock?.advance(1)
+  await plannerIdle()
+  // What happened while it was off is heard at once.
+  expect(asked.length).toBe(looks + 1)
+  expect(asked[asked.length - 1]).toContain('세션 저장도')
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: /로그인 기능 추가/ })).toBeDefined()
+  await band.unmount()
+  // The drawer /flow off closed opens again.
+  expect(await flow($, '')).toBe('흐름도를 열었어요')
+})
+
+test('with enabled off, a new session starts off until /flow on', { options: { enabled: false, language: 'ko' } }, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await plan($, PLAN)
+  expect(asked).toHaveLength(0)
+  await flow($, 'on')
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(1)
+})
+
+test('with design off, an answer after work forks nothing and the look keeps its gap', { options: { design: false, language: 'ko' } }, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  await step($, '조사할게요')
+  await plan($, { op: 'next' })
+  expect(forked).toHaveLength(0)
+})
+
+test('/flow status tells whether plan-flow and the design are on and what the recent calls used', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  forkUsage = { input_tokens: 1_500, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 240_000 }
+  forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }])
+  await step($, '')
+  const status = await flow($, 'status')
+  expect(status).toContain('이 세션에서 켜져 있어요')
+  expect(status).toContain('Claude 설계: 켜짐')
+  expect(status).toContain('Haiku 1번')
+  expect(status).toContain('Claude 설계 1번')
+  expect(status).toContain('캐시 읽기 240,000')
+  await flow($, 'off')
+  expect(await flow($, 'status')).toContain('이 세션에서 꺼져 있어요')
+})
+
 test('on the desktop app the drawer draws each stage as a rounded card joined by lines, and presses still fold, pick and switch to the list', KO, async ($, on) => {
   engine(on)
   await start($)

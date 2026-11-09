@@ -658,7 +658,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
 }
 
 async function shown($: $, autoShow: boolean): Promise<boolean> {
-  return autoShow || (await read($, askedAtom))
+  return enabled && (autoShow || (await read($, askedAtom)))
 }
 
 async function hidden($: $, plan: Plan, autoShow: boolean): Promise<boolean> {
@@ -874,6 +874,31 @@ let design: 'none' | 'wanted' | 'done' = 'none'
 let stepped = false
 // The main turn ran a tool: its answer comes after work, so the plan may have moved.
 let worked = false
+// Whether plan-flow runs in this session (`/flow on`, `/flow off`, kept per session), and whether
+// Claude designs the plan (the `design` option).
+let enabled = true
+let designOn = true
+type Switches = Record<string, { on: boolean; savedAt: number }>
+
+async function setEnabled($: $, on: boolean): Promise<void> {
+  enabled = on
+  const sid = await $.session.id()
+  const all = ((await $.store.get('enabled')) ?? {}) as Switches
+  all[sid] = { on, savedAt: await $.clock.now() }
+  await $.store.set('enabled', newest(all))
+}
+
+// What `/flow status` says: on or off here, the defaults, and what the kept calls used.
+async function status($: $, startOn: boolean): Promise<string> {
+  const log = ((await $.store.get('calls')) ?? {}) as Calls
+  const kept = log[await $.session.id()]?.calls ?? []
+  const sum = (kind: Call['call']) => {
+    const of = kept.filter(c => c.call === kind)
+    const u = (k: keyof Used) => of.reduce((n, c) => n + (c.usage?.[k] ?? 0), 0)
+    return { count: of.length, input: u('input') + u('cacheWrite'), cacheRead: u('cacheRead'), output: u('output') }
+  }
+  return t().status(enabled, startOn, designOn, KEPT_CALLS, sum('look'), sum('design'))
+}
 
 // Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
 export const plannerIdle = async (): Promise<void> => {
@@ -916,7 +941,7 @@ async function planOnce($: $): Promise<void> {
   let applied = 0
   for (const op of ops) if (!('error' in (await apply($, op)))) applied++
   await record($, { at, call: 'look', ms, result: 'answered', ops: applied, ...used(r.usage) })
-  if (design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
+  if (designOn && design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
   await keepRunning($)
 }
 
@@ -958,6 +983,7 @@ async function designOnce($: $): Promise<void> {
 // Asks for a look outside the hook that noticed something, one at a time; a look asked for while
 // one runs follows it.
 function planSoon($: $, retry = false): void {
+  if (!enabled) return
   if (!retry) retried = false
   if (busy !== null) {
     again = true
@@ -1002,12 +1028,15 @@ async function planWhileWorking($: $): Promise<void> {
 
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
+  const startOn = options.enabled !== false
+  designOn = options.design !== false
 
   on('session.start', async ($, e, next) => {
     await resolveLanguage($, options.language)
     await $.command.register({ name: 'flow', description: t().command, immediate: true })
     const saved = ((await $.store.get('plans')) ?? {}) as Saved
     const mine = saved[await $.session.id()]
+    enabled = (((await $.store.get('enabled')) ?? {}) as Switches)[await $.session.id()]?.on ?? startOn
     const plan = mine?.plan ?? emptyPlan()
     await update($, planAtom, () => plan)
     await update($, shelfAtom, () => mine?.shelf ?? [])
@@ -1104,7 +1133,7 @@ export const register: Register = (on, options) => {
       fresh = remember(fresh, { kind: 'answer', text: e.answer })
       // An answer of a question explained leaves the plan where it was, and costs no fork.
       if (worked) {
-        design = 'wanted'
+        if (designOn) design = 'wanted'
         stepped = true
         worked = false
       }
@@ -1118,6 +1147,15 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'flow' }, async ($, e) => {
     const [word, arg] = e.args.trim().split(/\s+/)
     if (word === 'demo') return { text: await demo($, arg) }
+    if (word === 'status') return { text: await status($, startOn) }
+    if (word === 'on' || word === 'off') {
+      await setEnabled($, word === 'on')
+      if (word === 'on') planSoon($)
+      else if ((await $.ui.panes()).some(p => p.id === PANE)) await $.ui.close({ id: PANE })
+      $.ui.invalidate('ui.render')
+      return { text: word === 'on' ? t().turnedOn : t().turnedOff }
+    }
+    if (!enabled) return { text: t().isOff }
     if ((await $.ui.panes()).some(p => p.id === PANE)) {
       await $.ui.close({ id: PANE })
 

@@ -4,6 +4,12 @@
 //   bun scripts/review.ts                 list the sessions with a saved board
 //   bun scripts/review.ts <session> [--replay [--design]]   --design also asks Opus to design the plan where the mod forks Claude
 //   bun scripts/review.ts --compare <dir A> <dir B>          Opus picks the better replayed board per session, both orders
+//   bun scripts/review.ts --fork <session> <dir> [--candidate | --whole] [--from <dir>]
+//       --whole: Claude writes the whole board anew (steps with their statuses, the plans finished
+//       before), the most this design can reach.
+//       the real design step on the board the person last saw: the session itself resumed as a throwaway
+//       fork, so Claude reads the whole conversation as the mod's fork does; --candidate asks with the
+//       design wording under trial. Writes <dir>/<session>.json for --compare.
 // Models are called through `claude -p` on the developer's own sign-in, with no settings, hooks,
 // plugins or CLAUDE.md of theirs loaded.
 import { execFileSync } from 'node:child_process'
@@ -14,8 +20,9 @@ import type { Board } from '../hooks/board'
 import { emptyBoard } from '../hooks/board'
 import { drawerView } from '../hooks/drawer'
 import { setLanguage, t } from '../hooks/i18n'
-import { currentLeaf, hasOpenWork } from '../hooks/plan'
-import { describeBoard, runOp } from '../hooks/plan-tool'
+import type { Plan, PlanInput, PlanStatus } from '../hooks/plan'
+import { closing, currentLeaf, emptyPlan, hasOpenWork, setPlan, STATUSES, updateNodes, withExpected, withGoal } from '../hooks/plan'
+import { describeBoard, EXPECTED_RULE, PLAN_RULES, runOp } from '../hooks/plan-tool'
 import type { Happened } from '../hooks/planner'
 import { DESIGN_OPS, LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember } from '../hooks/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
@@ -293,6 +300,122 @@ const compare = (a: string, b: string): void => {
   for (const [name, t] of Object.entries(tally)) console.log(`${name}: A ${t.a} · B ${t.b} · 비김 ${t.tie}`)
 }
 
+// The design wording under trial, as changes to the released one; it moves into hooks/ only once it wins.
+const CANDIDATE: ReadonlyArray<[string, string]> = [
+  ['Every title is at most 4 words.', 'Every title is a short phrase that reads on its own (about 2 to 6 words): what the step makes or changes, with no issue or PR number and no abbreviation the person has not used.'],
+  [
+    "a step's title or detail), \"add\", \"remove\" and \"move\" only, by the ids it shows, and leave every status as it is.",
+    "a step's title, detail or status), \"add\", \"remove\" and \"move\" by the ids it shows. You know what you did: a step you finished is \"completed\", one the work went past without doing is \"skipped\" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never \"completed\". Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as \"merged\" with its link. Go through every step the board shows and give each the status that is true now.",
+  ],
+  [
+    'Answer with only a JSON array of op objects, and [] when the board already fits.',
+    'When the plan in hand is not the work this session is on now (work dropped or long finished, while the session moved to other work), put the right plan in hand: op "set" with the current work\'s plan and "previous" "cancel" for dropped work or "park" for work to come back to, or op "resume" with the title of a shelved plan the work went back to. Answer with only a JSON array of op objects, and [] when the board already fits.',
+  ],
+]
+// The ops the candidate design may run: the released ones, and putting the right plan in hand.
+const CANDIDATE_OPS: ReadonlySet<string> = new Set([...DESIGN_OPS, 'set', 'resume', 'cancel'])
+const candidatePrompt = (board: Board): string => CANDIDATE.reduce((p, [from, to]) => {
+  if (!p.includes(from)) throw new Error(`the released design wording changed; update CANDIDATE: ${from.slice(0, 60)}`)
+  return p.replace(from, to)
+}, designPrompt(board))
+
+// The session resumed as a throwaway fork in its own folder: no tools, settings, hooks or saved copy.
+const forkAsk = (sid: string, cwd: string, prompt: string): string => {
+  const out = execFileSync('claude', ['-p', '--resume', sid, '--fork-session', '--no-session-persistence', '--model', 'opus', '--tools', '', '--setting-sources', '', '--output-format', 'json'], {
+    cwd,
+    input: prompt,
+    env: { ...process.env, CMUX_CLAUDE_HOOKS_DISABLED: '1' },
+    encoding: 'utf8',
+    maxBuffer: 1 << 26,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  const r = JSON.parse(out) as { result?: string; usage?: { cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
+  say(`  fork read ${r.usage?.cache_read_input_tokens ?? 0} cached, wrote ${r.usage?.cache_creation_input_tokens ?? 0}`)
+  return r.result ?? ''
+}
+
+// `from`: a folder of earlier results whose fork answers are applied again instead of asking anew.
+// The whole board written anew by Claude, who did the work.
+type Step = { title: string; detail?: string; status?: string; note?: string; links?: string[]; parallel?: boolean; children?: Step[] }
+type Whole = { title: string; goal?: string; nodes: Step[]; expected?: string[]; finished?: string[]; summary?: { goal: string; result: string } }
+
+const wholePrompt = (board: Board): string =>
+  [
+    'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
+    `A smaller model drew this board from the calls it saw:\n${describeBoard(board)}`,
+    'Write the whole board anew, as you who did the work know it now. The plan is the work this session is on now, or the last work it finished: its title and goal name it by its subject, the goal is the end the person is after, and its stages run the whole way there with every step given the status that is true now. The plans this session finished before it go under "finished", newest first, by title.',
+    PLAN_RULES,
+    EXPECTED_RULE,
+    `Statuses: ${STATUSES.join(', ')}; a step with children takes its status from them, so give statuses to the deepest steps only. A check that has not run yet (a nightly job, something the person tests, a reply still to come) is never "completed". When every step is finished, give "summary": what the plan was for and how that was reached.`,
+    'Write in the language the person writes in. Answer with only one JSON object, no prose, no code fence: {"title":"…","goal":"…","nodes":[STEP, …],"expected"?:["…"],"finished"?:["…"],"summary"?:{"goal":"…","result":"…"}} where STEP is {"title":"…","detail":"…","status":"…","note"?:"…","links"?:["…"],"parallel"?:true,"children"?:[STEP, …]}.',
+  ].join('\n\n')
+
+// The board the answer describes: the plan built as the board builds it, statuses set step by step
+// (ids follow the input's order, as set gives them), the finished plans kept from the shelf by title.
+const wholeBoard = (text: string, before: Board, at: number): Board | undefined => {
+  let w: Whole
+  try {
+    w = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as Whole
+  } catch {
+    return undefined
+  }
+  const strip = (xs: Step[]): PlanInput[] => xs.map(x => ({ title: x.title, ...(x.detail === undefined ? {} : { detail: x.detail }), ...(x.links === undefined ? {} : { links: x.links.slice(0, 5) }), ...(x.parallel === true ? { parallel: true } : {}), ...(x.children === undefined || x.children.length === 0 ? {} : { children: strip(x.children) }) }))
+  const updates: Array<{ id: string; status: PlanStatus; note?: string }> = []
+  const walk = (xs: Step[], parent: string | null): void =>
+    xs.forEach((x, i) => {
+      const id = parent === null ? `${i + 1}` : `${parent}.${i + 1}`
+      if (x.children !== undefined && x.children.length > 0) walk(x.children, id)
+      else if (x.status !== undefined && x.status !== 'pending' && (STATUSES as readonly string[]).includes(x.status)) updates.push({ id, status: x.status as PlanStatus, ...(x.note === undefined ? {} : { note: x.note }) })
+    })
+  walk(w.nodes, null)
+  let r = withGoal(setPlan(emptyPlan(), w.title, strip(w.nodes), at), w.goal)
+  if (!('error' in r) && updates.length > 0) r = updateNodes(r.plan, updates, at)
+  if ('error' in r) {
+    say(`the whole board did not build: ${r.error}`)
+    return undefined
+  }
+  r = closing(r, w.summary)
+  const plan: Plan = withExpected('error' in r ? emptyPlan() : r.plan, w.expected)
+  const done = (title: string) => before.shelf.find(x => x.plan.title === title)?.plan ?? withGoal(setPlan(emptyPlan(), title, [{ title }], at), undefined)
+  const shelf = (w.finished ?? []).flatMap(title => {
+    const p = done(title)
+    if ('plan' in p) return [{ plan: p.plan, state: 'done' as const, at }]
+    if ('nodes' in p) return [{ plan: p, state: 'done' as const, at }]
+    return []
+  })
+  return { plan, shelf }
+}
+
+const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string, whole = false): void => {
+  const last = savedBoards()[sid]
+  const path = transcriptOf(sid)
+  const events = eventsOf(sid)
+  if (last === undefined || path === undefined || events === undefined) {
+    say(`session ${sid} has no saved board or transcript`)
+    process.exit(1)
+  }
+  const cwd = /"cwd":"([^"]+)"/.exec(readFileSync(path, 'utf8'))?.[1]
+  if (cwd === undefined || !existsSync(cwd)) {
+    say(`the folder session ${sid} ran in is gone`)
+    process.exit(1)
+  }
+  let board: Board = { plan: last.plan, shelf: last.shelf }
+  const answer =
+    from === undefined
+      ? forkAsk(sid, cwd, whole ? wholePrompt(board) : candidate ? candidatePrompt(board) : designPrompt(board))
+      : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
+  if (whole) board = wholeBoard(answer, board, last.savedAt) ?? board
+  else for (const op of parseOps(answer).filter(op => (candidate ? CANDIDATE_OPS : DESIGN_OPS).has(op.op))) {
+    const r = runOp(board, op, last.savedAt)
+    if (!('error' in r)) board = r.board
+  }
+  const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
+  const verdict = judge(claudeMd.slice(claudeMd.indexOf('## Decisions')), events, board, last.savedAt, 'Claude가 대화 전체를 읽고 다시 짠 판')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer } }, null, 2))
+  console.log(`${sid.slice(0, 8)} ${verdict?.overall ?? '?'}`)
+}
+
 const time = (ms: number): string => new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 const main = (): void => {
@@ -304,6 +427,15 @@ const main = (): void => {
       process.exit(1)
     }
     return compare(a, b)
+  }
+  if (sid === '--fork') {
+    const [id, dir] = flags
+    if (id === undefined || dir === undefined) {
+      say('usage: bun scripts/review.ts --fork <session> <dir> [--candidate]')
+      process.exit(1)
+    }
+    const from = flags.indexOf('--from')
+    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1], flags.includes('--whole'))
   }
   const saved = savedBoards()
   if (sid === undefined) {

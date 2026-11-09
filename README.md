@@ -48,6 +48,10 @@ Set them on the install screen, or later in `/config`.
 | --- | --- | --- |
 | `language` | `auto` | The language of the tree, the drawer and the notices: `en` or `ko`. `auto` follows Claude Code's own language setting, then the system locale, then English. |
 | `autoShow` | on | Shows the tree as soon as a plan starts. Off, it shows only after you type `/flow`. |
+| `enabled` | on | Runs plan-flow in each new session. Off, a session starts with no board and no model calls until you type `/flow on`. |
+| `design` | on | After each answer that followed work, Claude reshapes the plan in a fork of the conversation. Off, only Haiku keeps the board, which costs less and follows the work less closely. |
+
+`/flow off` turns plan-flow off in the current session only: the tree and the drawer go away and no model is called. `/flow on` turns it back on and catches up on what happened meanwhile. The choice survives `/reload-plugins`. `/flow status` says whether it is on here and how many tokens its recent calls used.
 
 ## Try it without a task
 

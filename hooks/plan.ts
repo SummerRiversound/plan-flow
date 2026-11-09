@@ -382,9 +382,11 @@ export const updateNodes = (prev: Plan, updates: readonly NodeUpdate[], now: num
       const isParent = hasChildren(nodes, node.id)
       if (u.status !== undefined) {
         if (!STATUSES.includes(u.status)) return { error: `unknown status "${clean(String(u.status))}"; use ${STATUSES.join(', ')}` }
-        // Reopening a parent reopens every finished leaf under it.
-        if (isParent && u.status !== 'pending') return { error: `"${node.id}" has children, so its status follows them; update a leaf, or set "pending" to reopen all of it` }
-        const leaves = isParent ? leavesUnder(nodes, node.id).filter(n => isFinished(n.status)) : [node]
+        // A parent takes its status from its leaves: "pending" reopens every finished one under it, and
+        // "completed" or "skipped" closes every open one, as one who knows the stage is over says it.
+        // Running, blocked or waiting for a check belongs to a leaf, so a parent given one keeps its own.
+        const closes = u.status === 'completed' || u.status === 'skipped'
+        const leaves = !isParent ? [node] : u.status === 'pending' || closes ? leavesUnder(nodes, node.id).filter(n => (closes ? !isFinished(n.status) : isFinished(n.status))) : []
         if (leaves.some(n => isFinished(n.status)) && !isFinished(u.status)) marks[node.id] = 'redo'
         for (const leaf of leaves) setStatus(leaf, u.status, now)
       }

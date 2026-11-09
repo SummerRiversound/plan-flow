@@ -38,6 +38,18 @@
       "title": "Show the plan on its own",
       "description": "Show the plan tree above the prompt as soon as a plan starts; off shows it only after /flow",
       "default": true
+    },
+    "enabled": {
+      "type": "boolean",
+      "title": "Run in new sessions",
+      "description": "Run plan-flow in each new session; off, a session starts with no board and no model calls until /flow on",
+      "default": true
+    },
+    "design": {
+      "type": "boolean",
+      "title": "Claude designs the plan",
+      "description": "After each answer that followed work, ask Claude, in a fork of the conversation, to reshape the plan; off, only Haiku keeps the board",
+      "default": true
     }
   }
 }

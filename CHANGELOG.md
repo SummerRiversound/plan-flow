@@ -2,6 +2,23 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.41 — 2026-11-09
+
+### Changed
+
+- Claude reshapes the plan after each answer that followed work, not only when a plan starts or its goal changes, so the title, the goal and the stages still ahead follow the work as it widens. An answer with no tool call behind it asks nothing.
+- The plans a session finished stay on the board: listed at the top of the drawer, newest first, each opening to its steps, and named on one muted row under the goal above the prompt. When the work goes back to one, it comes back as the plan in hand.
+
+### Fixed
+
+- A waiting step the work went past (a later step under the same parent already finished) is no longer started on its own and left running.
+- A done step keeps no note, even one given with the update that finished it.
+- A command with no description reaches the planner cut short, so the text it carries is less likely to read as a request.
+
+### Added
+
+- The call log records each model call's token use, so a design call that missed the conversation's cache shows.
+
 ## 0.1.40 — 2026-11-09
 
 ### Fixed

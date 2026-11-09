@@ -4,6 +4,10 @@
 //   bun scripts/review.ts                 list the sessions with a saved board
 //   bun scripts/review.ts <session> [--replay [--design]]   --design also asks Opus to design the plan where the mod forks Claude
 //   bun scripts/review.ts --compare <dir A> <dir B>          Opus picks the better replayed board per session, both orders
+//   bun scripts/review.ts --fork <session> <dir> [--candidate] [--from <dir>]
+//       the real design step on the board the person last saw: the session itself resumed as a throwaway
+//       fork, so Claude reads the whole conversation as the mod's fork does; --candidate asks with the
+//       design wording under trial. Writes <dir>/<session>.json for --compare.
 // Models are called through `claude -p` on the developer's own sign-in, with no settings, hooks,
 // plugins or CLAUDE.md of theirs loaded.
 import { execFileSync } from 'node:child_process'
@@ -293,6 +297,64 @@ const compare = (a: string, b: string): void => {
   for (const [name, t] of Object.entries(tally)) console.log(`${name}: A ${t.a} · B ${t.b} · 비김 ${t.tie}`)
 }
 
+// The design wording under trial, as changes to the released one; it moves into hooks/ only once it wins.
+const CANDIDATE: ReadonlyArray<[string, string]> = [
+  ['Every title is at most 4 words.', 'Every title is a short phrase that reads on its own (about 2 to 6 words): what the step makes or changes, with no issue or PR number and no abbreviation the person has not used.'],
+  [
+    "a step's title or detail), \"add\", \"remove\" and \"move\" only, by the ids it shows, and leave every status as it is.",
+    "a step's title, detail or status), \"add\", \"remove\" and \"move\" only, by the ids it shows. You know what you did: a step you finished is \"completed\", one the work went past without doing is \"skipped\" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never \"completed\". Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as \"merged\" with its link.",
+  ],
+]
+const candidatePrompt = (board: Board): string => CANDIDATE.reduce((p, [from, to]) => {
+  if (!p.includes(from)) throw new Error(`the released design wording changed; update CANDIDATE: ${from.slice(0, 60)}`)
+  return p.replace(from, to)
+}, designPrompt(board))
+
+// The session resumed as a throwaway fork in its own folder: no tools, settings, hooks or saved copy.
+const forkAsk = (sid: string, cwd: string, prompt: string): string => {
+  const out = execFileSync('claude', ['-p', '--resume', sid, '--fork-session', '--no-session-persistence', '--model', 'opus', '--tools', '', '--setting-sources', '', '--output-format', 'json'], {
+    cwd,
+    input: prompt,
+    env: { ...process.env, CMUX_CLAUDE_HOOKS_DISABLED: '1' },
+    encoding: 'utf8',
+    maxBuffer: 1 << 26,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  const r = JSON.parse(out) as { result?: string; usage?: { cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
+  say(`  fork read ${r.usage?.cache_read_input_tokens ?? 0} cached, wrote ${r.usage?.cache_creation_input_tokens ?? 0}`)
+  return r.result ?? ''
+}
+
+// `from`: a folder of earlier results whose fork answers are applied again instead of asking anew.
+const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string): void => {
+  const last = savedBoards()[sid]
+  const path = transcriptOf(sid)
+  const events = eventsOf(sid)
+  if (last === undefined || path === undefined || events === undefined) {
+    say(`session ${sid} has no saved board or transcript`)
+    process.exit(1)
+  }
+  const cwd = /"cwd":"([^"]+)"/.exec(readFileSync(path, 'utf8'))?.[1]
+  if (cwd === undefined || !existsSync(cwd)) {
+    say(`the folder session ${sid} ran in is gone`)
+    process.exit(1)
+  }
+  let board: Board = { plan: last.plan, shelf: last.shelf }
+  const answer =
+    from === undefined
+      ? forkAsk(sid, cwd, candidate ? candidatePrompt(board) : designPrompt(board))
+      : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
+  for (const op of parseOps(answer).filter(op => DESIGN_OPS.has(op.op))) {
+    const r = runOp(board, op, last.savedAt)
+    if (!('error' in r)) board = r.board
+  }
+  const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
+  const verdict = judge(claudeMd.slice(claudeMd.indexOf('## Decisions')), events, board, last.savedAt, 'Claude가 대화 전체를 읽고 다시 짠 판')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer } }, null, 2))
+  console.log(`${sid.slice(0, 8)} ${verdict?.overall ?? '?'}`)
+}
+
 const time = (ms: number): string => new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 const main = (): void => {
@@ -304,6 +366,15 @@ const main = (): void => {
       process.exit(1)
     }
     return compare(a, b)
+  }
+  if (sid === '--fork') {
+    const [id, dir] = flags
+    if (id === undefined || dir === undefined) {
+      say('usage: bun scripts/review.ts --fork <session> <dir> [--candidate]')
+      process.exit(1)
+    }
+    const from = flags.indexOf('--from')
+    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1])
   }
   const saved = savedBoards()
   if (sid === undefined) {

@@ -13,23 +13,13 @@ test('a tool call is one line: what it says it is for, else the file it touches,
   expect(toolLine('WebFetch', { url: 'https://example.com' })).toBe('WebFetch')
 })
 
-test('the log keeps the newest lines; requests, answers and words along the way reach the planner whole up to a long cap, calls in one short line', () => {
+test('the log keeps the newest lines and cuts long answers', () => {
   let log: Happened[] = []
   for (let i = 0; i < MAX_LOG + 5; i++) log = remember(log, { kind: 'tool', text: `call ${i}` })
   expect(log).toHaveLength(MAX_LOG)
   expect(log[0]?.text).toBe('call 5')
-  // An answer of the usual length (most run past 800 characters) arrives whole.
-  expect(remember([], { kind: 'answer', text: 'ㄱ'.repeat(1_800) })[0]?.text).toHaveLength(1_800)
-  expect(remember([], { kind: 'answer', text: 'ㄱ'.repeat(8_000) })[0]?.text.length).toBeLessThanOrEqual(4_000)
-  expect(remember([], { kind: 'said', text: 'ㄱ'.repeat(600) })[0]?.text).toHaveLength(600)
-  expect(remember([], { kind: 'tool', text: 'ㄱ'.repeat(600) })[0]?.text.length).toBeLessThanOrEqual(160)
+  expect(remember([], { kind: 'answer', text: 'ㄱ'.repeat(2000) })[0]?.text.length).toBeLessThanOrEqual(800)
   expect(remember([], { kind: 'answer', text: '   ' })).toEqual([])
-})
-
-test('a turn of long answers still reaches the planner whole', () => {
-  const answers: Happened[] = [1, 2, 3].map(i => ({ kind: 'answer', text: `${i}`.repeat(3_000) }))
-  const p = plannerPrompt({ plan: emptyPlan(), shelf: [] }, answers)
-  for (const a of answers) expect(p).toContain(a.text)
 })
 
 test('the planner reads the board and what happened, oldest first', () => {

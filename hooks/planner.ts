@@ -21,14 +21,12 @@ export const LOOK_EVERY_MS = 60_000
 export const LOOK_GAP_MS = 20_000
 
 export const MAX_LOG = 80
-// Claude's words carry where the work stands, and about half its answers run past 800 characters,
-// so they reach the planner whole up to MAX_ANSWER; a call stays one line.
-const MAX_PROMPT_LOG = 24_000
+const MAX_PROMPT_LOG = 6000
 const MAX_LINE = 160
 // A command with no description says nothing of its purpose, and its words (a prompt sent to another
 // session, a message's text) read like a request; a short cut keeps what it runs, not what it carries.
 const MAX_COMMAND = 80
-const MAX_ANSWER = 4_000
+const MAX_ANSWER = 800
 
 const cut = (s: string, n: number): string => {
   const one = s.replace(/\s+/g, ' ').trim()
@@ -55,7 +53,7 @@ export const PERSON: ReadonlySet<string> = new Set(['composer', 'bridge', 'sdk',
 export const noticeLine = (text: string): string => /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1] ?? text
 
 export const remember = (log: readonly Happened[], h: Happened): Happened[] => {
-  const text = cut(h.text, h.kind === 'request' || h.kind === 'answer' || h.kind === 'said' ? MAX_ANSWER : MAX_LINE)
+  const text = cut(h.text, h.kind === 'request' || h.kind === 'answer' ? MAX_ANSWER : MAX_LINE)
   if (text === '') return [...log]
   return [...log, { kind: h.kind, text }].slice(-MAX_LOG)
 }

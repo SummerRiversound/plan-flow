@@ -29,7 +29,7 @@ test('a transcript reads back as what the planner hears: requests, calls with fa
   ])
 })
 
-test('a delegated session reads back with the subagent calls merged in time order, failures marked and never guarded', () => {
+test('a delegated session reads back with the subagent calls merged in time order, failures marked and state-changing ones counted', () => {
   const at = (s: number): string => `2026-11-09T00:00:0${s}.000Z`
   const main = [
     line({ type: 'user', timestamp: at(0), message: { content: 'Check the build' } }),
@@ -45,5 +45,5 @@ test('a delegated session reads back with the subagent calls merged in time orde
   const out = heard(main, [sub])
   expect(out.map(h => h.kind)).toEqual(['request', 'tool', 'subagent', 'answer'])
   expect(out[2].text).toBe('List files (failed)')
-  expect(out[2].guarded).toBeUndefined()
+  expect(out[2].guarded).toBe(true)
 })

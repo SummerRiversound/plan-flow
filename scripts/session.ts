@@ -34,7 +34,7 @@ const failedIn = (entries: readonly Entry[]): Set<string> => {
 }
 
 // A subagent's own transcript (<session>/subagents/agent-*.jsonl) as the calls the mod hears from it:
-// marked as a subagent's, never guarded since they do not count as state-changing for look timing.
+// marked as a subagent's, and counted towards the next look as the mod counts them.
 const subagentCalls = (jsonl: string): Heard[] => {
   const entries = parse(jsonl)
   const failed = failedIn(entries)
@@ -46,7 +46,7 @@ const subagentCalls = (jsonl: string): Heard[] => {
           .filter(b => b.type === 'tool_use' && b.name !== undefined && !UNHEARD.has(b.name))
           .map((b): Heard => {
             const line = toolLine(b.name ?? '', b.input ?? {})
-            return { kind: 'subagent', text: failed.has(b.id ?? '') ? `${line} (failed)` : line, at: Date.parse(e.timestamp ?? '') || 0 }
+            return { kind: 'subagent', text: failed.has(b.id ?? '') ? `${line} (failed)` : line, at: Date.parse(e.timestamp ?? '') || 0, guarded: GUARDED.has(b.name ?? '') }
           }),
   )
 }

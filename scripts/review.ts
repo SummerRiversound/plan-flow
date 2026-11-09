@@ -116,7 +116,7 @@ const replay = (events: readonly Heard[]): Frame[] => {
       request = e.text
       look(e.at, '요청')
     } else if (e.kind === 'answer') look(e.at, '답')
-    else if (e.kind === 'tool') {
+    else if (e.kind === 'tool' || e.kind === 'subagent') {
       if (e.guarded === true) calls++
       if (gap && (calls >= PLAN_EVERY || e.at - last >= LOOK_EVERY_MS)) look(e.at, '작업 중')
     } else if (e.kind === 'said' && gap) look(e.at, 'Claude가 진행 상황을 말함')
@@ -224,7 +224,9 @@ const main = (): void => {
     say(`no transcript for session ${sid} under ${PROJECTS}`)
     process.exit(1)
   }
-  const events = heard(readFileSync(path, 'utf8'))
+  const subagentDir = join(path.slice(0, -'.jsonl'.length), 'subagents')
+  const subagents = existsSync(subagentDir) ? readdirSync(subagentDir).filter(f => f.endsWith('.jsonl')).map(f => readFileSync(join(subagentDir, f), 'utf8')) : []
+  const events = heard(readFileSync(path, 'utf8'), subagents)
   const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
   const decisions = claudeMd.slice(claudeMd.indexOf('## Decisions'))
   const end = events.at(-1)?.at ?? Date.now()

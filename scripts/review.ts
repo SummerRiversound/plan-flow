@@ -302,9 +302,15 @@ const CANDIDATE: ReadonlyArray<[string, string]> = [
   ['Every title is at most 4 words.', 'Every title is a short phrase that reads on its own (about 2 to 6 words): what the step makes or changes, with no issue or PR number and no abbreviation the person has not used.'],
   [
     "a step's title or detail), \"add\", \"remove\" and \"move\" only, by the ids it shows, and leave every status as it is.",
-    "a step's title, detail or status), \"add\", \"remove\" and \"move\" only, by the ids it shows. You know what you did: a step you finished is \"completed\", one the work went past without doing is \"skipped\" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never \"completed\". Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as \"merged\" with its link.",
+    "a step's title, detail or status), \"add\", \"remove\" and \"move\" by the ids it shows. You know what you did: a step you finished is \"completed\", one the work went past without doing is \"skipped\" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never \"completed\". Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as \"merged\" with its link. Go through every step the board shows and give each the status that is true now.",
+  ],
+  [
+    'Answer with only a JSON array of op objects, and [] when the board already fits.',
+    'When the plan in hand is not the work this session is on now (work dropped or long finished, while the session moved to other work), put the right plan in hand: op "set" with the current work\'s plan and "previous" "cancel" for dropped work or "park" for work to come back to, or op "resume" with the title of a shelved plan the work went back to. Answer with only a JSON array of op objects, and [] when the board already fits.',
   ],
 ]
+// The ops the candidate design may run: the released ones, and putting the right plan in hand.
+const CANDIDATE_OPS: ReadonlySet<string> = new Set([...DESIGN_OPS, 'set', 'resume', 'cancel'])
 const candidatePrompt = (board: Board): string => CANDIDATE.reduce((p, [from, to]) => {
   if (!p.includes(from)) throw new Error(`the released design wording changed; update CANDIDATE: ${from.slice(0, 60)}`)
   return p.replace(from, to)
@@ -344,7 +350,7 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string)
     from === undefined
       ? forkAsk(sid, cwd, candidate ? candidatePrompt(board) : designPrompt(board))
       : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
-  for (const op of parseOps(answer).filter(op => DESIGN_OPS.has(op.op))) {
+  for (const op of parseOps(answer).filter(op => (candidate ? CANDIDATE_OPS : DESIGN_OPS).has(op.op))) {
     const r = runOp(board, op, last.savedAt)
     if (!('error' in r)) board = r.board
   }

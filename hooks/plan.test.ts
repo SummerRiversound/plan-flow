@@ -83,7 +83,7 @@ test('a parent takes its status from its children', () => {
   p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a', children: [{ title: 'x' }, { title: 'y' }] }], 0))
   p = ok(updateNodes(p, [{ id: '1.1', status: 'completed' }, { id: '1.2', status: 'skipped' }], 5))
   expect(statusOf(p, '1')).toBe('completed')
-  expect(fails(updateNodes(p, [{ id: '1', status: 'in_progress' }], 6))).toContain('children')
+  expect(statusOf(ok(updateNodes(p, [{ id: '1', status: 'in_progress' }], 6)), '1')).toBe('completed')
 })
 
 test('a task and its stage close on their own once every checkpoint under them is finished, and reopen with one', () => {
@@ -265,8 +265,11 @@ test('a stage marked done or skipped closes every open step under it, keeps the 
   // A stage whose steps are all finished reads as done.
   expect([statusOf(p, '2.1'), statusOf(p, '2.2'), statusOf(p, '2')]).toEqual(['skipped', 'skipped', 'completed'])
   expect(p.nodes.find(n => n.id === '1.1')?.title).toBe('새 이름')
-  // Running or blocked is a step's own state: a stage cannot take it.
-  expect(fails(updateNodes(p, [{ id: '1', status: 'in_progress' }], 3))).toContain('has children')
+  // Running, blocked or waiting for a check is a step's own state: a stage keeps the one its steps give
+  // it, and the rest of the update still applies.
+  const q = ok(updateNodes(p, [{ id: '1', status: 'in_progress' }, { id: '1.3', title: '다른 이름' }], 3))
+  expect(statusOf(q, '1')).toBe('completed')
+  expect(q.nodes.find(n => n.id === '1.3')?.title).toBe('다른 이름')
 })
 
 test('a reopened step loses its redo mark once it is done again, by update or by next', () => {

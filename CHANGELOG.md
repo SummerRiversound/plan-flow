@@ -2,6 +2,19 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.42 — 2026-11-09
+
+### Added
+
+- `/flow off` turns plan-flow off in the current session only: the tree and the drawer go away and no model is called. `/flow on` turns it back on and catches up on what happened meanwhile. The choice survives `/reload-plugins`.
+- `/flow status` says whether plan-flow is on in this session, how new sessions start, whether Claude designs the plan, and the tokens its recent calls used.
+- Option `enabled` (on by default): off, each new session starts with plan-flow off until `/flow on`.
+- Option `design` (on by default): off, only Haiku keeps the board and Claude is never asked to reshape the plan.
+
+### Fixed
+
+- A stage marked done or skipped closes the steps still open under it. Before, the whole update was refused, losing the renames and statuses that came with it.
+
 ## 0.1.41 — 2026-11-09
 
 ### Changed

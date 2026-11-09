@@ -47,6 +47,20 @@ export const countedNodes = (nodes: readonly PlanNode[]): number => {
 export const leavesUnder = (nodes: readonly PlanNode[], id: string): PlanNode[] =>
   nodes.filter(n => (n.id === id || n.id.startsWith(`${id}.`)) && !hasChildren(nodes, n.id))
 
+// A waiting step the work went past: at it or above it, a later step under the same parent (outside a
+// parallel group, where order means nothing) already has a finished leaf. Starting it would draw
+// work nobody is doing.
+const passedOver = (plan: Plan, leaf: PlanNode): boolean => {
+  for (let n: PlanNode | undefined = leaf; n !== undefined; n = plan.nodes.find(p => p.id === n?.parentId)) {
+    const parent = plan.nodes.find(p => p.id === n?.parentId)
+    if (parent?.parallel === true) continue
+    const sibs = childrenOf(plan.nodes, n.parentId)
+    if (sibs.slice(sibs.indexOf(n) + 1).some(s => leavesUnder(plan.nodes, s.id).some(l => isFinished(l.status)))) return true
+  }
+
+  return false
+}
+
 const ancestorIds = (id: string): string[] => {
   const parts = id.split('.')
 
@@ -382,7 +396,8 @@ export const updateNodes = (prev: Plan, updates: readonly NodeUpdate[], now: num
       if (u.note !== undefined) {
         const t = text('a note', u.note, MAX_NOTE, true)
         if ('error' in t) return t
-        if (t.value === '') delete node.note
+        // A done step keeps no note: the note says why a step waits, stopped or was passed by.
+        if (t.value === '' || node.status === 'completed') delete node.note
         else node.note = t.value
       }
       if (u.detail !== undefined) {
@@ -457,7 +472,7 @@ export const nextStep = (prev: Plan, id: string | undefined, now: number): PlanR
     const done = id === undefined ? active[0] : active.find(n => n.id === id)
     if (done !== undefined) setStatus(done, 'completed', now)
     const still = running(plan)
-    const candidate = leavesOf(plan).find(n => n.status === 'pending' && still.every(r => canRunTogether(plan, r.id, n.id)))
+    const candidate = leavesOf(plan).find(n => n.status === 'pending' && !passedOver(plan, n) && still.every(r => canRunTogether(plan, r.id, n.id)))
     if (done === undefined && candidate === undefined) return { error: 'nothing left to start: every step is finished or blocked' }
     if (candidate !== undefined) start(plan, candidate, now)
 
@@ -471,11 +486,11 @@ export const progress = (plan: Plan): { done: number; total: number } => {
   return { done: all.filter(n => isFinished(n.status)).length, total: all.length }
 }
 
-// The leaf Claude is on: the first running, else the first waiting, else the first blocked.
+// The leaf Claude is on: the first running, else the first waiting the work has not gone past, else the first waiting, else the first blocked.
 export const currentLeaf = (plan: Plan): PlanNode | null => {
   const all = leavesOf(plan)
 
-  return all.find(n => n.status === 'in_progress') ?? all.find(n => n.status === 'pending') ?? all.find(n => n.status === 'blocked') ?? null
+  return all.find(n => n.status === 'in_progress') ?? all.find(n => n.status === 'pending' && !passedOver(plan, n)) ?? all.find(n => n.status === 'pending') ?? all.find(n => n.status === 'blocked') ?? null
 }
 
 export const runningLeaves = running

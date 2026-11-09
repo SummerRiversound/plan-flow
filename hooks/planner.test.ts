@@ -6,7 +6,8 @@ import type { Happened } from './planner'
 
 test('a tool call is one line: what it says it is for, else the file it touches, never a whole command or file', () => {
   expect(toolLine('Bash', { command: 'npm test -- --watch=false', description: 'Run the tests' })).toBe('Run the tests')
-  expect(toolLine('Bash', { command: `echo ${'x'.repeat(400)}` }).length).toBeLessThanOrEqual(160)
+  // A command with no description is cut short: words inside it (a prompt sent elsewhere) are not this session's work.
+  expect(toolLine('Bash', { command: `tmux send-keys -t test "add a divide function and run the tests ${'x'.repeat(400)}"` }).length).toBeLessThanOrEqual(80)
   expect(toolLine('Edit', { file_path: '/repo/src/cart.js', old_string: 'secret', new_string: 'b' })).toBe('Edit cart.js')
   expect(toolLine('Agent', { description: 'Review the diff', prompt: 'long brief' })).toBe('Agent: Review the diff')
   expect(toolLine('WebFetch', { url: 'https://example.com' })).toBe('WebFetch')

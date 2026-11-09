@@ -1,6 +1,6 @@
 // The tool Claude keeps the plan with: its description and schema, reading its
 // untrusted input, running an op on the plan, and the plain text it answers.
-import type { Board, Previous } from './board'
+import type { Board, Previous, Shelved } from './board'
 import { cancelBoard, resumeBoard, setBoard, settle } from './board'
 import type { NodeUpdate, Plan, PlanInput } from './plan'
 import { addNodes, closing, finishedAt, hasOpenWork, moveNode, nextStep, progress, removeNode, STATUSES, updateNodes, withExpected, withGoal, withTitle } from './plan'
@@ -299,12 +299,14 @@ export const describePlan = (plan: Plan): string => {
   return out.join('\n')
 }
 
-// The board as the model reads it: the plan in hand, then the shelf in one line.
+// The board as the model reads it: the plan in hand, then the parked and the finished plans, one line each.
 export const describeBoard = (board: Board): string => {
-  const parked = board.shelf.filter(s => s.state === 'parked')
-  const plan = describePlan(board.plan)
+  const line = (label: string, state: Shelved['state']): string[] => {
+    const plans = board.shelf.filter(s => s.state === state)
+    return plans.length === 0 ? [] : [`${label}: ${plans.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total} done)`).join(', ')}`]
+  }
 
-  return parked.length === 0 ? plan : `${plan}\nParked: ${parked.map(s => `"${s.plan.title}" (${progress(s.plan).done}/${progress(s.plan).total} done)`).join(', ')}`
+  return [describePlan(board.plan), ...line('Parked', 'parked'), ...line('Finished', 'done')].join('\n')
 }
 
 // A plan of five or more steps with no step holding others reads as a to-do list, not a plan.

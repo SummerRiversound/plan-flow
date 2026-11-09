@@ -2,7 +2,8 @@
 // optionally the side planner run again over the session's transcript, and Opus scoring both
 // against the decisions in .claude/CLAUDE.md. Writes .scratch/review/<session>.html and .json.
 //   bun scripts/review.ts                 list the sessions with a saved board
-//   bun scripts/review.ts <session> [--replay]
+//   bun scripts/review.ts <session> [--replay [--design]]   --design also asks Opus to design the plan where the mod forks Claude
+//   bun scripts/review.ts --compare <dir A> <dir B>          Opus picks the better replayed board per session, both orders
 // Models are called through `claude -p` on the developer's own sign-in, with no settings, hooks,
 // plugins or CLAUDE.md of theirs loaded.
 import { execFileSync } from 'node:child_process'
@@ -16,7 +17,7 @@ import { setLanguage, t } from '../hooks/i18n'
 import { currentLeaf, hasOpenWork } from '../hooks/plan'
 import { describeBoard, runOp } from '../hooks/plan-tool'
 import type { Happened } from '../hooks/planner'
-import { LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, parseOps, plannerPrompt, remember } from '../hooks/planner'
+import { DESIGN_OPS, LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember } from '../hooks/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
@@ -52,7 +53,7 @@ const savedBoards = (): Saved => {
   return out
 }
 
-type Call = { at: number; call: 'look' | 'design'; ms: number; result: string; ops?: number; reason?: string }
+type Call = { at: number; call: 'look' | 'design'; ms: number; result: string; ops?: number; reason?: string; usage?: { input: number; cacheRead: number; cacheWrite: number; output: number } }
 
 // The session's recorded model calls across the installed copies, oldest first.
 const savedCalls = (sid: string): Call[] =>
@@ -64,8 +65,8 @@ const savedCalls = (sid: string): Call[] =>
 const CALL = { look: '계획판 모델', design: '계획 다듬기' } as const
 const RESULT: Record<string, string> = { answered: '답함', failed: '실패', 'timed out': '시간 초과', stale: '그사이 계획이 바뀌어 적용 안 함' }
 const callsHtml = (calls: readonly Call[]): string =>
-  `<h2>모델 호출 기록 · ${calls.length}건</h2><table><tr><th>시각</th><th>호출</th><th>걸린 시간</th><th>결과</th></tr>${calls
-    .map(c => `<tr><td>${esc(new Date(c.at).toLocaleTimeString('ko-KR'))}</td><td>${CALL[c.call]}</td><td class="n">${(c.ms / 1000).toFixed(1)}초</td><td>${esc(RESULT[c.result] ?? c.result)}${c.ops === undefined ? '' : ` · 적용 ${c.ops}`}${c.reason === undefined ? '' : ` · ${esc(c.reason)}`}</td></tr>`)
+  `<h2>모델 호출 기록 · ${calls.length}건</h2><table><tr><th>시각</th><th>호출</th><th>걸린 시간</th><th>결과</th><th>토큰 (새로 읽음 · 캐시에서 읽음 · 캐시에 씀 · 답)</th></tr>${calls
+    .map(c => `<tr><td>${esc(new Date(c.at).toLocaleTimeString('ko-KR'))}</td><td>${CALL[c.call]}</td><td class="n">${(c.ms / 1000).toFixed(1)}초</td><td>${esc(RESULT[c.result] ?? c.result)}${c.ops === undefined ? '' : ` · 적용 ${c.ops}`}${c.reason === undefined ? '' : ` · ${esc(c.reason)}`}</td><td class="n">${c.usage === undefined ? '' : [c.usage.input, c.usage.cacheRead, c.usage.cacheWrite, c.usage.output].map(n => n.toLocaleString('ko-KR')).join(' · ')}</td></tr>`)
     .join('')}</table>`
 
 const transcriptOf = (sid: string): string | undefined =>
@@ -84,11 +85,15 @@ const ask = (model: string, system: string, prompt: string): string =>
   })
 
 // The side planner's looks, as the mod times them: on each request and answer, and while Claude
-// works once enough state-changing calls or time have passed, never closer than the gap.
-// shortcut: no fork reshapes the plan after its first look (the mod's design step needs the live
-// conversation), and every Bash call counts as state-changing; add both if replays drift from real boards.
-const replay = (events: readonly Heard[]): Frame[] => {
+// works once enough state-changing calls or time have passed, never closer than the gap. With
+// `design`, Opus designs the plan where the mod forks Claude: when a look starts a plan or
+// changes its goal, and after each answer that followed work.
+// shortcut: the design reads the session's log, not the whole conversation with tool results the
+// real fork reads, and every Bash call counts as state-changing; widen both if replays drift from real boards.
+const replay = (events: readonly Heard[], design = false): Frame[] => {
   let board = emptyBoard()
+  let wanted: 'none' | 'wanted' | 'done' = 'none'
+  let worked = false
   let fresh: Happened[] = []
   let request = ''
   let calls = 0
@@ -107,18 +112,33 @@ const replay = (events: readonly Heard[]): Frame[] => {
     const head: Happened[] = request === '' || take.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
     say(`  look ${frames.length + 1} (${why})`)
     const text = ask('haiku', PLANNER_SYSTEM, plannerPrompt(board, [...head, ...take]))
-    for (const op of parseOps(text)) run(op, at)
+    const ops = parseOps(text)
+    for (const op of ops) run(op, at)
     if (hasOpenWork(board.plan) && currentLeaf(board.plan)?.status === 'pending') run({ op: 'next' }, at)
     frames.push({ at, why, board, ops: text.trim() })
+    if (wanted === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) wanted = 'wanted'
+    if (!design || wanted !== 'wanted' || board.plan.nodes.length === 0) return
+    wanted = 'done'
+    say(`  design after look ${frames.length}`)
+    const answer = ask('opus', 'You are Claude, the coding assistant of this session. The conversation so far is given as a log.', `# The conversation so far, oldest first\n${story(events.filter(x => x.at <= at), 200_000)}\n\n${designPrompt(board)}`)
+    const reshape = parseOps(answer).filter(op => DESIGN_OPS.has(op.op))
+    for (const op of reshape) run(op, at)
+    frames.push({ at, why: 'Claude가 계획을 다시 짬', board, ops: answer.trim() })
   }
   for (const e of events) {
     fresh = remember(fresh, { kind: e.kind, text: e.text })
     const gap = e.at - last >= LOOK_GAP_MS
     if (e.kind === 'request') {
       request = e.text
+      wanted = 'none'
+      worked = false
       look(e.at, '요청')
-    } else if (e.kind === 'answer') look(e.at, '답')
-    else if (e.kind === 'tool' || e.kind === 'subagent') {
+    } else if (e.kind === 'answer') {
+      if (worked) wanted = 'wanted'
+      worked = false
+      look(e.at, '답')
+    } else if (e.kind === 'tool' || e.kind === 'subagent') {
+      worked = true
       if (e.guarded === true) calls++
       if (gap && (calls >= PLAN_EVERY || e.at - last >= LOOK_EVERY_MS)) look(e.at, '작업 중')
     } else if (e.kind === 'said' && gap) look(e.at, 'Claude가 진행 상황을 말함')
@@ -130,12 +150,12 @@ const replay = (events: readonly Heard[]): Frame[] => {
 const KIND = { request: '요청', notice: '알림', tool: '호출', subagent: '하위 호출', said: 'Claude(중간)', answer: 'Claude(답)' } as const
 const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
-// The session as the judge reads it: newest kept when it runs long.
-const story = (events: readonly Heard[]): string => {
+// The session as a log, newest kept when it runs past `max` characters.
+const story = (events: readonly Heard[], max = 60_000): string => {
   const rows = events.map(e => `- [${KIND[e.kind]}] ${cut(e.text.replace(/\s+/g, ' ').trim(), e.kind === 'request' ? 1500 : e.kind === 'tool' ? 160 : 600)}`)
   const out: string[] = []
   let size = 0
-  for (let i = rows.length - 1; i >= 0 && size < 60_000; i--) {
+  for (let i = rows.length - 1; i >= 0 && size < max; i--) {
     out.unshift(rows[i] as string)
     size += (rows[i] as string).length
   }
@@ -144,7 +164,7 @@ const story = (events: readonly Heard[]): string => {
 }
 
 const band = (b: Board, at: number) =>
-  drawTree(b.plan, idle, { maxRows: BAND_ROWS, width: BAND_WIDTH, now: at, open: t().bandOpen, parked: b.shelf.filter(s => s.state === 'parked').length, folded: false })
+  drawTree(b.plan, idle, { maxRows: BAND_ROWS, width: BAND_WIDTH, now: at, open: t().bandOpen, parked: b.shelf.filter(s => s.state === 'parked').length, folded: false, finished: b.shelf.filter(s => s.state === 'done').map(s => s.plan.title) })
 const drawer = (b: Board, at: number) => {
   const v = drawerView(b.plan, b.shelf, { open: {}, focus: null }, idle, { width: DRAWER_WIDTH, now: at })
   return [...v.head, ...v.body]
@@ -211,10 +231,80 @@ const verdictHtml = (title: string, v: Verdict | undefined): string =>
 const boardHtml = (b: Board, at: number): string =>
   `<div class="row">${preBox(`입력창 위 ${BAND_WIDTH}칸 · 활동 표시는 쉬는 상태로 가정`, band(b, at), BAND_WIDTH, BAND_ROWS)}${preBox(`서랍 ${DRAWER_WIDTH}칸 (처음 열었을 때) · 활동 표시는 쉬는 상태로 가정`, drawer(b, at), DRAWER_WIDTH)}</div>`
 
+// Two boards of one session side by side: the judge says which serves the person better on each
+// item, from the same bar as the scores. Asked in both orders, so a lean to the first one cancels.
+const PAIR = `${JUDGE.slice(0, JUDGE.indexOf('세션 기록과 그 세션의 계획판을 받아'))}세션 기록과 같은 세션을 그린 계획판 두 개(판 1, 판 2)를 받아, 이 사람 입장에서 항목마다 어느 판이 나은지 고르세요. 차이가 행동을 바꾸지 않을 만큼 작으면 0(비김)입니다.
+항목: 세션 알아보기, 믿을 수 있는 현재 위치, 남은 길, 수준과 구조, 이해되는 문장, 그리고 overall(이 사람에게 어느 판이 더 쓸모 있는가).
+띠와 서랍의 활동 표시는 이 도구가 쉬는 상태로 가정하고 그린 것이니 평가에 넣지 마세요. 모든 문장은 한국어 해요체로 씁니다.
+JSON 하나로만 답하세요. 코드 펜스와 다른 글은 쓰지 않습니다:
+{"items":[{"name":"세션 알아보기","better":1,"why":"…"}],"overall":1,"verdict":"1~2문장"}`
+
+type Pick = { items: Array<{ name: string; better: 0 | 1 | 2; why: string }>; overall: 0 | 1 | 2; verdict: string }
+type Replayed = { board: Board; at: number }
+
+const pick = (events: readonly Heard[], one: Replayed, two: Replayed): Pick | undefined => {
+  const shown = (label: string, r: Replayed) => `# ${label}\n## 입력창 위 띠 (${BAND_WIDTH}칸)\n${asText(band(r.board, r.at))}\n## 서랍 (${DRAWER_WIDTH}칸, 처음 열었을 때)\n${asText(drawer(r.board, r.at))}`
+  const text = ask('opus', PAIR, [`# 세션 기록 (오래된 것부터)\n${story(events)}`, shown('판 1', one), shown('판 2', two)].join('\n\n'))
+  try {
+    return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as Pick
+  } catch {
+    say(`judge answered something that is not JSON:\n${text}`)
+    return undefined
+  }
+}
+
+const eventsOf = (sid: string): Heard[] | undefined => {
+  const path = transcriptOf(sid)
+  if (path === undefined) return undefined
+  const dir = join(path.slice(0, -'.jsonl'.length), 'subagents')
+  const subagents = existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.jsonl')).map(f => readFileSync(join(dir, f), 'utf8')) : []
+  return heard(readFileSync(path, 'utf8'), subagents)
+}
+
+// Each session replayed in both folders: A's wins, B's wins and ties per item, over both orders.
+const compare = (a: string, b: string): void => {
+  const read = (dir: string, f: string): Replayed | undefined => {
+    const r = (JSON.parse(readFileSync(join(dir, f), 'utf8')) as { replay?: Partial<Replayed> }).replay
+    return r?.board === undefined || r.at === undefined ? undefined : { board: r.board, at: r.at }
+  }
+  const tally: Record<string, { a: number; b: number; tie: number }> = {}
+  const count = (name: string, winner: 'a' | 'b' | 'tie') => {
+    tally[name] ??= { a: 0, b: 0, tie: 0 }
+    ;(tally[name] as { a: number; b: number; tie: number })[winner]++
+  }
+  const out: unknown[] = []
+  for (const f of readdirSync(a).filter(f => f.endsWith('.json') && existsSync(join(b, f)))) {
+    const sid = f.slice(0, -'.json'.length)
+    const [ra, rb, events] = [read(a, f), read(b, f), eventsOf(sid)]
+    if (ra === undefined || rb === undefined || events === undefined) continue
+    for (const aFirst of [true, false]) {
+      say(`${sid.slice(0, 8)} ${aFirst ? 'A first' : 'B first'}…`)
+      const p = aFirst ? pick(events, ra, rb) : pick(events, rb, ra)
+      if (p === undefined) continue
+      const who = (n: 0 | 1 | 2): 'a' | 'b' | 'tie' => (n === 0 ? 'tie' : (n === 1) === aFirst ? 'a' : 'b')
+      for (const it of p.items) count(it.name, who(it.better))
+      count('overall', who(p.overall))
+      out.push({ sid, aFirst, ...p })
+    }
+  }
+  const dir = join(process.cwd(), '.scratch/review')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'compare.json'), JSON.stringify({ a, b, tally, picks: out }, null, 2))
+  for (const [name, t] of Object.entries(tally)) console.log(`${name}: A ${t.a} · B ${t.b} · 비김 ${t.tie}`)
+}
+
 const time = (ms: number): string => new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 const main = (): void => {
   const [sid, ...flags] = process.argv.slice(2)
+  if (sid === '--compare') {
+    const [a, b] = flags
+    if (a === undefined || b === undefined) {
+      say('usage: bun scripts/review.ts --compare <dir A> <dir B>')
+      process.exit(1)
+    }
+    return compare(a, b)
+  }
   const saved = savedBoards()
   if (sid === undefined) {
     for (const [id, v] of Object.entries(saved).sort((a, b) => b[1].savedAt - a[1].savedAt)) console.log(`${id}  ${time(v.savedAt)}  ${v.plan.title}`)
@@ -226,9 +316,7 @@ const main = (): void => {
     say(`no transcript for session ${sid} under ${PROJECTS}`)
     process.exit(1)
   }
-  const subagentDir = join(path.slice(0, -'.jsonl'.length), 'subagents')
-  const subagents = existsSync(subagentDir) ? readdirSync(subagentDir).filter(f => f.endsWith('.jsonl')).map(f => readFileSync(join(subagentDir, f), 'utf8')) : []
-  const events = heard(readFileSync(path, 'utf8'), subagents)
+  const events = eventsOf(sid) ?? []
   const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
   const decisions = claudeMd.slice(claudeMd.indexOf('## Decisions'))
   const end = events.at(-1)?.at ?? Date.now()
@@ -244,10 +332,10 @@ const main = (): void => {
   }
   if (flags.includes('--replay')) {
     say(`replaying ${events.length} events through the side planner…`)
-    const frames = replay(events)
+    const frames = replay(events, flags.includes('--design'))
     const final = frames.at(-1)
     const v = final === undefined ? undefined : judge(decisions, events, final.board, final.at, '지금 지시문으로 다시 돌린 판')
-    report.replay = { looks: frames.length, verdict: v, ops: frames.map(f => ({ at: f.at, why: f.why, ops: f.ops })) }
+    report.replay = { looks: frames.length, verdict: v, board: final?.board, at: final?.at, ops: frames.map(f => ({ at: f.at, why: f.why, ops: f.ops })) }
     sections.push(
       verdictHtml(`지금 지시문으로 다시 돌린 판 · 계획판 모델 ${frames.length}번 호출`, v),
       ...frames.map(

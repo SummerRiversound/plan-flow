@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import type { Plan } from './plan'
 import type { Board } from './board'
-import { DETOUR_HINT, FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, missingDetail, routineHint, describePlan, parseOp, runOp, TOOL_DESCRIPTION } from './plan-tool'
+import { DETOUR_HINT, FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, missingDetail, routineHint, describeBoard, describePlan, parseOp, runOp, TOOL_DESCRIPTION } from './plan-tool'
 import { PLANNER_SYSTEM } from './planner'
 import { setLanguage } from './i18n'
 
@@ -141,6 +141,17 @@ test('a detour parks the plan, the answer says so and lists the shelf', () => {
   expect(out.text).toContain('Parked: "로그인 기능 추가" (0/3 done)')
   expect(run(out.board, { op: 'resume', previous: 'park' }).board.plan.title).toBe('로그인 기능 추가')
   expect(run(out.board, { op: 'cancel' }).board.plan.title).toBe('로그인 기능 추가')
+})
+
+test('the planner sees the plans this session finished and can bring one back when the work returns to it', () => {
+  let board = run({ plan: emptyPlan(), shelf: [] }, SET).board
+  for (let i = 0; i < 4; i++) board = run(board, { op: 'next' }).board
+  board = run(board, { op: 'set', title: '버그', nodes: [{ title: '재현' }] }).board
+  expect(describeBoard(board)).toContain('Finished: "로그인 기능 추가" (3/3 done)')
+  const back = run(board, { op: 'resume', title: '로그인 기능 추가', previous: 'park' }).board
+  expect(back.plan.title).toBe('로그인 기능 추가')
+  expect(back.shelf.map(s => [s.plan.title, s.state])).toEqual([['버그', 'parked']])
+  expect(PLANNER_SYSTEM).toContain('parked or finished')
 })
 
 test('move, resume and previous are read and checked', () => {

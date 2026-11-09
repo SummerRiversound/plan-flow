@@ -312,6 +312,30 @@ test('a parked plan row is pressable and opens to the steps of the plan with the
   expect(drawerView(sample(), [parked], { open: {}, focus: null }, idleActivity(), { width: 60, now: 0 }).buttons).toContain('shelf-0')
 })
 
+test('the plans this session finished are listed above the flowchart, newest first, each opening to its steps; cancelled ones are not', () => {
+  const plan = (title: string): Plan => ({ ...sample(), title })
+  const shelf = [
+    { plan: plan('로그인 버튼 고치기'), state: 'done' as const, at: 2 },
+    { plan: plan('보류한 일'), state: 'parked' as const, at: 1 },
+    { plan: plan('CI 테스트 고치기'), state: 'done' as const, at: 0 },
+    { plan: plan('취소한 일'), state: 'cancelled' as const, at: 0 },
+  ]
+  const v = drawerView(sample(), shelf, { open: {}, focus: null }, idleActivity(), { width: 60, now: 0 })
+  const body = v.body.map(lineText)
+  const head = body.findIndex(l => l.includes('이 세션에서 끝낸 계획'))
+  expect(body[head + 1]).toMatch(/^ ▸ ✓ 로그인 버튼 고치기 +\d+\/\d+$/)
+  expect(body[head + 2]).toMatch(/^ ▸ ✓ CI 테스트 고치기/)
+  // Above the flowchart, the parked list still under it.
+  expect(head).toBeLessThan(body.findIndex(l => l.includes('╭')))
+  expect(body.findIndex(l => l.includes('보관한 계획'))).toBeGreaterThan(body.findIndex(l => l.includes('╭')))
+  expect(body.some(l => l.includes('취소한 일'))).toBe(false)
+  for (const id of ['shelf-done-0', 'shelf-done-1', 'shelf-0']) expect(v.buttons).toContain(id)
+  const open = drawerView(sample(), shelf, { open: { 'shelf-done-1': true }, focus: null }, idleActivity(), { width: 60, now: 0 }).body.map(lineText)
+  const at = open.findIndex(l => l.includes('CI 테스트 고치기'))
+  expect(open[at]).toMatch(/^ ▾ ✓ CI 테스트 고치기/)
+  expect(open[at + 1]).toContain(sample().nodes[0]?.title ?? '')
+})
+
 test('an open box and the running step show their details; folded and finished ones do not', () => {
   const p = ok(setPlan(emptyPlan(), 'T', [
     { title: '조사', detail: '끝난 단계 설명' },

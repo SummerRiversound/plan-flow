@@ -1,10 +1,10 @@
 // Wiring only: hook events in, the pure modules beside this file decide, state out.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, Space, Timer } from 'claude-code'
+import type { EngineInterface, ModelUsage, Register, RenderChildren, Space, Timer } from 'claude-code'
 import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
+import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, DONE, FOLLOW, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
 import type { AxisItem, CardItem, CardStep } from './cards'
 import type { CardHead } from './cards'
 import { cardButtons, cardsOf, headOf, isDone } from './cards'
@@ -50,7 +50,9 @@ const EDGE = '#80808033'
 const EDGE_RUN = '#80808080'
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 // One call the mod made to a model for the board, kept so a board that stopped changing can be explained.
-type Call = { at: number; call: 'look' | 'design'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string }
+// Tokens a call used; on a design call a near-zero cacheRead means the fork paid for the whole conversation.
+type Used = { input: number; cacheRead: number; cacheWrite: number; output: number }
+type Call = { at: number; call: 'look' | 'design'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string; usage?: Used }
 type Calls = Record<string, { calls: Call[]; savedAt: number }>
 const KEPT_CALLS = 50
 
@@ -93,7 +95,7 @@ const row = ($: $, e: Ev, line: Line, focus: string | null, onPress: (id: string
 // plain list. A step's title is its Button: a box folds, a step is picked with its buttons under it.
 // The head the native drawer and band share: the title row, the goal, the progress bar and
 // counts, then (unless folded) the steps to check and what Claude is doing, then `tools`.
-const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalRows: number; folded?: boolean; tools?: RenderChildren }) => {
+const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalRows: number; folded?: boolean; tools?: RenderChildren; finished?: readonly string[] }) => {
   const el = $.ui.resolve(e)
   const { Box, Text } = el
   const Svg = 'Svg' in el ? el.Svg : null
@@ -104,6 +106,17 @@ const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalR
       {hd.goal === undefined ? null : (
         <Text size="footnote" color="inactive" wrap={o.goalRows === 1 ? 'truncate-end' : undefined}>
           {hd.goal}
+        </Text>
+      )}
+      {o.finished === undefined || o.finished.length === 0 ? null : (
+        <Text size="footnote" color="inactive" wrap="truncate-end">
+          {t().finishedLine}
+          {o.finished.map(f => (
+            <Text key={f}>
+              {'  '}
+              <Text color="success">✓</Text> {f}
+            </Text>
+          ))}
         </Text>
       )}
       <Box flexDirection="row" alignItems="center" gap="sm">
@@ -133,7 +146,7 @@ const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalR
 
 // The band above the prompt on a surface with its own type: the shared head, its title the
 // fold Button, the flowchart Button flush right, then the tree's rows, each step in by its level.
-const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: boolean; parked: number; notice?: string; budget: number; width: number; now: number; onPress: (id: string) => void }) => {
+const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: boolean; parked: number; finished: readonly string[]; notice?: string; budget: number; width: number; now: number; onPress: (id: string) => void }) => {
   const el = $.ui.resolve(e)
   const { Box, Text, Button } = el
   const Svg = 'Svg' in el ? el.Svg : null
@@ -204,6 +217,7 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
       {nativeHead($, e, headOf(plan, o.parked, activity), {
         folded: o.folded,
         goalRows: 1,
+        finished: o.finished,
         title: (
           <Box flexDirection="row" alignItems="center" gap="xs">
             {e.surface === 'desktop' && 'Client' in el ? (
@@ -550,6 +564,48 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     )
   })
 
+  // Shelved plans of one state under their label, each row opening to its steps, read only.
+  const shelved = (plans: readonly Shelved[], label: string, prefix: string, finished: boolean) =>
+    plans.length === 0 ? null : (
+      <Box flexDirection="column" gap="xs" paddingX="xs">
+        <Text size="footnote" weight="semibold">
+          {label}
+        </Text>
+        {plans.map((p, i) => {
+          const { done, total } = progress(p.plan)
+          const id = `${prefix}${i}`
+          const open = drawer.open[id] === true
+          const props: StepRowProps = { id, guide: null, mark: finished ? { text: '✓', color: 'success' } : { text: open ? '▾' : '▸', color: 'inactive' }, title: p.plan.title, strong: false, muted: true, strike: false, redo: false, pill: null, after: finished ? (open ? '▾' : '▸') : null, right: { text: `${done}/${total}`, color: 'inactive' }, hover: HOVER, edge: EDGE }
+          return (
+            <Box key={id} flexDirection="column">
+              {Client !== null ? (
+                <Client key={id} module="./step-row.tsx" props={props} flexGrow={1} />
+              ) : (
+                <Button key={id} plain onPress={() => onPress(id)}>
+                  <Text size="footnote" color="inactive">
+                    {`${open ? '▾' : '▸'} ${finished ? '✓ ' : ''}${p.plan.title}  ${done}/${total}`}
+                  </Text>
+                </Button>
+              )}
+              {/* Its steps, read only, each indented by its level with its mark. */}
+              {open
+                ? p.plan.nodes.map(n => (
+                    <Box key={`${id}-${n.id}`} flexDirection="row" gap="xs" paddingLeft={n.id.split('.').length * 2}>
+                      <Text size="footnote" color={glyphSeg(n).color}>
+                        {glyphSeg(n).text}
+                      </Text>
+                      <Text size="footnote" color="inactive">
+                        {n.title}
+                      </Text>
+                    </Box>
+                  ))
+                : null}
+            </Box>
+          )
+        })}
+      </Box>
+    )
+
   const top =
     plan.nodes.length === 0 ? (
       <Text color="inactive">{t().empty}</Text>
@@ -585,6 +641,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   return (
     <Box flexDirection="column" gap="md">
       {top}
+      {shelved(shelf.filter(x => x.state === 'done'), t().finished, DONE, true)}
       {flow.length === 0 ? null : (
         <Box flexDirection="column" gap="xs">
           {flow}
@@ -595,45 +652,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
           {tree}
         </Box>
       )}
-      {parked.length === 0 ? null : (
-        <Box flexDirection="column" gap="xs" paddingX="xs">
-          <Text size="footnote" weight="semibold">
-            {t().shelf}
-          </Text>
-          {parked.map((p, i) => {
-            const { done, total } = progress(p.plan)
-            const id = `${SHELF}${i}`
-            const open = drawer.open[id] === true
-            const props: StepRowProps = { id, guide: null, mark: { text: open ? '▾' : '▸', color: 'inactive' }, title: p.plan.title, strong: false, muted: true, strike: false, redo: false, pill: null, after: null, right: { text: `${done}/${total}`, color: 'inactive' }, hover: HOVER, edge: EDGE }
-            return (
-              <Box key={`shelved-${i}`} flexDirection="column">
-                {Client !== null ? (
-                  <Client key={id} module="./step-row.tsx" props={props} flexGrow={1} />
-                ) : (
-                  <Button key={id} plain onPress={() => onPress(id)}>
-                    <Text size="footnote" color="inactive">
-                      {`${open ? '▾' : '▸'} ${p.plan.title}  ${done}/${total}`}
-                    </Text>
-                  </Button>
-                )}
-                {/* Its steps, read only, each indented by its level with its mark. */}
-                {open
-                  ? p.plan.nodes.map(n => (
-                      <Box key={`shelved-${i}-${n.id}`} flexDirection="row" gap="xs" paddingLeft={n.id.split('.').length * 2}>
-                        <Text size="footnote" color={glyphSeg(n).color}>
-                          {glyphSeg(n).text}
-                        </Text>
-                        <Text size="footnote" color="inactive">
-                          {n.title}
-                        </Text>
-                      </Box>
-                    ))
-                  : null}
-              </Box>
-            )
-          })}
-        </Box>
-      )}
+      {shelved(parked, t().shelf, SHELF, false)}
     </Box>
   )
 }
@@ -848,15 +867,21 @@ const LOOK_TIMEOUT_MS = 60_000
 // The design call runs beside the planner, one at a time; a fork takes no timeout, so the mod stops waiting after this.
 const DESIGN_WAIT_MS = 120_000
 let designing: Promise<void> | null = null
-// A plan the planner starts or widens is designed once per request by a fork of the main conversation,
-// after a main request of that turn is out, so the fork holds the request and reads it from the cache.
+// Claude, who does the work, designs the plan in a fork of the main conversation: once the planner starts
+// or widens a plan, and again after each answer that followed work. It runs after a main request of the
+// turn is out, so the fork holds the request and reads the conversation from the cache.
 let design: 'none' | 'wanted' | 'done' = 'none'
 let stepped = false
+// The main turn ran a tool: its answer comes after work, so the plan may have moved.
+let worked = false
 
 // Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
 export const plannerIdle = async (): Promise<void> => {
   while (busy !== null || designing !== null) await (busy ?? designing)
 }
+
+const used = (u: ModelUsage | undefined): { usage?: Used } =>
+  u === undefined ? {} : { usage: { input: u.input_tokens, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, output: u.output_tokens } }
 
 // Why a model call came back without an answer, as the call log keeps it.
 const whyNot = (r: { reason: string; status?: number | null; error?: string }): string => [r.reason, r.status ?? undefined, r.error].filter(x => x !== undefined).join(' ')
@@ -879,7 +904,7 @@ async function planOnce($: $): Promise<void> {
     // Kept for the next look, so a failed call loses nothing; tried again soon, so a failure at the
     // session's last answer does not leave the board as it was.
     fresh = [...take, ...fresh]
-    await record($, { at, call: 'look', ms, result: r.reason === 'aborted' && ms >= LOOK_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r) })
+    await record($, { at, call: 'look', ms, result: r.reason === 'aborted' && ms >= LOOK_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
     if (!retried) {
       retried = true
       $.clock.after(RETRY_MS, () => planSoon($, true))
@@ -890,7 +915,7 @@ async function planOnce($: $): Promise<void> {
   const ops = parseOps(r.text)
   let applied = 0
   for (const op of ops) if (!('error' in (await apply($, op)))) applied++
-  await record($, { at, call: 'look', ms, result: 'answered', ops: applied })
+  await record($, { at, call: 'look', ms, result: 'answered', ops: applied, ...used(r.usage) })
   if (design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
   await keepRunning($)
 }
@@ -915,17 +940,18 @@ async function designOnce($: $): Promise<void> {
   timer?.cancel()
   const ms = (await $.clock.now()) - at
   if (r === 'late') return record($, { at, call: 'design', ms, result: 'timed out' })
-  if (!r.isAnswered) return record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r) })
+  // Nothing to fork yet means no request was made: nothing to keep.
+  if (!r.isAnswered) return r.reason === 'nothing-to-fork' ? undefined : record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
   $.ui.log(`designer: ${r.text}`, { to: 'debug' })
   // The planner kept looking meanwhile. The design lands only on the plan it was asked about: the same
   // title and start, and every step it saw still under its id, since its ops name steps by id. Checked
   // once before its ops run; a look landing between them can still refuse one (an id it removed).
   const now = await read($, planAtom)
   const same = now.title === board.plan.title && now.startedAt === board.plan.startedAt && board.plan.nodes.every(n => now.nodes.find(m => m.id === n.id)?.title === n.title)
-  if (!same) return record($, { at, call: 'design', ms, result: 'stale' })
+  if (!same) return record($, { at, call: 'design', ms, result: 'stale', ...used(r.usage) })
   let applied = 0
   for (const op of parseOps(r.text)) if (DESIGN_OPS.has(op.op) && !('error' in (await apply($, op)))) applied++
-  await record($, { at, call: 'design', ms, result: 'answered', ops: applied })
+  await record($, { at, call: 'design', ms, result: 'answered', ops: applied, ...used(r.usage) })
   await keepRunning($)
 }
 
@@ -1006,6 +1032,7 @@ export const register: Register = (on, options) => {
     request = e.text
     design = 'none'
     stepped = false
+    worked = false
     fresh = remember(fresh, { kind: 'request', text: e.text })
     planSoon($)
 
@@ -1060,6 +1087,7 @@ export const register: Register = (on, options) => {
     const r = yield* next(e)
     if (e.agentId !== undefined) return r
     stepped = true
+    if (r.toolUses.length > 0) worked = true
     const said = r.toolUses.length > 0 && r.answer.trim() !== ''
     if (said) fresh = remember(fresh, { kind: 'said', text: r.answer })
     // A plan waiting for its design is not held back by the gap.
@@ -1074,6 +1102,12 @@ export const register: Register = (on, options) => {
       await act($, { type: 'turnEnd', reason: e.reason })
       await tick($, false)
       fresh = remember(fresh, { kind: 'answer', text: e.answer })
+      // An answer of a question explained leaves the plan where it was, and costs no fork.
+      if (worked) {
+        design = 'wanted'
+        stepped = true
+        worked = false
+      }
       planSoon($)
       void checkVersion($).catch(() => undefined)
     }
@@ -1126,7 +1160,9 @@ export const register: Register = (on, options) => {
             fitLine([{ text: frame.label, color: 'inactive' }], width),
           ]
     const activity = frame?.activity ?? (await read($, activityAtom))
-    const parked = (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length
+    const shelf = frame?.board.shelf ?? (await read($, shelfAtom))
+    const parked = shelf.filter(s => s.state === 'parked').length
+    const finished = shelf.filter(s => s.state === 'done').map(s => s.plan.title)
     const notice = frame === undefined ? await read($, newerAtom).then(n => (n === null ? undefined : t().newer(n))) : undefined
     const view = drawTree(plan, activity, {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
@@ -1136,6 +1172,7 @@ export const register: Register = (on, options) => {
       folded: frame?.folded ?? (await bandFolded($, plan)),
       parked,
       notice,
+      finished,
     })
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
@@ -1148,11 +1185,11 @@ export const register: Register = (on, options) => {
     // A surface with its own type draws the band natively; a demo's bar stays as lines over it.
     if (e.surface !== 'terminal') {
       const folded = frame?.folded ?? (await bandFolded($, plan))
-      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice).length
+      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice, 1, finished).length
       return (
         <Box flexDirection="column" gap="xs">
           {top.map(l => row($, e, l, null, press))}
-          {nativeBand($, e, plan, activity, { folded, parked, ...(notice === undefined ? {} : { notice }), budget, width, now, onPress: press })}
+          {nativeBand($, e, plan, activity, { folded, parked, finished, ...(notice === undefined ? {} : { notice }), budget, width, now, onPress: press })}
           {below}
         </Box>
       )

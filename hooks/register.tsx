@@ -4,7 +4,7 @@ import type { EngineInterface, ModelUsage, Register, RenderChildren, Space, Time
 import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, FOLLOW, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
+import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, DONE, FOLLOW, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
 import type { AxisItem, CardItem, CardStep } from './cards'
 import type { CardHead } from './cards'
 import { cardButtons, cardsOf, headOf, isDone } from './cards'
@@ -95,7 +95,7 @@ const row = ($: $, e: Ev, line: Line, focus: string | null, onPress: (id: string
 // plain list. A step's title is its Button: a box folds, a step is picked with its buttons under it.
 // The head the native drawer and band share: the title row, the goal, the progress bar and
 // counts, then (unless folded) the steps to check and what Claude is doing, then `tools`.
-const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalRows: number; folded?: boolean; tools?: RenderChildren }) => {
+const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalRows: number; folded?: boolean; tools?: RenderChildren; finished?: readonly string[] }) => {
   const el = $.ui.resolve(e)
   const { Box, Text } = el
   const Svg = 'Svg' in el ? el.Svg : null
@@ -106,6 +106,17 @@ const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalR
       {hd.goal === undefined ? null : (
         <Text size="footnote" color="inactive" wrap={o.goalRows === 1 ? 'truncate-end' : undefined}>
           {hd.goal}
+        </Text>
+      )}
+      {o.finished === undefined || o.finished.length === 0 ? null : (
+        <Text size="footnote" color="inactive" wrap="truncate-end">
+          {t().finishedLine}
+          {o.finished.map(f => (
+            <Text key={f}>
+              {'  '}
+              <Text color="success">✓</Text> {f}
+            </Text>
+          ))}
         </Text>
       )}
       <Box flexDirection="row" alignItems="center" gap="sm">
@@ -135,7 +146,7 @@ const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalR
 
 // The band above the prompt on a surface with its own type: the shared head, its title the
 // fold Button, the flowchart Button flush right, then the tree's rows, each step in by its level.
-const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: boolean; parked: number; notice?: string; budget: number; width: number; now: number; onPress: (id: string) => void }) => {
+const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: boolean; parked: number; finished: readonly string[]; notice?: string; budget: number; width: number; now: number; onPress: (id: string) => void }) => {
   const el = $.ui.resolve(e)
   const { Box, Text, Button } = el
   const Svg = 'Svg' in el ? el.Svg : null
@@ -206,6 +217,7 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
       {nativeHead($, e, headOf(plan, o.parked, activity), {
         folded: o.folded,
         goalRows: 1,
+        finished: o.finished,
         title: (
           <Box flexDirection="row" alignItems="center" gap="xs">
             {e.surface === 'desktop' && 'Client' in el ? (
@@ -552,6 +564,48 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
     )
   })
 
+  // Shelved plans of one state under their label, each row opening to its steps, read only.
+  const shelved = (plans: readonly Shelved[], label: string, prefix: string, finished: boolean) =>
+    plans.length === 0 ? null : (
+      <Box flexDirection="column" gap="xs" paddingX="xs">
+        <Text size="footnote" weight="semibold">
+          {label}
+        </Text>
+        {plans.map((p, i) => {
+          const { done, total } = progress(p.plan)
+          const id = `${prefix}${i}`
+          const open = drawer.open[id] === true
+          const props: StepRowProps = { id, guide: null, mark: finished ? { text: '✓', color: 'success' } : { text: open ? '▾' : '▸', color: 'inactive' }, title: p.plan.title, strong: false, muted: true, strike: false, redo: false, pill: null, after: finished ? (open ? '▾' : '▸') : null, right: { text: `${done}/${total}`, color: 'inactive' }, hover: HOVER, edge: EDGE }
+          return (
+            <Box key={id} flexDirection="column">
+              {Client !== null ? (
+                <Client key={id} module="./step-row.tsx" props={props} flexGrow={1} />
+              ) : (
+                <Button key={id} plain onPress={() => onPress(id)}>
+                  <Text size="footnote" color="inactive">
+                    {`${open ? '▾' : '▸'} ${finished ? '✓ ' : ''}${p.plan.title}  ${done}/${total}`}
+                  </Text>
+                </Button>
+              )}
+              {/* Its steps, read only, each indented by its level with its mark. */}
+              {open
+                ? p.plan.nodes.map(n => (
+                    <Box key={`${id}-${n.id}`} flexDirection="row" gap="xs" paddingLeft={n.id.split('.').length * 2}>
+                      <Text size="footnote" color={glyphSeg(n).color}>
+                        {glyphSeg(n).text}
+                      </Text>
+                      <Text size="footnote" color="inactive">
+                        {n.title}
+                      </Text>
+                    </Box>
+                  ))
+                : null}
+            </Box>
+          )
+        })}
+      </Box>
+    )
+
   const top =
     plan.nodes.length === 0 ? (
       <Text color="inactive">{t().empty}</Text>
@@ -587,6 +641,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
   return (
     <Box flexDirection="column" gap="md">
       {top}
+      {shelved(shelf.filter(x => x.state === 'done'), t().finished, DONE, true)}
       {flow.length === 0 ? null : (
         <Box flexDirection="column" gap="xs">
           {flow}
@@ -597,45 +652,7 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
           {tree}
         </Box>
       )}
-      {parked.length === 0 ? null : (
-        <Box flexDirection="column" gap="xs" paddingX="xs">
-          <Text size="footnote" weight="semibold">
-            {t().shelf}
-          </Text>
-          {parked.map((p, i) => {
-            const { done, total } = progress(p.plan)
-            const id = `${SHELF}${i}`
-            const open = drawer.open[id] === true
-            const props: StepRowProps = { id, guide: null, mark: { text: open ? '▾' : '▸', color: 'inactive' }, title: p.plan.title, strong: false, muted: true, strike: false, redo: false, pill: null, after: null, right: { text: `${done}/${total}`, color: 'inactive' }, hover: HOVER, edge: EDGE }
-            return (
-              <Box key={`shelved-${i}`} flexDirection="column">
-                {Client !== null ? (
-                  <Client key={id} module="./step-row.tsx" props={props} flexGrow={1} />
-                ) : (
-                  <Button key={id} plain onPress={() => onPress(id)}>
-                    <Text size="footnote" color="inactive">
-                      {`${open ? '▾' : '▸'} ${p.plan.title}  ${done}/${total}`}
-                    </Text>
-                  </Button>
-                )}
-                {/* Its steps, read only, each indented by its level with its mark. */}
-                {open
-                  ? p.plan.nodes.map(n => (
-                      <Box key={`shelved-${i}-${n.id}`} flexDirection="row" gap="xs" paddingLeft={n.id.split('.').length * 2}>
-                        <Text size="footnote" color={glyphSeg(n).color}>
-                          {glyphSeg(n).text}
-                        </Text>
-                        <Text size="footnote" color="inactive">
-                          {n.title}
-                        </Text>
-                      </Box>
-                    ))
-                  : null}
-              </Box>
-            )
-          })}
-        </Box>
-      )}
+      {shelved(parked, t().shelf, SHELF, false)}
     </Box>
   )
 }
@@ -1143,7 +1160,9 @@ export const register: Register = (on, options) => {
             fitLine([{ text: frame.label, color: 'inactive' }], width),
           ]
     const activity = frame?.activity ?? (await read($, activityAtom))
-    const parked = (frame?.board.shelf ?? (await read($, shelfAtom))).filter(s => s.state === 'parked').length
+    const shelf = frame?.board.shelf ?? (await read($, shelfAtom))
+    const parked = shelf.filter(s => s.state === 'parked').length
+    const finished = shelf.filter(s => s.state === 'done').map(s => s.plan.title)
     const notice = frame === undefined ? await read($, newerAtom).then(n => (n === null ? undefined : t().newer(n))) : undefined
     const view = drawTree(plan, activity, {
       maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
@@ -1153,6 +1172,7 @@ export const register: Register = (on, options) => {
       folded: frame?.folded ?? (await bandFolded($, plan)),
       parked,
       notice,
+      finished,
     })
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
@@ -1165,11 +1185,11 @@ export const register: Register = (on, options) => {
     // A surface with its own type draws the band natively; a demo's bar stays as lines over it.
     if (e.surface !== 'terminal') {
       const folded = frame?.folded ?? (await bandFolded($, plan))
-      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice).length
+      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice, 1, finished).length
       return (
         <Box flexDirection="column" gap="xs">
           {top.map(l => row($, e, l, null, press))}
-          {nativeBand($, e, plan, activity, { folded, parked, ...(notice === undefined ? {} : { notice }), budget, width, now, onPress: press })}
+          {nativeBand($, e, plan, activity, { folded, parked, finished, ...(notice === undefined ? {} : { notice }), budget, width, now, onPress: press })}
           {below}
         </Box>
       )

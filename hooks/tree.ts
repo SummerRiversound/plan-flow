@@ -193,9 +193,15 @@ export const checkLine = (plan: Plan, width: number, lead = ''): Line | null => 
 export const goalLines = (plan: Plan, width: number, rows: number): Line[] =>
   plan.goal === undefined ? [] : wrap(plan.goal, width, rows).map((t): Line => [{ text: t, color: 'inactive' }])
 
-// The title, goal, progress bar, steps to check and what Claude is doing; the band's top and the drawer's pinned head.
+// The titles of the plans this session finished, newest first, on one dim row: other work the session did.
+export const finishedLine = (finished: readonly string[], width: number): Line[] =>
+  finished.length === 0
+    ? []
+    : [fitLine([{ text: t().finishedLine, color: 'inactive' }, ...finished.flatMap((f): Seg[] => [{ text: '  ✓ ', color: 'success' }, { text: f, color: 'inactive' }])], width)]
+
+// The title, goal, finished plans, progress bar, steps to check and what Claude is doing; the band's top and the drawer's pinned head.
 // `goalRows`: how many rows the goal may wrap to.
-export const planHead = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean, notice?: string, goalRows = 1): Line[] => {
+export const planHead = (plan: Plan, activity: Activity, maxRows: number, width: number, now: number, open?: string, parked = 0, folded?: boolean, notice?: string, goalRows = 1, finished: readonly string[] = []): Line[] => {
   const { done, total } = progress(plan)
   if (maxRows < 6) {
     const right = `${done}/${total}`
@@ -239,6 +245,7 @@ export const planHead = (plan: Plan, activity: Activity, maxRows: number, width:
           return [...cut, { text: padRight('', width - cells(lineText(cut)) - used) }, ...right]
         })(),
     ...goalLines(plan, width, goalRows),
+    ...finishedLine(finished, width),
     fitLine([...strip(plan, bar), { text: label, color: 'text' }], width),
   ]
   const words = activityWords(plan, activity)
@@ -263,8 +270,9 @@ export const FOLD_BUTTON = 'fold-band'
 
 // `open` labels a button on the title line that opens the drawer; `parked` counts the plans set aside.
 // `folded` shows the fold button, and when true draws only the title and progress lines.
-// `notice` says a newer plan-flow is installed or out, on the title line.
-export type TreeOptions = { maxRows: number; width: number; now: number; open?: string; parked?: number; folded?: boolean; notice?: string }
+// `notice` says a newer plan-flow is installed or out, on the title line. `finished` names the
+// plans this session finished, newest first.
+export type TreeOptions = { maxRows: number; width: number; now: number; open?: string; parked?: number; folded?: boolean; notice?: string; finished?: readonly string[] }
 // The tree's rows under the head, in `budget` rows: each a step, a running step's detail, or a
 // line counting the steps left out. Each keeps its drawn line and what it stands for, so a
 // surface with its own type can draw the same rows its own way.
@@ -328,10 +336,10 @@ const stepRows = (plan: Plan, activity: Activity, budget: number, width: number,
   return { rows: body.slice(offset, offset + budget).map(r => r.line), end: offset + budget >= body.length }
 }
 
-export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice }: TreeOptions): Line[] => {
+export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice, finished = [] }: TreeOptions): Line[] => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
-  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice)
-  if (folded === true) return top.slice(0, 2 + goalLines(plan, width, 1).length)
+  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice, 1, finished)
+  if (folded === true) return top.slice(0, 2 + goalLines(plan, width, 1).length + finishedLine(finished, width).length)
 
   return [...top, ...bandRows(plan, activity, maxRows - top.length, width, now).map(r => r.line)]
 }

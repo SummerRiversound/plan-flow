@@ -22,6 +22,7 @@ export const shots = (): Shot[] =>
       const name = `${s.id}${s.frames.length > 1 ? `#${i + 1}` : ''}`
       const scenario = `${s.title}${s.frames.length > 1 ? ` ${i + 1}/${s.frames.length}` : ''}`
       const parked = f.board.shelf.filter(x => x.state === 'parked').length
+      const finished = f.board.shelf.filter(x => x.state === 'done').map(x => x.plan.title)
       const band = BAND_SIZES.map(({ width, rows }) => ({
         key: `${name} band ${width}x${rows}`,
         scenario,
@@ -29,7 +30,7 @@ export const shots = (): Shot[] =>
         view: 'band' as const,
         width,
         rows,
-        lines: drawTree(f.board.plan, f.activity, { maxRows: rows, width, now: f.now, open: t().bandOpen, parked, folded: f.folded ?? false }),
+        lines: drawTree(f.board.plan, f.activity, { maxRows: rows, width, now: f.now, open: t().bandOpen, parked, folded: f.folded ?? false, finished }),
       }))
       const drawer = DRAWER_WIDTHS.map(width => ({
         key: `${name} drawer ${width}`,

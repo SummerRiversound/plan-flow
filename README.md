@@ -36,7 +36,7 @@ The board follows the work of the whole session, not each message:
 - Starting over cancels the current plan.
 - A step that has to be redone opens again and is marked `↺` until it is done.
 - Work Claude goes on with without asking is a step, the review, merge or release that follows the request included. Work after the plan that waits on your go-ahead or on someone else (say, a merge you decide on, or review comments still to come) hangs dim and dotted after the last stage, two at most. It does not count towards progress, becomes a step when it starts, and stays after the plan finishes.
-- A new task after a finished plan starts a new plan, and the finished one stays on the shelf.
+- A new task after a finished plan starts a new plan. The finished one stays listed at the top of the drawer and named on one line above the prompt, so a glance shows everything the session did; when the work goes back to it, it comes back as the plan in hand.
 
 The mod's planner decides which of these fits, from your messages, the calls Claude makes and what Claude says. When a plan starts or its goal changes, and again after each answer that followed work, a copy of the conversation asks Claude to design it: the goal as the end you are after, and the stages the whole way there. The working conversation never sees the board: nothing is added to what it reads, so the mod does not change how it works.
 

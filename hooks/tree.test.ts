@@ -114,6 +114,20 @@ test('a step the latest request reopened carries a mark, one it added does not, 
   expect(lines[1]).toContain('· 보관 2')
 })
 
+test('the plans this session finished stay named on one dim line under the goal, kept when the band folds', () => {
+  const p = { ...sample(), goal: '로그인이 되게 하기' }
+  const finished = ['로그인 버튼 고치기', 'CI 테스트 고치기']
+  const lines = drawTree(p, idleActivity(), { maxRows: 10, width: 80, now: 0, finished }).map(lineText)
+  expect(lines[1]).toBe('로그인이 되게 하기')
+  expect(lines[2]).toBe('앞서 끝냄  ✓ 로그인 버튼 고치기  ✓ CI 테스트 고치기')
+  expect(lines[3]).toContain('━')
+  expect(lines.length).toBeLessThanOrEqual(10)
+  const folded = drawTree(p, idleActivity(), { maxRows: 10, width: 80, now: 0, finished, folded: true }).map(lineText)
+  expect(folded).toHaveLength(4)
+  expect(folded[2]).toContain('앞서 끝냄')
+  expect(drawTree(p, idleActivity(), { maxRows: 10, width: 80, now: 0 }).map(lineText).some(l => l.includes('앞서 끝냄'))).toBe(false)
+})
+
 test('the running step shows its detail under it, wrapped to two rows; other steps keep theirs hidden', () => {
   const withDetail: PlanInput[] = [
     { title: '조사', detail: '이건 끝난 단계라 안 보여요' },

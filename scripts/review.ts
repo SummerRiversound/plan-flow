@@ -144,7 +144,7 @@ const story = (events: readonly Heard[]): string => {
 }
 
 const band = (b: Board, at: number) =>
-  drawTree(b.plan, idle, { maxRows: BAND_ROWS, width: BAND_WIDTH, now: at, open: t().bandOpen, parked: b.shelf.filter(s => s.state === 'parked').length, folded: false })
+  drawTree(b.plan, idle, { maxRows: BAND_ROWS, width: BAND_WIDTH, now: at, open: t().bandOpen, parked: b.shelf.filter(s => s.state === 'parked').length, folded: false, finished: b.shelf.filter(s => s.state === 'done').map(s => s.plan.title) })
 const drawer = (b: Board, at: number) => {
   const v = drawerView(b.plan, b.shelf, { open: {}, focus: null }, idle, { width: DRAWER_WIDTH, now: at })
   return [...v.head, ...v.body]

@@ -146,6 +146,7 @@ const JUDGE = `당신은 plan-flow라는 Claude Code 플러그인의 개발자�
 7. 완료 정리: 계획이 끝났다면 목적과 결과 정리가 쓸모 있는가 (끝나지 않았으면 점수 0, 이유에 "해당 없음")
 
 각 항목의 이유와 고칠 점은 계획판의 실제 문구를 인용해 구체적으로 쓰세요. 고칠 점은 계획판을 만드는 지시문을 어떻게 바꾸면 좋을지로 씁니다.
+띠와 서랍의 활동 표시(작업 중, 답변 기다림 같은 말)는 저장된 판에 없는 정보라서 이 도구가 Claude가 쉬는 상태라고 가정하고 그린 것이에요. 평가에 넣지 마세요.
 결정 목록과 어긋난 곳은 breaks에 결정 요약과 계획판의 위치로 적으세요.
 모든 문장은 한국어 해요체로 씁니다.
 JSON 하나로만 답하세요. 코드 펜스와 다른 글은 쓰지 않습니다:
@@ -177,7 +178,7 @@ const verdictHtml = (title: string, v: Verdict | undefined): string =>
       }`
 
 const boardHtml = (b: Board, at: number): string =>
-  `<div class="row">${preBox(`입력창 위 ${BAND_WIDTH}칸`, band(b, at), BAND_WIDTH, BAND_ROWS)}${preBox(`서랍 ${DRAWER_WIDTH}칸 (처음 열었을 때)`, drawer(b, at), DRAWER_WIDTH)}</div>`
+  `<div class="row">${preBox(`입력창 위 ${BAND_WIDTH}칸 · 활동 표시는 쉬는 상태로 가정`, band(b, at), BAND_WIDTH, BAND_ROWS)}${preBox(`서랍 ${DRAWER_WIDTH}칸 (처음 열었을 때) · 활동 표시는 쉬는 상태로 가정`, drawer(b, at), DRAWER_WIDTH)}</div>`
 
 const time = (ms: number): string => new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 

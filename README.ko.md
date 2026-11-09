@@ -89,7 +89,7 @@ claude --plugin-dir .
 
 `tsconfig.json`은 Claude Code가 이 폴더의 모드를 처음 불러올 때 만드는 `.claude-plugin/types/tsconfig.json`을 이어받아요. 그래서 `tsc -p .`로 타입 검사를 하기 전에 `claude --plugin-dir .`를 한 번 실행해 두세요. 화면 규칙은 [DESIGN.md](DESIGN.md), 릴리즈 절차는 [RELEASING.md](RELEASING.md)에 있어요.
 
-실제 세션에서 계획판이 얼마나 쓸모 있었는지 보려면 `bun scripts/review.ts`로 계획판이 저장된 세션 목록을 보고, `bun scripts/review.ts <세션>`으로 사람이 마지막으로 본 판을 Opus가 `.claude/CLAUDE.md`의 결정 목록에 비춰 채점하게 하세요. `--replay`를 붙이면 세션 기록으로 계획판 모델을 다시 돌려 그 판도 채점해요. 계획판 지시문을 바꿨을 때 같은 세션이 어떻게 달라지는지 볼 때 써요. 결과 페이지와 점수는 `.scratch/review/`에 남고, 모델은 내 로그인으로 `claude -p`를 거쳐 불러요.
+실제 세션에서 계획판이 얼마나 쓸모 있었는지 보려면 `bun scripts/review.ts`로 계획판이 저장된 세션 목록을 보고, `bun scripts/review.ts <세션>`으로 사람이 마지막으로 본 판을 Opus가 `.claude/CLAUDE.md`의 결정 목록에 비춰 채점하게 하세요. `--replay`를 붙이면 세션 기록으로 계획판 모델을 다시 돌려 그 판도 채점해요. 계획판 지시문을 바꿨을 때 같은 세션이 어떻게 달라지는지 볼 때 써요. 결과 페이지와 점수는 `.scratch/review/`에 남고, 모델은 내 로그인으로 `claude -p`를 거쳐 불러요. `bun scripts/review-all.ts`는 저장된 세션을 5개씩 한꺼번에 채점해 점수표 `.scratch/review/index.html`을 만들어요. `--limit N`은 최근 N개만, `--replay`는 그대로 넘겨요.
 
 ## 후원
 

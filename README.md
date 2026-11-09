@@ -89,7 +89,7 @@ claude --plugin-dir .
 
 `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes the first time it loads the mod from this folder, so run `claude --plugin-dir .` once before type-checking with `tsc -p .`. The look is described in [DESIGN.md](DESIGN.md), and releases follow [RELEASING.md](RELEASING.md).
 
-To see how the board served a real session, `bun scripts/review.ts` lists the sessions with a saved board, and `bun scripts/review.ts <session>` has Opus score the board the person last saw against the decisions in `.claude/CLAUDE.md`. Add `--replay` to run the side planner again over the session's transcript and score that board too, which shows what a change to the planner's rules does to the same session. The page and the scores land in `.scratch/review/`; models are called through `claude -p` on your own sign-in.
+To see how the board served a real session, `bun scripts/review.ts` lists the sessions with a saved board, and `bun scripts/review.ts <session>` has Opus score the board the person last saw against the decisions in `.claude/CLAUDE.md`. Add `--replay` to run the side planner again over the session's transcript and score that board too, which shows what a change to the planner's rules does to the same session. The page and the scores land in `.scratch/review/`; models are called through `claude -p` on your own sign-in. `bun scripts/review-all.ts` scores every saved session five at a time and gathers the scores into `.scratch/review/index.html`; `--limit N` takes only the newest N and `--replay` is passed through.
 
 ## Support
 

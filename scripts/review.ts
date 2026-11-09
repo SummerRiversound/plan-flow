@@ -52,6 +52,22 @@ const savedBoards = (): Saved => {
   return out
 }
 
+type Call = { at: number; call: 'look' | 'design'; ms: number; result: string; ops?: number; reason?: string }
+
+// The session's recorded model calls across the installed copies, oldest first.
+const savedCalls = (sid: string): Call[] =>
+  readdirSync(STORE)
+    .filter(f => f.startsWith('plan-flow') && f.endsWith('.json'))
+    .flatMap(f => (JSON.parse(readFileSync(join(STORE, f), 'utf8')) as { calls?: Record<string, { calls: Call[] }> }).calls?.[sid]?.calls ?? [])
+    .sort((a, b) => a.at - b.at)
+
+const CALL = { look: '계획판 모델', design: '계획 다듬기' } as const
+const RESULT: Record<string, string> = { answered: '답함', failed: '실패', 'timed out': '시간 초과', stale: '그사이 계획이 바뀌어 적용 안 함' }
+const callsHtml = (calls: readonly Call[]): string =>
+  `<h2>모델 호출 기록 · ${calls.length}건</h2><table><tr><th>시각</th><th>호출</th><th>걸린 시간</th><th>결과</th></tr>${calls
+    .map(c => `<tr><td>${esc(new Date(c.at).toLocaleTimeString('ko-KR'))}</td><td>${CALL[c.call]}</td><td class="n">${(c.ms / 1000).toFixed(1)}초</td><td>${esc(RESULT[c.result] ?? c.result)}${c.ops === undefined ? '' : ` · 적용 ${c.ops}`}${c.reason === undefined ? '' : ` · ${esc(c.reason)}`}</td></tr>`)
+    .join('')}</table>`
+
 const transcriptOf = (sid: string): string | undefined =>
   readdirSync(PROJECTS)
     .map(d => join(PROJECTS, d, `${sid}.jsonl`))
@@ -100,7 +116,7 @@ const replay = (events: readonly Heard[]): Frame[] => {
       request = e.text
       look(e.at, '요청')
     } else if (e.kind === 'answer') look(e.at, '답')
-    else if (e.kind === 'tool') {
+    else if (e.kind === 'tool' || e.kind === 'subagent') {
       if (e.guarded === true) calls++
       if (gap && (calls >= PLAN_EVERY || e.at - last >= LOOK_EVERY_MS)) look(e.at, '작업 중')
     } else if (e.kind === 'said' && gap) look(e.at, 'Claude가 진행 상황을 말함')
@@ -208,7 +224,9 @@ const main = (): void => {
     say(`no transcript for session ${sid} under ${PROJECTS}`)
     process.exit(1)
   }
-  const events = heard(readFileSync(path, 'utf8'))
+  const subagentDir = join(path.slice(0, -'.jsonl'.length), 'subagents')
+  const subagents = existsSync(subagentDir) ? readdirSync(subagentDir).filter(f => f.endsWith('.jsonl')).map(f => readFileSync(join(subagentDir, f), 'utf8')) : []
+  const events = heard(readFileSync(path, 'utf8'), subagents)
   const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
   const decisions = claudeMd.slice(claudeMd.indexOf('## Decisions'))
   const end = events.at(-1)?.at ?? Date.now()
@@ -235,6 +253,11 @@ const main = (): void => {
           `<details${i === frames.length - 1 ? ' open' : ''}><summary>${i + 1}. ${time(f.at)} · ${esc(f.why)}</summary>${boardHtml(f.board, f.at)}<pre class="ops">${esc(f.ops ?? '')}</pre></details>`,
       ),
     )
+  }
+  const calls = savedCalls(sid)
+  if (calls.length > 0) {
+    report.calls = calls
+    sections.push(callsHtml(calls))
   }
   if (sections.length === 0) {
     say(`session ${sid} has no saved board; run with --replay to draw one`)

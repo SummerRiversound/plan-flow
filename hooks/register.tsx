@@ -49,6 +49,10 @@ const HOVER = '#8080801a'
 const EDGE = '#80808033'
 const EDGE_RUN = '#80808080'
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
+// One call the mod made to a model for the board, kept so a board that stopped changing can be explained.
+type Call = { at: number; call: 'look' | 'design'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string }
+type Calls = Record<string, { calls: Call[]; savedAt: number }>
+const KEPT_CALLS = 50
 
 // Draws one line of pieces; the pieces marked with a node id become that node's fold Button.
 // The terminal's lines (and a demo's bar); surfaces with their own type draw natively.
@@ -675,15 +679,38 @@ async function tick($: $, running: boolean): Promise<void> {
   }
 }
 
+const newest = <T extends { savedAt: number },>(all: Record<string, T>): Record<string, T> =>
+  Object.fromEntries(
+    Object.entries(all)
+      .sort((a, b) => b[1].savedAt - a[1].savedAt)
+      .slice(0, KEPT_SESSIONS),
+  )
+
 // One board per session, the most recent sessions kept.
 async function save($: $, plan: Plan, shelf: Shelved[]): Promise<void> {
   const sid = await $.session.id()
   const saved = ((await $.store.get('plans')) ?? {}) as Saved
   saved[sid] = { plan, shelf, savedAt: await $.clock.now() }
-  const kept = Object.entries(saved)
-    .sort((a, b) => b[1].savedAt - a[1].savedAt)
-    .slice(0, KEPT_SESSIONS)
-  await $.store.set('plans', Object.fromEntries(kept))
+  await $.store.set('plans', newest(saved))
+}
+
+// The session's recent model calls, beside its board; never shown to Claude.
+async function record($: $, c: Call): Promise<void> {
+  await inTurn(async () => {
+    const sid = await $.session.id()
+    const log = ((await $.store.get('calls')) ?? {}) as Calls
+    log[sid] = { calls: [...(log[sid]?.calls ?? []), c].slice(-KEPT_CALLS), savedAt: c.at + c.ms }
+    await $.store.set('calls', newest(log))
+  }).catch(() => undefined)
+}
+
+// The planner and the design call run side by side: their reads and writes of the board and the
+// store take turns, so neither writes over what the other just wrote.
+let turns: Promise<unknown> = Promise.resolve()
+function inTurn<T>(fn: () => Promise<T>): Promise<T> {
+  const run = turns.then(fn)
+  turns = run.catch(() => undefined)
+  return run
 }
 
 // Opens the drawer; the band steps aside while it is on screen.
@@ -753,7 +780,8 @@ async function pressDrawer($: $, id: string): Promise<void> {
 }
 
 // Runs one op on the board, from the side planner or a press in the drawer, and redraws.
-async function apply($: $, op: PlanOp): Promise<{ text: string } | { error: string }> {
+const apply = ($: $, op: PlanOp): Promise<{ text: string } | { error: string }> => inTurn(() => applyNow($, op))
+async function applyNow($: $, op: PlanOp): Promise<{ text: string } | { error: string }> {
   const before = await read($, planAtom)
   const shelf = await read($, shelfAtom)
   const ran = runOp({ plan: before, shelf }, op, await $.clock.now())
@@ -813,6 +841,13 @@ let busy: Promise<void> | null = null
 let queued = false
 let again = false
 let held = false
+// A failed look is tried once more after RETRY_MS; a look a hook asks for earns its own retry again.
+const RETRY_MS = 15_000
+let retried = false
+const LOOK_TIMEOUT_MS = 60_000
+// The design call runs beside the planner, one at a time; a fork takes no timeout, so the mod stops waiting after this.
+const DESIGN_WAIT_MS = 120_000
+let designing: Promise<void> | null = null
 // A plan the planner starts or widens is designed once per request by a fork of the main conversation,
 // after a main request of that turn is out, so the fork holds the request and reads it from the cache.
 let design: 'none' | 'wanted' | 'done' = 'none'
@@ -820,8 +855,11 @@ let stepped = false
 
 // Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
 export const plannerIdle = async (): Promise<void> => {
-  while (busy !== null) await busy
+  while (busy !== null || designing !== null) await (busy ?? designing)
 }
+
+// Why a model call came back without an answer, as the call log keeps it.
+const whyNot = (r: { reason: string; status?: number | null; error?: string }): string => [r.reason, r.status ?? undefined, r.error].filter(x => x !== undefined).join(' ')
 
 // One look: the board and what happened since the last, to the planner, then its ops on the board.
 async function planOnce($: $): Promise<void> {
@@ -829,20 +867,30 @@ async function planOnce($: $): Promise<void> {
   fresh = []
   calls = 0
   if (take.length === 0) return
-  lastLook = await $.clock.now()
+  const at = await $.clock.now()
+  lastLook = at
   const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
   const head: Happened[] = request === '' || take.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
   const r = await $.model
-    .complete({ model: PLANNER_MODEL, system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...take]), maxTokens: 4000, timeoutMs: 60_000 })
-    .catch(() => undefined)
-  if (r === undefined || !r.isAnswered) {
-    // Kept for the next look, so a failed call loses nothing.
+    .complete({ model: PLANNER_MODEL, system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...take]), maxTokens: 4000, timeoutMs: LOOK_TIMEOUT_MS })
+    .catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) }))
+  const ms = (await $.clock.now()) - at
+  if (!r.isAnswered) {
+    // Kept for the next look, so a failed call loses nothing; tried again soon, so a failure at the
+    // session's last answer does not leave the board as it was.
     fresh = [...take, ...fresh]
+    await record($, { at, call: 'look', ms, result: r.reason === 'aborted' && ms >= LOOK_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r) })
+    if (!retried) {
+      retried = true
+      $.clock.after(RETRY_MS, () => planSoon($, true))
+    }
     return
   }
   $.ui.log(`planner: ${r.text}`, { to: 'debug' })
   const ops = parseOps(r.text)
-  for (const op of ops) await apply($, op)
+  let applied = 0
+  for (const op of ops) if (!('error' in (await apply($, op)))) applied++
+  await record($, { at, call: 'look', ms, result: 'answered', ops: applied })
   if (design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
   await keepRunning($)
 }
@@ -857,16 +905,34 @@ async function keepRunning($: $): Promise<void> {
 async function designOnce($: $): Promise<void> {
   const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
   if (!hasOpenWork(board.plan)) return
-  const r = await $.model.fork({ prompt: designPrompt(board) })
-  if (!r.isAnswered) return
+  const at = await $.clock.now()
+  let timer: Timer | undefined
+  const late = new Promise<'late'>(resolve => {
+    timer = $.clock.after(DESIGN_WAIT_MS, () => resolve('late'))
+  })
+  // A fork given up on may still answer later; nothing waits for it then, so its ops never land.
+  const r = await Promise.race([$.model.fork({ prompt: designPrompt(board) }).catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) })), late])
+  timer?.cancel()
+  const ms = (await $.clock.now()) - at
+  if (r === 'late') return record($, { at, call: 'design', ms, result: 'timed out' })
+  if (!r.isAnswered) return record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r) })
   $.ui.log(`designer: ${r.text}`, { to: 'debug' })
-  for (const op of parseOps(r.text)) if (DESIGN_OPS.has(op.op)) await apply($, op)
+  // The planner kept looking meanwhile. The design lands only on the plan it was asked about: the same
+  // title and start, and every step it saw still under its id, since its ops name steps by id. Checked
+  // once before its ops run; a look landing between them can still refuse one (an id it removed).
+  const now = await read($, planAtom)
+  const same = now.title === board.plan.title && now.startedAt === board.plan.startedAt && board.plan.nodes.every(n => now.nodes.find(m => m.id === n.id)?.title === n.title)
+  if (!same) return record($, { at, call: 'design', ms, result: 'stale' })
+  let applied = 0
+  for (const op of parseOps(r.text)) if (DESIGN_OPS.has(op.op) && !('error' in (await apply($, op)))) applied++
+  await record($, { at, call: 'design', ms, result: 'answered', ops: applied })
   await keepRunning($)
 }
 
 // Asks for a look outside the hook that noticed something, one at a time; a look asked for while
 // one runs follows it.
-function planSoon($: $): void {
+function planSoon($: $, retry = false): void {
+  if (!retry) retried = false
   if (busy !== null) {
     again = true
     return
@@ -879,9 +945,14 @@ function planSoon($: $): void {
       do {
         again = false
         await planOnce($).catch(() => undefined)
-        if (design === 'wanted' && stepped) {
+        // Started, not awaited: the looks go on while it runs.
+        if (design === 'wanted' && stepped && designing === null) {
           design = 'done'
-          await designOnce($).catch(() => undefined)
+          designing = designOnce($)
+            .catch(() => undefined)
+            .finally(() => {
+              designing = null
+            })
         }
       } while (again)
     })().finally(() => {

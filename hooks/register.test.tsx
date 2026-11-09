@@ -66,6 +66,10 @@ const step = async ($: Engine, answer: string, isLast = false) => {
   await plannerIdle()
 }
 let stepAnswer: { answer: string; toolUses: unknown[] } = { answer: '', toolUses: [] }
+// How long the fork takes to answer, on the test's clock.
+let forkWait = 0
+// The mod's store, as the engine keeps it.
+const stored = new Map<string, unknown>()
 
 // Toasts the plugin raised, newest last.
 const toasts: string[] = []
@@ -85,15 +89,19 @@ const engine = (on: On) => {
   })
   forkReplies.length = 0
   forked.length = 0
-  on('model.fork', (_, e) => {
+  forkWait = 0
+  on('model.fork', async (_, e) => {
     forked.push(e.prompt)
     const next = forkReplies.shift()
+    if (forkWait > 0) await clock.sleep(forkWait)
     return { value: next === undefined ? { isAnswered: false, reason: 'nothing-to-fork' } : { isAnswered: true, text: JSON.stringify(next), usage: NO_USAGE } } as never
   })
   on('turn.step', async function* (_, e) {
     return { turnId: e.turnId, index: e.index, ...stepAnswer } as never
   })
-  mock.store(on)
+  stored.clear()
+  on('store.get', (_, e) => ({ value: stored.get(e.key) }))
+  on('store.set', (_, e) => (stored.set(e.key, JSON.parse(JSON.stringify(e.value))), { value: undefined }))
   const open = new Set<string>()
   on('session.id', () => ({ value: 's1' }))
   on('tool.register', (_, e) => (registered.push(e.name), { value: { tool: `mcp__plan-flow__${e.name}` } }))
@@ -310,6 +318,110 @@ test('a planner call that fails keeps what happened for the next look', KO, asyn
   await plan($, { op: 'set', title: '버그', nodes: [{ title: '재현' }] })
   expect(asked[asked.length - 1]).toContain('The person asked: 버그 고쳐줘')
   expect(await shown($)).toContain('Plan: 버그')
+})
+
+// The calls the mod kept for session s1, oldest first.
+type Kept = { at: number; call: string; ms: number; result: string; ops?: number; reason?: string }
+const keptCalls = (): Kept[] => (stored.get('calls') as Record<string, { calls: Kept[] }> | undefined)?.s1?.calls ?? []
+
+test('a look that fails is tried once more a little later, and what it brings lands on the board', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  // No reply queued: the call fails.
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(1)
+  replies.push([PLAN])
+  await theClock?.advance(15_000)
+  await plannerIdle()
+  expect(asked).toHaveLength(2)
+  expect(asked[1]).toContain('The person asked: 로그인 만들어줘')
+  expect(await shown($)).toContain('Plan: 로그인 기능 추가')
+  // A retry that fails too waits for the next thing to happen: one retry per failure, no storm.
+  const before = asked.length
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(1)
+  await plannerIdle()
+  await theClock?.advance(15_000)
+  await plannerIdle()
+  await theClock?.advance(600_000)
+  await plannerIdle()
+  expect(asked).toHaveLength(before + 2)
+})
+
+test('a design call that hangs does not hold back the looks after it, and is given up after two minutes', KO, async ($, on) => {
+  engine(on)
+  forkWait = 600_000
+  forkReplies.push([{ op: 'update', goal: '늦은 목표' }])
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  stepAnswer = { answer: '', toolUses: [{ id: 'u1', name: 'Bash', input: {} }] }
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'opus', messageCount: 2 })) void _
+  await theClock?.advance(1)
+  expect(forked).toHaveLength(1)
+  // The fork is still out; the answer's look lands all the same.
+  replies.push([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }])
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(1)
+  expect(asked).toHaveLength(2)
+  await theClock?.advance(120_000)
+  await plannerIdle()
+  const board = await shown($)
+  expect(board).toContain('1 조사 - completed')
+  // Given up: its answer, when it comes, does not land.
+  await theClock?.advance(600_000)
+  await plannerIdle()
+  expect(await shown($)).not.toContain('늦은 목표')
+  expect(keptCalls().find(c => c.call === 'design')).toMatchObject({ result: 'timed out', ms: 120_000 })
+})
+
+test('a design that comes back after the planner replaced the plan is not applied to the new one', KO, async ($, on) => {
+  engine(on)
+  forkWait = 30_000
+  forkReplies.push([{ op: 'update', goal: '로그인 목표' }])
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  stepAnswer = { answer: '', toolUses: [{ id: 'u1', name: 'Bash', input: {} }] }
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'opus', messageCount: 2 })) void _
+  await theClock?.advance(1)
+  replies.push([{ op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'cancel' }])
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(30_000)
+  await plannerIdle()
+  const board = await shown($)
+  expect(board).toContain('Plan: 버그')
+  expect(board).not.toContain('로그인 목표')
+  expect(keptCalls().find(c => c.call === 'design')).toMatchObject({ result: 'stale' })
+})
+
+test('each planner and design call is kept in the store with when, how long and how it ended, the most recent 50 per session', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  replies.push([PLAN])
+  forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }])
+  await theClock?.advance(15_000)
+  await plannerIdle()
+  await step($, '')
+  const kept = keptCalls()
+  expect(kept).toEqual([
+    { at: 1_000, call: 'look', ms: 0, result: 'failed', reason: 'api-error 500 api_error' },
+    { at: 16_000, call: 'look', ms: 0, result: 'answered', ops: 1 },
+    expect.objectContaining({ call: 'design', result: 'answered', ops: 1 }),
+  ])
+  for (let i = 0; i < 60; i++) await plan($)
+  const later = keptCalls()
+  expect(later).toHaveLength(50)
+  expect(later.at(-1)).toMatchObject({ call: 'look', result: 'answered', ops: 0 })
 })
 
 test('the tree shows above the prompt once a plan exists', KO, async ($, on) => {

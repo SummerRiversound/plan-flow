@@ -189,6 +189,30 @@ test('next into a parallel group starts every branch, and the step after waits f
   expect(running(p)).toEqual(['4.1'])
 })
 
+test('a waiting step the work went past is not started: the one after the finished step is, and none when nothing follows', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'PR', children: [{ title: '리뷰 지적 정리' }, { title: 'PR 머지' }] }, { title: '알리기' }], 0))
+  p = ok(updateNodes(p, [{ id: '1.2', status: 'completed' }], 1))
+  expect(currentLeaf(p)?.id).toBe('2')
+  p = ok(nextStep(p, undefined, 2))
+  expect(running(p)).toEqual(['2'])
+  expect(statusOf(p, '1.1')).toBe('pending')
+  // A whole task the work went past stays waiting too.
+  let q = ok(setPlan(emptyPlan(), 'T', [{ title: 'a', children: [{ title: 'a1' }, { title: 'a2' }] }, { title: 'b', children: [{ title: 'b1' }] }], 0))
+  q = ok(updateNodes(q, [{ id: '2.1', status: 'completed' }], 1))
+  expect(fails(nextStep(q, undefined, 2))).toContain('nothing left')
+  expect(statusOf(q, '1.1')).toBe('pending')
+})
+
+test('a done step keeps no note, whether the note came with the update that finished it or after', () => {
+  let p = ok(setPlan(emptyPlan(), 'T', [{ title: 'a' }, { title: 'b' }], 0))
+  p = ok(updateNodes(p, [{ id: '1', status: 'completed', note: '(긴 괄호 설명이 끝난 단계에 남는 경우)' }], 1))
+  expect(p.nodes.find(n => n.id === '1')?.note).toBeUndefined()
+  p = ok(updateNodes(p, [{ id: '1', note: '나중에 붙인 메모' }], 2))
+  expect(p.nodes.find(n => n.id === '1')?.note).toBeUndefined()
+  p = ok(updateNodes(p, [{ id: '2', status: 'skipped', note: '작업이 거치지 않음' }], 3))
+  expect(p.nodes.find(n => n.id === '2')?.note).toBe('작업이 거치지 않음')
+})
+
 test('next with an id finishes that running leaf; a pending or unknown id is refused', () => {
   let p = ok(setPlan(emptyPlan(), 'T', LOGIN, 0))
   expect(fails(nextStep(p, '2.1', 1))).toContain('not in_progress')

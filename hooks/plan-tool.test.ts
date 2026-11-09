@@ -316,3 +316,7 @@ test('expected steps ride after the plan: at most two, never counted, gone once 
   plan = apply(plan, { op: 'update', updates: ['1', '2', '3'].map(id => ({ id, status: 'completed' })) }).plan
   expect(plan.expected).toEqual(['릴리즈 노트'])
 })
+
+test('the stage rule shows routine work renamed for what it delivers, the review and merge inside it', () => {
+  expect(PLANNER_SYSTEM).toContain('instead of "Review", "Fixes", "Merge"')
+})

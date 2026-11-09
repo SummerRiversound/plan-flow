@@ -6,7 +6,8 @@ import type { Happened } from './planner'
 
 test('a tool call is one line: what it says it is for, else the file it touches, never a whole command or file', () => {
   expect(toolLine('Bash', { command: 'npm test -- --watch=false', description: 'Run the tests' })).toBe('Run the tests')
-  expect(toolLine('Bash', { command: `echo ${'x'.repeat(400)}` }).length).toBeLessThanOrEqual(160)
+  // A command with no description is cut short: words inside it (a prompt sent elsewhere) are not this session's work.
+  expect(toolLine('Bash', { command: `tmux send-keys -t test "add a divide function and run the tests ${'x'.repeat(400)}"` }).length).toBeLessThanOrEqual(80)
   expect(toolLine('Edit', { file_path: '/repo/src/cart.js', old_string: 'secret', new_string: 'b' })).toBe('Edit cart.js')
   expect(toolLine('Agent', { description: 'Review the diff', prompt: 'long brief' })).toBe('Agent: Review the diff')
   expect(toolLine('WebFetch', { url: 'https://example.com' })).toBe('WebFetch')
@@ -54,6 +55,20 @@ test('the planner is told the field names the board reads, so its steps are not 
   for (const field of ['"nodes"', '"children"', '"updates"', '"parent"', '"expected"']) expect(PLANNER_SYSTEM).toContain(field)
   const ops = parseOps('[{"op":"set","title":"Coupons","goal":"Carts take coupons.","nodes":[{"title":"Fixed coupon","detail":"Takes an amount off.","children":[{"title":"Its test","detail":"Proves it."}]}]}]')
   expect(ops).toHaveLength(1)
+})
+
+test('work comes only from what the person asked: words inside a call are not a request', () => {
+  expect(PLANNER_SYSTEM).toContain('are not a request')
+})
+
+test('a step the work went past is skipped or removed, not left open', () => {
+  expect(PLANNER_SYSTEM).toContain('went past')
+  expect(PLANNER_SYSTEM).toContain('"skipped"')
+})
+
+test("the summary says what is now true and what is left, not the procedure; titles stay in the person's language", () => {
+  expect(PLANNER_SYSTEM).toContain('not the procedure')
+  expect(PLANNER_SYSTEM).toContain('even when the calls')
 })
 
 test('the planner keeps a step open while Claude waits for the person to answer, so the board can say it waits', () => {

@@ -66,8 +66,9 @@ const step = async ($: Engine, answer: string, isLast = false) => {
   await plannerIdle()
 }
 let stepAnswer: { answer: string; toolUses: unknown[] } = { answer: '', toolUses: [] }
-// How long the fork takes to answer, on the test's clock.
+// How long the fork takes to answer, on the test's clock, and what it reports having used.
 let forkWait = 0
+let forkUsage = NO_USAGE
 // The mod's store, as the engine keeps it.
 const stored = new Map<string, unknown>()
 
@@ -94,8 +95,9 @@ const engine = (on: On) => {
     forked.push(e.prompt)
     const next = forkReplies.shift()
     if (forkWait > 0) await clock.sleep(forkWait)
-    return { value: next === undefined ? { isAnswered: false, reason: 'nothing-to-fork' } : { isAnswered: true, text: JSON.stringify(next), usage: NO_USAGE } } as never
+    return { value: next === undefined ? { isAnswered: false, reason: 'nothing-to-fork' } : { isAnswered: true, text: JSON.stringify(next), usage: forkUsage } } as never
   })
+  forkUsage = NO_USAGE
   on('turn.step', async function* (_, e) {
     return { turnId: e.turnId, index: e.index, ...stepAnswer } as never
   })
@@ -256,7 +258,7 @@ test('while Claude works the planner looks at most once every 20 seconds, and wh
   expect(asked).toHaveLength(3)
 })
 
-test('a new plan is designed once by a fork of the main conversation, after Claude has taken the request', KO, async ($, on) => {
+test('a new plan is designed by a fork of the main conversation once Claude has taken the request, and again after each answer that followed work', KO, async ($, on) => {
   engine(on)
   await start($)
   replies.push([PLAN])
@@ -269,20 +271,36 @@ test('a new plan is designed once by a fork of the main conversation, after Clau
   await step($, '')
   expect(forked).toHaveLength(1)
   expect(forked[0]).toContain('Plan: 로그인 기능 추가')
+  // More steps of the same turn fork nothing more.
+  await step($, '')
+  expect(forked).toHaveLength(1)
+  // The turn ends after work: Claude, who did it, designs the plan again.
+  forkReplies.push([{ op: 'update', goal: '아이디와 비밀번호로 로그인할 수 있다' }])
+  await plan($, { op: 'next' })
+  expect(forked).toHaveLength(2)
   const board = await shown($)
-  expect(board).toContain('Goal: 아이디로 로그인할 수 있다')
+  expect(board).toContain('Goal: 아이디와 비밀번호로 로그인할 수 있다')
   expect(board).toContain('리뷰 반영')
   // The fork reshapes the plan; it does not end it.
   expect(board).toContain('Plan: 로그인 기능 추가')
-  // Once per request: more steps and looks fork nothing more.
-  await plan($, { op: 'update', goal: '로그인과 회원가입' })
-  await step($, '')
-  expect(forked).toHaveLength(1)
-  // A request the planner leaves alone forks nothing.
+  // An answer with no work behind it (a question explained) forks nothing.
   await $.prompt.submit({ text: '이거 뭐야?', wait: false, origin: { kind: 'composer' } })
   await step($, '설명할게요', true)
   await plan($)
-  expect(forked).toHaveLength(1)
+  expect(forked).toHaveLength(2)
+})
+
+test("each design call's token use is kept, so a fork that missed the conversation's cache shows", KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  forkUsage = { input_tokens: 1_500, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 240_000 }
+  forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }])
+  await step($, '')
+  expect(keptCalls().find(c => c.call === 'design')).toMatchObject({ result: 'answered', usage: { input: 1_500, cacheRead: 240_000, cacheWrite: 0, output: 400 } })
 })
 
 test("a subagent's calls reach the planner as the subagent's", KO, async ($, on) => {
@@ -321,7 +339,8 @@ test('a planner call that fails keeps what happened for the next look', KO, asyn
 })
 
 // The calls the mod kept for session s1, oldest first.
-type Kept = { at: number; call: string; ms: number; result: string; ops?: number; reason?: string }
+type Kept = { at: number; call: string; ms: number; result: string; ops?: number; reason?: string; usage?: Record<string, number> }
+const NONE_USED = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }
 const keptCalls = (): Kept[] => (stored.get('calls') as Record<string, { calls: Kept[] }> | undefined)?.s1?.calls ?? []
 
 test('a look that fails is tried once more a little later, and what it brings lands on the board', KO, async ($, on) => {
@@ -414,8 +433,8 @@ test('each planner and design call is kept in the store with when, how long and 
   await step($, '')
   const kept = keptCalls()
   expect(kept).toEqual([
-    { at: 1_000, call: 'look', ms: 0, result: 'failed', reason: 'api-error 500 api_error' },
-    { at: 16_000, call: 'look', ms: 0, result: 'answered', ops: 1 },
+    { at: 1_000, call: 'look', ms: 0, result: 'failed', reason: 'api-error 500 api_error', usage: NONE_USED },
+    { at: 16_000, call: 'look', ms: 0, result: 'answered', ops: 1, usage: NONE_USED },
     expect.objectContaining({ call: 'design', result: 'answered', ops: 1 }),
   ])
   for (let i = 0; i < 60; i++) await plan($)

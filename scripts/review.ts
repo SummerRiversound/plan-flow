@@ -52,7 +52,7 @@ const savedBoards = (): Saved => {
   return out
 }
 
-type Call = { at: number; call: 'look' | 'design'; ms: number; result: string; ops?: number; reason?: string }
+type Call = { at: number; call: 'look' | 'design'; ms: number; result: string; ops?: number; reason?: string; usage?: { input: number; cacheRead: number; cacheWrite: number; output: number } }
 
 // The session's recorded model calls across the installed copies, oldest first.
 const savedCalls = (sid: string): Call[] =>
@@ -64,8 +64,8 @@ const savedCalls = (sid: string): Call[] =>
 const CALL = { look: '계획판 모델', design: '계획 다듬기' } as const
 const RESULT: Record<string, string> = { answered: '답함', failed: '실패', 'timed out': '시간 초과', stale: '그사이 계획이 바뀌어 적용 안 함' }
 const callsHtml = (calls: readonly Call[]): string =>
-  `<h2>모델 호출 기록 · ${calls.length}건</h2><table><tr><th>시각</th><th>호출</th><th>걸린 시간</th><th>결과</th></tr>${calls
-    .map(c => `<tr><td>${esc(new Date(c.at).toLocaleTimeString('ko-KR'))}</td><td>${CALL[c.call]}</td><td class="n">${(c.ms / 1000).toFixed(1)}초</td><td>${esc(RESULT[c.result] ?? c.result)}${c.ops === undefined ? '' : ` · 적용 ${c.ops}`}${c.reason === undefined ? '' : ` · ${esc(c.reason)}`}</td></tr>`)
+  `<h2>모델 호출 기록 · ${calls.length}건</h2><table><tr><th>시각</th><th>호출</th><th>걸린 시간</th><th>결과</th><th>토큰 (새로 읽음 · 캐시에서 읽음 · 캐시에 씀 · 답)</th></tr>${calls
+    .map(c => `<tr><td>${esc(new Date(c.at).toLocaleTimeString('ko-KR'))}</td><td>${CALL[c.call]}</td><td class="n">${(c.ms / 1000).toFixed(1)}초</td><td>${esc(RESULT[c.result] ?? c.result)}${c.ops === undefined ? '' : ` · 적용 ${c.ops}`}${c.reason === undefined ? '' : ` · ${esc(c.reason)}`}</td><td class="n">${c.usage === undefined ? '' : [c.usage.input, c.usage.cacheRead, c.usage.cacheWrite, c.usage.output].map(n => n.toLocaleString('ko-KR')).join(' · ')}</td></tr>`)
     .join('')}</table>`
 
 const transcriptOf = (sid: string): string | undefined =>

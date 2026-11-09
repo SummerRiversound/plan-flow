@@ -1,6 +1,6 @@
 // Wiring only: hook events in, the pure modules beside this file decide, state out.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, Space, Timer } from 'claude-code'
+import type { EngineInterface, ModelUsage, Register, RenderChildren, Space, Timer } from 'claude-code'
 import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
@@ -50,7 +50,9 @@ const EDGE = '#80808033'
 const EDGE_RUN = '#80808080'
 type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 // One call the mod made to a model for the board, kept so a board that stopped changing can be explained.
-type Call = { at: number; call: 'look' | 'design'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string }
+// Tokens a call used; on a design call a near-zero cacheRead means the fork paid for the whole conversation.
+type Used = { input: number; cacheRead: number; cacheWrite: number; output: number }
+type Call = { at: number; call: 'look' | 'design'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string; usage?: Used }
 type Calls = Record<string, { calls: Call[]; savedAt: number }>
 const KEPT_CALLS = 50
 
@@ -848,15 +850,21 @@ const LOOK_TIMEOUT_MS = 60_000
 // The design call runs beside the planner, one at a time; a fork takes no timeout, so the mod stops waiting after this.
 const DESIGN_WAIT_MS = 120_000
 let designing: Promise<void> | null = null
-// A plan the planner starts or widens is designed once per request by a fork of the main conversation,
-// after a main request of that turn is out, so the fork holds the request and reads it from the cache.
+// Claude, who does the work, designs the plan in a fork of the main conversation: once the planner starts
+// or widens a plan, and again after each answer that followed work. It runs after a main request of the
+// turn is out, so the fork holds the request and reads the conversation from the cache.
 let design: 'none' | 'wanted' | 'done' = 'none'
 let stepped = false
+// The main turn ran a tool: its answer comes after work, so the plan may have moved.
+let worked = false
 
 // Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
 export const plannerIdle = async (): Promise<void> => {
   while (busy !== null || designing !== null) await (busy ?? designing)
 }
+
+const used = (u: ModelUsage | undefined): { usage?: Used } =>
+  u === undefined ? {} : { usage: { input: u.input_tokens, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, output: u.output_tokens } }
 
 // Why a model call came back without an answer, as the call log keeps it.
 const whyNot = (r: { reason: string; status?: number | null; error?: string }): string => [r.reason, r.status ?? undefined, r.error].filter(x => x !== undefined).join(' ')
@@ -879,7 +887,7 @@ async function planOnce($: $): Promise<void> {
     // Kept for the next look, so a failed call loses nothing; tried again soon, so a failure at the
     // session's last answer does not leave the board as it was.
     fresh = [...take, ...fresh]
-    await record($, { at, call: 'look', ms, result: r.reason === 'aborted' && ms >= LOOK_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r) })
+    await record($, { at, call: 'look', ms, result: r.reason === 'aborted' && ms >= LOOK_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
     if (!retried) {
       retried = true
       $.clock.after(RETRY_MS, () => planSoon($, true))
@@ -890,7 +898,7 @@ async function planOnce($: $): Promise<void> {
   const ops = parseOps(r.text)
   let applied = 0
   for (const op of ops) if (!('error' in (await apply($, op)))) applied++
-  await record($, { at, call: 'look', ms, result: 'answered', ops: applied })
+  await record($, { at, call: 'look', ms, result: 'answered', ops: applied, ...used(r.usage) })
   if (design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
   await keepRunning($)
 }
@@ -915,17 +923,18 @@ async function designOnce($: $): Promise<void> {
   timer?.cancel()
   const ms = (await $.clock.now()) - at
   if (r === 'late') return record($, { at, call: 'design', ms, result: 'timed out' })
-  if (!r.isAnswered) return record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r) })
+  // Nothing to fork yet means no request was made: nothing to keep.
+  if (!r.isAnswered) return r.reason === 'nothing-to-fork' ? undefined : record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
   $.ui.log(`designer: ${r.text}`, { to: 'debug' })
   // The planner kept looking meanwhile. The design lands only on the plan it was asked about: the same
   // title and start, and every step it saw still under its id, since its ops name steps by id. Checked
   // once before its ops run; a look landing between them can still refuse one (an id it removed).
   const now = await read($, planAtom)
   const same = now.title === board.plan.title && now.startedAt === board.plan.startedAt && board.plan.nodes.every(n => now.nodes.find(m => m.id === n.id)?.title === n.title)
-  if (!same) return record($, { at, call: 'design', ms, result: 'stale' })
+  if (!same) return record($, { at, call: 'design', ms, result: 'stale', ...used(r.usage) })
   let applied = 0
   for (const op of parseOps(r.text)) if (DESIGN_OPS.has(op.op) && !('error' in (await apply($, op)))) applied++
-  await record($, { at, call: 'design', ms, result: 'answered', ops: applied })
+  await record($, { at, call: 'design', ms, result: 'answered', ops: applied, ...used(r.usage) })
   await keepRunning($)
 }
 
@@ -1006,6 +1015,7 @@ export const register: Register = (on, options) => {
     request = e.text
     design = 'none'
     stepped = false
+    worked = false
     fresh = remember(fresh, { kind: 'request', text: e.text })
     planSoon($)
 
@@ -1060,6 +1070,7 @@ export const register: Register = (on, options) => {
     const r = yield* next(e)
     if (e.agentId !== undefined) return r
     stepped = true
+    if (r.toolUses.length > 0) worked = true
     const said = r.toolUses.length > 0 && r.answer.trim() !== ''
     if (said) fresh = remember(fresh, { kind: 'said', text: r.answer })
     // A plan waiting for its design is not held back by the gap.
@@ -1074,6 +1085,12 @@ export const register: Register = (on, options) => {
       await act($, { type: 'turnEnd', reason: e.reason })
       await tick($, false)
       fresh = remember(fresh, { kind: 'answer', text: e.answer })
+      // An answer of a question explained leaves the plan where it was, and costs no fork.
+      if (worked) {
+        design = 'wanted'
+        stepped = true
+        worked = false
+      }
       planSoon($)
       void checkVersion($).catch(() => undefined)
     }

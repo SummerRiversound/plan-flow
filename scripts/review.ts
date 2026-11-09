@@ -4,7 +4,9 @@
 //   bun scripts/review.ts                 list the sessions with a saved board
 //   bun scripts/review.ts <session> [--replay [--design]]   --design also asks Opus to design the plan where the mod forks Claude
 //   bun scripts/review.ts --compare <dir A> <dir B>          Opus picks the better replayed board per session, both orders
-//   bun scripts/review.ts --fork <session> <dir> [--candidate] [--from <dir>]
+//   bun scripts/review.ts --fork <session> <dir> [--candidate | --whole] [--from <dir>]
+//       --whole: Claude writes the whole board anew (steps with their statuses, the plans finished
+//       before), the most this design can reach.
 //       the real design step on the board the person last saw: the session itself resumed as a throwaway
 //       fork, so Claude reads the whole conversation as the mod's fork does; --candidate asks with the
 //       design wording under trial. Writes <dir>/<session>.json for --compare.
@@ -18,8 +20,9 @@ import type { Board } from '../hooks/board'
 import { emptyBoard } from '../hooks/board'
 import { drawerView } from '../hooks/drawer'
 import { setLanguage, t } from '../hooks/i18n'
-import { currentLeaf, hasOpenWork } from '../hooks/plan'
-import { describeBoard, runOp } from '../hooks/plan-tool'
+import type { Plan, PlanInput, PlanStatus } from '../hooks/plan'
+import { closing, currentLeaf, emptyPlan, hasOpenWork, setPlan, STATUSES, updateNodes, withExpected, withGoal } from '../hooks/plan'
+import { describeBoard, EXPECTED_RULE, PLAN_RULES, runOp } from '../hooks/plan-tool'
 import type { Happened } from '../hooks/planner'
 import { DESIGN_OPS, LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember } from '../hooks/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
@@ -332,7 +335,58 @@ const forkAsk = (sid: string, cwd: string, prompt: string): string => {
 }
 
 // `from`: a folder of earlier results whose fork answers are applied again instead of asking anew.
-const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string): void => {
+// The whole board written anew by Claude, who did the work.
+type Step = { title: string; detail?: string; status?: string; note?: string; links?: string[]; parallel?: boolean; children?: Step[] }
+type Whole = { title: string; goal?: string; nodes: Step[]; expected?: string[]; finished?: string[]; summary?: { goal: string; result: string } }
+
+const wholePrompt = (board: Board): string =>
+  [
+    'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
+    `A smaller model drew this board from the calls it saw:\n${describeBoard(board)}`,
+    'Write the whole board anew, as you who did the work know it now. The plan is the work this session is on now, or the last work it finished: its title and goal name it by its subject, the goal is the end the person is after, and its stages run the whole way there with every step given the status that is true now. The plans this session finished before it go under "finished", newest first, by title.',
+    PLAN_RULES,
+    EXPECTED_RULE,
+    `Statuses: ${STATUSES.join(', ')}; a step with children takes its status from them, so give statuses to the deepest steps only. A check that has not run yet (a nightly job, something the person tests, a reply still to come) is never "completed". When every step is finished, give "summary": what the plan was for and how that was reached.`,
+    'Write in the language the person writes in. Answer with only one JSON object, no prose, no code fence: {"title":"…","goal":"…","nodes":[STEP, …],"expected"?:["…"],"finished"?:["…"],"summary"?:{"goal":"…","result":"…"}} where STEP is {"title":"…","detail":"…","status":"…","note"?:"…","links"?:["…"],"parallel"?:true,"children"?:[STEP, …]}.',
+  ].join('\n\n')
+
+// The board the answer describes: the plan built as the board builds it, statuses set step by step
+// (ids follow the input's order, as set gives them), the finished plans kept from the shelf by title.
+const wholeBoard = (text: string, before: Board, at: number): Board | undefined => {
+  let w: Whole
+  try {
+    w = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as Whole
+  } catch {
+    return undefined
+  }
+  const strip = (xs: Step[]): PlanInput[] => xs.map(x => ({ title: x.title, ...(x.detail === undefined ? {} : { detail: x.detail }), ...(x.links === undefined ? {} : { links: x.links.slice(0, 5) }), ...(x.parallel === true ? { parallel: true } : {}), ...(x.children === undefined || x.children.length === 0 ? {} : { children: strip(x.children) }) }))
+  const updates: Array<{ id: string; status: PlanStatus; note?: string }> = []
+  const walk = (xs: Step[], parent: string | null): void =>
+    xs.forEach((x, i) => {
+      const id = parent === null ? `${i + 1}` : `${parent}.${i + 1}`
+      if (x.children !== undefined && x.children.length > 0) walk(x.children, id)
+      else if (x.status !== undefined && x.status !== 'pending' && (STATUSES as readonly string[]).includes(x.status)) updates.push({ id, status: x.status as PlanStatus, ...(x.note === undefined ? {} : { note: x.note }) })
+    })
+  walk(w.nodes, null)
+  let r = withGoal(setPlan(emptyPlan(), w.title, strip(w.nodes), at), w.goal)
+  if (!('error' in r) && updates.length > 0) r = updateNodes(r.plan, updates, at)
+  if ('error' in r) {
+    say(`the whole board did not build: ${r.error}`)
+    return undefined
+  }
+  r = closing(r, w.summary)
+  const plan: Plan = withExpected('error' in r ? emptyPlan() : r.plan, w.expected)
+  const done = (title: string) => before.shelf.find(x => x.plan.title === title)?.plan ?? withGoal(setPlan(emptyPlan(), title, [{ title }], at), undefined)
+  const shelf = (w.finished ?? []).flatMap(title => {
+    const p = done(title)
+    if ('plan' in p) return [{ plan: p.plan, state: 'done' as const, at }]
+    if ('nodes' in p) return [{ plan: p, state: 'done' as const, at }]
+    return []
+  })
+  return { plan, shelf }
+}
+
+const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string, whole = false): void => {
   const last = savedBoards()[sid]
   const path = transcriptOf(sid)
   const events = eventsOf(sid)
@@ -348,9 +402,10 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string)
   let board: Board = { plan: last.plan, shelf: last.shelf }
   const answer =
     from === undefined
-      ? forkAsk(sid, cwd, candidate ? candidatePrompt(board) : designPrompt(board))
+      ? forkAsk(sid, cwd, whole ? wholePrompt(board) : candidate ? candidatePrompt(board) : designPrompt(board))
       : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
-  for (const op of parseOps(answer).filter(op => (candidate ? CANDIDATE_OPS : DESIGN_OPS).has(op.op))) {
+  if (whole) board = wholeBoard(answer, board, last.savedAt) ?? board
+  else for (const op of parseOps(answer).filter(op => (candidate ? CANDIDATE_OPS : DESIGN_OPS).has(op.op))) {
     const r = runOp(board, op, last.savedAt)
     if (!('error' in r)) board = r.board
   }
@@ -380,7 +435,7 @@ const main = (): void => {
       process.exit(1)
     }
     const from = flags.indexOf('--from')
-    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1])
+    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1], flags.includes('--whole'))
   }
   const saved = savedBoards()
   if (sid === undefined) {

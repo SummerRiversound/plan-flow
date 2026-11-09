@@ -11,10 +11,8 @@ type Entry = { type?: string; isMeta?: boolean; isSidechain?: boolean; timestamp
 // Calls the mod does not pass on to the planner.
 const UNHEARD: ReadonlySet<string> = new Set(['AskUserQuestion', 'ToolSearch'])
 
-// shortcut: a subagent's calls live in their own transcript and are left out; read those too if
-// replays of delegating sessions come out short of work.
-export const heard = (jsonl: string): Heard[] => {
-  const entries = jsonl
+const parse = (jsonl: string): Entry[] =>
+  jsonl
     .split('\n')
     .filter(l => l.trim() !== '')
     .flatMap((l): Entry[] => {
@@ -24,14 +22,43 @@ export const heard = (jsonl: string): Heard[] => {
         return []
       }
     })
-    .filter(e => e.isMeta !== true && e.isSidechain !== true)
+
+const failedIn = (entries: readonly Entry[]): Set<string> => {
   const failed = new Set<string>()
+  for (const e of entries) {
+    const content = e.message?.content
+    if (Array.isArray(content)) for (const b of content) if (b.type === 'tool_result' && b.is_error === true && b.tool_use_id !== undefined) failed.add(b.tool_use_id)
+  }
+
+  return failed
+}
+
+// A subagent's own transcript (<session>/subagents/agent-*.jsonl) as the calls the mod hears from it:
+// marked as a subagent's, never guarded since they do not count as state-changing for look timing.
+const subagentCalls = (jsonl: string): Heard[] => {
+  const entries = parse(jsonl)
+  const failed = failedIn(entries)
+
+  return entries.flatMap(e =>
+    e.type !== 'assistant' || !Array.isArray(e.message?.content)
+      ? []
+      : e.message.content
+          .filter(b => b.type === 'tool_use' && b.name !== undefined && !UNHEARD.has(b.name))
+          .map((b): Heard => {
+            const line = toolLine(b.name ?? '', b.input ?? {})
+            return { kind: 'subagent', text: failed.has(b.id ?? '') ? `${line} (failed)` : line, at: Date.parse(e.timestamp ?? '') || 0 }
+          }),
+  )
+}
+
+export const heard = (jsonl: string, subagents: readonly string[] = []): Heard[] => {
+  const entries = parse(jsonl).filter(e => e.isMeta !== true && e.isSidechain !== true)
+  const failed = failedIn(entries)
   const calling = new Set<string>()
   for (const e of entries) {
     const content = e.message?.content
     if (!Array.isArray(content)) continue
     for (const b of content) {
-      if (b.type === 'tool_result' && b.is_error === true && b.tool_use_id !== undefined) failed.add(b.tool_use_id)
       if (e.type === 'assistant' && b.type === 'tool_use' && e.message?.id !== undefined) calling.add(e.message.id)
     }
   }
@@ -57,5 +84,5 @@ export const heard = (jsonl: string): Heard[] => {
     }
   }
 
-  return out
+  return [...out, ...subagents.flatMap(subagentCalls)].sort((a, b) => a.at - b.at)
 }

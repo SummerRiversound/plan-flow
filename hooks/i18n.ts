@@ -7,6 +7,10 @@ import type { Newer } from './version'
 export const LANGUAGES = ['en', 'ko'] as const
 export type Language = (typeof LANGUAGES)[number]
 
+// The tokens a kind of model call used, summed.
+type Usage = { count: number; input: number; cacheRead: number; output: number }
+const n = (x: number): string => x.toLocaleString('en-US')
+
 const en = {
   parallel: 'parallel',
   waiting: 'Your turn',
@@ -39,10 +43,20 @@ const en = {
     back: (old: string, verb: string, title: string) => `"${old}" ${verb} · back to "${title}"`,
   },
   pane: 'Flowchart',
-  command: 'Open or close the plan flowchart',
+  command: 'Open or close the plan flowchart; on, off or status for this session',
   closed: 'Closed the flowchart',
   opened: 'Opened the flowchart',
   openedLater: 'Opened the flowchart; it shows once the window is wide enough',
+  turnedOn: 'Turned plan-flow on in this session',
+  turnedOff: 'Turned plan-flow off in this session: no board and no model calls until /flow on',
+  isOff: 'plan-flow is off in this session; /flow on turns it on',
+  status: (on: boolean, startOn: boolean, design: boolean, kept: number, look: Usage, fork: Usage) =>
+    [
+      `plan-flow is ${on ? 'on' : 'off'} in this session (new sessions start ${startOn ? 'on' : 'off'}) · Claude design: ${design ? 'on' : 'off'}`,
+      `In the last ${kept} calls:`,
+      `  Haiku ${look.count} ${look.count === 1 ? 'call' : 'calls'}: input ${n(look.input)} · cache read ${n(look.cacheRead)} · output ${n(look.output)} tokens`,
+      `  Claude design ${fork.count} ${fork.count === 1 ? 'call' : 'calls'}: input ${n(fork.input)} · cache read ${n(fork.cacheRead)} · output ${n(fork.output)} tokens`,
+    ].join('\n'),
   bandOpen: 'Flowchart ▸',
   newer: (n: Newer) => (n.kind === 'installed' ? `↑ ${n.version} installed · /reload-plugins` : `↑ ${n.version} is out · update in /plugin`),
   demo: {
@@ -119,10 +133,20 @@ const ko: Strings = {
     back: (old, verb, title) => `"${old}" ${verb} · "${title}"(으)로 돌아왔어요`,
   },
   pane: '흐름도',
-  command: '계획 흐름도를 열거나 닫아요',
+  command: '계획 흐름도를 열거나 닫아요. on, off, status로 이 세션의 plan-flow를 켜고 끄고 살펴봐요',
   closed: '흐름도를 닫았어요',
   opened: '흐름도를 열었어요',
   openedLater: '흐름도를 열었어요. 화면이 넓어지면 보여요',
+  turnedOn: '이 세션에서 plan-flow를 켰어요',
+  turnedOff: '이 세션에서 plan-flow를 껐어요. /flow on 전까지 계획판도 모델 호출도 없어요',
+  isOff: '이 세션에서는 plan-flow가 꺼져 있어요. /flow on으로 켤 수 있어요',
+  status: (on, startOn, design, kept, look, fork) =>
+    [
+      `plan-flow가 이 세션에서 ${on ? '켜져' : '꺼져'} 있어요 (새 세션은 ${startOn ? '켜진' : '꺼진'} 채로 시작) · Claude 설계: ${design ? '켜짐' : '꺼짐'}`,
+      `최근 호출 ${kept}번 안에서:`,
+      `  Haiku ${look.count}번: 입력 ${n(look.input)} · 캐시 읽기 ${n(look.cacheRead)} · 출력 ${n(look.output)} 토큰`,
+      `  Claude 설계 ${fork.count}번: 입력 ${n(fork.input)} · 캐시 읽기 ${n(fork.cacheRead)} · 출력 ${n(fork.output)} 토큰`,
+    ].join('\n'),
   bandOpen: '흐름도 보기 ▸',
   newer: n => (n.kind === 'installed' ? `↑ ${n.version} 설치됨 · /reload-plugins` : `↑ ${n.version} 나옴 · /plugin에서 업데이트`),
   demo: {

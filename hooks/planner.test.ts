@@ -20,11 +20,15 @@ test('a long text quoted in a bare command is cut out, so a prompt sent elsewher
   expect(PLANNER_SYSTEM).toContain('Work comes only from the person\'s requests')
 })
 
-test('the board follows the whole session: a wrap-up or one-step follow-up joins the plan, and the title and goal are checked on each request', () => {
-  expect(PLANNER_SYSTEM).toMatch(/its wrap-up .* goes under the stage it continues/)
-  expect(PLANNER_SYSTEM).toContain('even when the plan had finished, even for a one-step request')
-  expect(PLANNER_SYSTEM).toContain('only a request after a different result starts a new plan')
-  expect(PLANNER_SYSTEM).toContain('On every request, before touching steps, check the title and goal')
+test('a request serving the plan\'s goal, its wrap-up included, joins the plan even after it finished; a different result starts a new plan', () => {
+  expect(PLANNER_SYSTEM).toMatch(/its wrap-up: checking, recording or tidying that result\), it goes under the stage it continues/)
+  expect(PLANNER_SYSTEM).toContain('even after the plan finished')
+  expect(PLANNER_SYSTEM).toContain('If it reaches for a different result, it is a new plan')
+})
+
+test('the title and goal widen with the work and never shrink to the newest request', () => {
+  expect(PLANNER_SYSTEM).toContain('never just the newest request')
+  expect(PLANNER_SYSTEM).toMatch(/widen them with op "update"/)
 })
 
 test('the board shows what is left: a new plan holds the stages not started yet, and each thing left to the person is its own check', () => {

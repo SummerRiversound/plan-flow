@@ -10,6 +10,9 @@
 //       the real design step on the board the person last saw: the session itself resumed as a throwaway
 //       fork, so Claude reads the whole conversation as the mod's fork does; --candidate asks with the
 //       design wording under trial. Writes <dir>/<session>.json for --compare.
+//       --log <model>: the design asked of that model with the session's record in the prompt and no
+//       fork (DESIGN_EFFORT sets its effort, DESIGN_RECORD the record's size in characters).
+//   PLANNER_EFFORT sets the replayed planner's effort; REVIEW_DIR moves where a review is written.
 // Models are called through `claude -p` on the developer's own sign-in, with no settings, hooks,
 // plugins or CLAUDE.md of theirs loaded.
 import { execFileSync } from 'node:child_process'
@@ -81,8 +84,11 @@ const transcriptOf = (sid: string): string | undefined =>
     .map(d => join(PROJECTS, d, `${sid}.jsonl`))
     .find(p => existsSync(p))
 
-const ask = (model: string, system: string, prompt: string): string =>
-  execFileSync('claude', ['-p', '--model', model, '--setting-sources', '', '--tools', '', '--no-session-persistence', '--system-prompt', system], {
+// Tokens each model was asked for and answered with, summed over this run's calls.
+const asked: Record<string, { calls: number; input: number; output: number }> = {}
+const ask = (model: string, system: string, prompt: string): string => {
+  const effort = model === 'haiku' ? process.env.PLANNER_EFFORT : undefined
+  const out = execFileSync('claude', ['-p', '--model', model, ...(effort === undefined ? [] : ['--effort', effort]), '--setting-sources', '', '--tools', '', '--no-session-persistence', '--output-format', 'json', '--system-prompt', system], {
     input: prompt,
     // A terminal that wraps claude reports each run's status into the pane it runs in; these runs are not the session there.
     env: { ...process.env, CMUX_CLAUDE_HOOKS_DISABLED: '1' },
@@ -90,6 +96,15 @@ const ask = (model: string, system: string, prompt: string): string =>
     maxBuffer: 1 << 26,
     stdio: ['pipe', 'pipe', 'ignore'],
   })
+  const r = JSON.parse(out) as { result?: string; usage?: Record<string, number> }
+  const u = r.usage ?? {}
+  const sum = (asked[model] ??= { calls: 0, input: 0, output: 0 })
+  sum.calls++
+  sum.input += (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+  sum.output += u.output_tokens ?? 0
+
+  return r.result ?? ''
+}
 
 // The side planner's looks, as the mod times them: on each request and answer, and while Claude
 // works once enough state-changing calls or time have passed, never closer than the gap. With
@@ -329,6 +344,39 @@ const forkAsk = (sid: string, cwd: string, prompt: string): string => {
   forkCost = Math.round(forkUsage.input + 0.1 * (read + wrote) + 5 * forkUsage.output)
   return r.result ?? ''
 }
+// Trial: the design asked of `model` with the session's record in the prompt, no fork. Every request
+// is kept and the newest of the rest, to about ten thousand tokens.
+const PRICE: Record<string, number> = { haiku: 0.2, sonnet: 0.6, opus: 1 }
+const logAsk = (model: string, events: readonly Heard[], board: Board): string => {
+  const label = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
+  const cutAt = { request: 600, notice: 200, tool: 120, subagent: 120, said: 200, answer: 800 } as const
+  const rows = events.map(e => ({ kind: e.kind, row: `- ${label[e.kind]}: ${e.text.replace(/\s+/g, ' ').slice(0, cutAt[e.kind])}` }))
+  let room = Number(process.env.DESIGN_RECORD ?? 36_000) - rows.filter(r => r.kind === 'request').reduce((n, r) => n + r.row.length, 0)
+  const keep = new Set<number>()
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i]!
+    if (r.kind === 'request') keep.add(i)
+    else if (room > r.row.length) {
+      keep.add(i)
+      room -= r.row.length
+    }
+  }
+  const record = rows.filter((_, i) => keep.has(i)).map(r => r.row).join('\n')
+  const question = designPrompt(board).split('\n\n').slice(1).join('\n\n')
+  const out = execFileSync('claude', ['-p', '--model', model, ...(process.env.DESIGN_EFFORT === undefined ? [] : ['--effort', process.env.DESIGN_EFFORT]), '--setting-sources', '', '--tools', '', '--no-session-persistence', '--output-format', 'json', '--system-prompt', 'You keep the plan board drawn beside a coding session. You are given the record of what happened in the session and the board as it stands. No tool runs: answer at once.'], {
+    input: `What happened in the session, oldest first (older calls left out):\n${record}\n\n${question}`,
+    env: { ...process.env, CMUX_CLAUDE_HOOKS_DISABLED: '1' },
+    encoding: 'utf8',
+    maxBuffer: 1 << 26,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  const r = JSON.parse(out) as { result?: string; usage?: Record<string, number> }
+  const u = r.usage ?? {}
+  forkUsage = { input: u.input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, output: u.output_tokens ?? 0 }
+  // The record is new text on every call, so all of it is priced as fresh input, at the model's price.
+  forkCost = Math.round((PRICE[model] ?? 1) * (forkUsage.input + forkUsage.cacheRead + forkUsage.cacheWrite + 5 * forkUsage.output))
+  return r.result ?? ''
+}
 let forkCost: number | undefined
 let forkUsage: { input: number; cacheRead: number; cacheWrite: number; output: number } | undefined
 
@@ -384,7 +432,7 @@ const wholeBoard = (text: string, before: Board, at: number): Board | undefined 
   return { plan, shelf }
 }
 
-const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string, whole = false): void => {
+const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string, whole = false, log?: string): void => {
   const last = savedBoards()[sid]
   const path = transcriptOf(sid)
   const events = eventsOf(sid)
@@ -400,7 +448,9 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string,
   let board: Board = { plan: last.plan, shelf: last.shelf }
   const answer =
     from === undefined
-      ? forkAsk(sid, cwd, whole ? wholePrompt(board) : candidate ? candidatePrompt(board) : designPrompt(board))
+      ? log !== undefined
+        ? logAsk(log, events, board)
+        : forkAsk(sid, cwd, whole ? wholePrompt(board) : candidate ? candidatePrompt(board) : designPrompt(board))
       : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
   if (whole) board = wholeBoard(answer, board, last.savedAt) ?? board
   else board = runDesign(board, answer, last.savedAt).board
@@ -430,7 +480,7 @@ const main = (): void => {
       process.exit(1)
     }
     const from = flags.indexOf('--from')
-    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1], flags.includes('--whole'))
+    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1], flags.includes('--whole'), flags.includes('--log') ? flags[flags.indexOf('--log') + 1] : undefined)
   }
   const saved = savedBoards()
   if (sid === undefined) {
@@ -476,7 +526,7 @@ const main = (): void => {
     const frames = replay(events, flags.includes('--design'))
     const final = frames.at(-1)
     const v = final === undefined ? undefined : judge(decisions, events, final.board, final.at, '지금 지시문으로 다시 돌린 판')
-    report.replay = { looks: frames.length, verdict: v, board: final?.board, at: final?.at, ops: frames.map(f => ({ at: f.at, why: f.why, ops: f.ops })) }
+    report.replay = { looks: frames.length, asked, verdict: v, board: final?.board, at: final?.at, ops: frames.map(f => ({ at: f.at, why: f.why, ops: f.ops })) }
     sections.push(
       verdictHtml(`지금 지시문으로 다시 돌린 판 · 계획판 모델 ${frames.length}번 호출`, v),
       ...frames.map(
@@ -496,7 +546,7 @@ const main = (): void => {
   }
 
   const title = last?.plan.title ?? sid
-  const dir = join(process.cwd(), '.scratch/review')
+  const dir = process.env.REVIEW_DIR ?? join(process.cwd(), '.scratch/review')
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, `${sid}.json`), JSON.stringify(report, null, 2))
   writeFileSync(

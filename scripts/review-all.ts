@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { esc, PAGE_STYLE } from './html'
+import { itemMean } from './session'
 
 declare const process: { argv: string[]; cwd: () => string; stderr: { write: (s: string) => void } }
 declare const console: { log: (text: string) => void }
@@ -65,7 +66,8 @@ const main = async (): Promise<void> => {
     return report.saved?.verdict
   }
   const rows = sessions.map(([sid, v]) => ({ sid, title: v.plan.title, at: v.savedAt, verdict: verdictOf(sid) }))
-  const names = rows.find(r => r.verdict !== undefined)?.verdict?.scores.map(s => s.name) ?? []
+  // The fullest list of items: a session whose calls kept no tokens has no cost item.
+  const names = rows.map(r => r.verdict?.scores.map(s => s.name) ?? []).reduce((a, b) => (b.length > a.length ? b : a), [])
   const cell = (n: number | undefined): string => (n === undefined ? '<td class="n">–</td>' : `<td class="n">${n === 0 ? '–' : n}</td>`)
   const avg = (pick: (v: Verdict) => number | undefined): string => {
     const xs = rows.flatMap(r => (r.verdict === undefined ? [] : [pick(r.verdict)])).filter((x): x is number => x !== undefined && x > 0)
@@ -75,7 +77,7 @@ const main = async (): Promise<void> => {
     .map(r => {
       const v = r.verdict
       const first = `<td><a href="${esc(r.sid)}.html">${esc(r.title)}</a>${v === undefined ? ' <b>실패</b>' : ''}</td><td>${date(r.at)}</td>`
-      return `<tr>${first}${cell(v?.overall)}${names.map(n => cell(v?.scores.find(s => s.name === n)?.score)).join('')}</tr>`
+      return `<tr>${first}${cell(v?.overall)}${cell(v === undefined ? undefined : itemMean(v.scores))}${names.map(n => cell(v?.scores.find(s => s.name === n)?.score)).join('')}</tr>`
     })
     .join('')
   writeFileSync(
@@ -86,8 +88,8 @@ ${PAGE_STYLE}
 table{border-collapse:collapse}th,td{border-top:1px solid #2c2926;padding:6px 10px;text-align:left}th{color:#9a968f;font-weight:400}td.n{text-align:center;font-weight:700}
 a{color:#e8e6e3}b{color:#ff6b80}tfoot td{border-top:2px solid #2c2926;font-weight:700}
 </style></head><body><h1>계획판 리뷰 모음</h1><p>세션 ${rows.length}개${replay ? ' · 다시 돌린 판 포함' : ''}</p>
-<table><thead><tr><th>세션</th><th>저장 시각</th><th>종합</th>${names.map(n => `<th>${esc(n)}</th>`).join('')}</tr></thead><tbody>${body}</tbody>
-<tfoot><tr><td>평균</td><td></td>${avg(v => v.overall)}${names.map(n => avg(v => v.scores.find(s => s.name === n)?.score)).join('')}</tr></tfoot></table></body></html>`,
+<table><thead><tr><th>세션</th><th>저장 시각</th><th>종합</th><th>항목 평균</th>${names.map(n => `<th>${esc(n)}</th>`).join('')}</tr></thead><tbody>${body}</tbody>
+<tfoot><tr><td>평균</td><td></td>${avg(v => v.overall)}${avg(v => itemMean(v.scores))}${names.map(n => avg(v => v.scores.find(s => s.name === n)?.score)).join('')}</tr></tfoot></table></body></html>`,
   )
   console.log(join(dir, 'index.html'))
 }

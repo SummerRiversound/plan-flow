@@ -29,7 +29,7 @@ import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
 import type { Heard } from './session'
-import { costScore, costShare, heard, itemMean } from './session'
+import { costScore, costShare, heard, itemMean, ON_TIME_BARS, onTimeShare, shareScore, USEFUL_BARS, usefulShare } from './session'
 
 declare const process: { argv: string[]; cwd: () => string; env: Record<string, string | undefined>; exit: (code: number) => never; stderr: { write: (s: string) => void } }
 declare const console: { log: (text: string) => void }
@@ -325,10 +325,12 @@ const forkAsk = (sid: string, cwd: string, prompt: string): string => {
   say(`  fork read ${read} cached, wrote ${wrote}`)
   // What this call costs the mod, in input tokens of the main model: there the fork reads the whole
   // conversation from the cache, which a session reopened here long after has to write anew.
-  forkCost = Math.round((u.input_tokens ?? 0) + 0.1 * (read + wrote) + 5 * (u.output_tokens ?? 0))
+  forkUsage = { input: u.input_tokens ?? 0, cacheRead: read, cacheWrite: wrote, output: u.output_tokens ?? 0 }
+  forkCost = Math.round(forkUsage.input + 0.1 * (read + wrote) + 5 * forkUsage.output)
   return r.result ?? ''
 }
 let forkCost: number | undefined
+let forkUsage: { input: number; cacheRead: number; cacheWrite: number; output: number } | undefined
 
 // `from`: a folder of earlier results whose fork answers are applied again instead of asking anew.
 // The whole board written anew by Claude, who did the work.
@@ -405,7 +407,7 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string,
   const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
   const verdict = judge(claudeMd.slice(claudeMd.indexOf('## Decisions')), events, board, last.savedAt, 'Claude가 대화 전체를 읽고 다시 짠 판')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer, cost: forkCost } }, null, 2))
+  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer, cost: forkCost, usage: forkUsage } }, null, 2))
   console.log(`${sid.slice(0, 8)} ${verdict?.overall ?? '?'}${forkCost === undefined ? '' : ` · design call cost ${forkCost}`}`)
 }
 
@@ -452,10 +454,19 @@ const main = (): void => {
     say('judging the board the person last saw…')
     const real: Board = { plan: last.plan, shelf: last.shelf }
     const v = judge(decisions, events, real, last.savedAt, '사람이 마지막으로 본 판')
-    // The sixth item is counted, not judged: what the mod's own model calls cost beside the work.
-    const share = costShare(savedCalls(sid), readFileSync(path, 'utf8'))
+    // Three items are counted from the saved calls, not judged: what the mod's own model calls cost
+    // beside the work, whether the board changed when an answer followed work, and how many calls changed it.
+    const kept = savedCalls(sid)
+    const share = costShare(kept, readFileSync(path, 'utf8'))
+    const [onTime, useful] = [onTimeShare(kept, events), usefulShare(kept)]
     if (v !== undefined && share !== undefined) {
       v.scores.push({ name: '비용', score: costScore(share), why: `계획판 모델과 계획 다듬기 호출이 이 세션 본 작업 비용의 ${share.toFixed(1)}%를 썼어요.`, fix: '' })
+    }
+    if (v !== undefined && onTime !== undefined) {
+      v.scores.push({ name: '제때 갱신', score: shareScore(onTime, ON_TIME_BARS), why: `작업 뒤에 나온 답 가운데 ${onTime.toFixed(0)}%에서 다음 요청 전에 판이 바뀌었어요.`, fix: '' })
+    }
+    if (v !== undefined && useful !== undefined) {
+      v.scores.push({ name: '헛도는 호출이 적음', score: shareScore(useful, USEFUL_BARS), why: `모델 호출 가운데 ${useful.toFixed(0)}%가 판을 바꿨어요.`, fix: '' })
     }
     report.saved = { savedAt: last.savedAt, verdict: v }
     sections.push(verdictHtml(`사람이 마지막으로 본 판 · ${time(last.savedAt)}`, v), boardHtml(real, last.savedAt))

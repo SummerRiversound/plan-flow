@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { costScore, costShare, heard } from './session'
+import { costScore, costShare, heard, ON_TIME_BARS, onTimeShare, shareScore, USEFUL_BARS, usefulShare } from './session'
 
 const line = (o: Record<string, unknown>): string => JSON.stringify({ timestamp: '2026-11-09T00:00:00.000Z', ...o })
 
@@ -46,6 +46,34 @@ test('a delegated session reads back with the subagent calls merged in time orde
   expect(out.map(h => h.kind)).toEqual(['request', 'tool', 'subagent', 'answer'])
   expect(out[2].text).toBe('List files (failed)')
   expect(out[2].guarded).toBe(true)
+})
+
+test('the timing items count answers after work that saw the board change, and calls that changed it', () => {
+  const at = (s: number) => Date.parse('2026-11-09T00:00:00.000Z') + s * 1000
+  const events = [
+    { kind: 'request', text: 'a', at: at(0) },
+    { kind: 'tool', text: 'Edit', at: at(10) },
+    { kind: 'answer', text: 'done', at: at(20) },
+    { kind: 'request', text: 'b', at: at(100) },
+    { kind: 'tool', text: 'Edit', at: at(110) },
+    { kind: 'answer', text: 'done', at: at(120) },
+    // An answer with no work behind it is not counted.
+    { kind: 'request', text: 'what is this?', at: at(200) },
+    { kind: 'answer', text: 'it is…', at: at(210) },
+  ] as never
+  const calls = [
+    { at: at(1), call: 'look' as const, ops: 1 },
+    { at: at(21), call: 'look' as const, ops: 0 },
+    { at: at(22), call: 'design' as const, ops: 2 },
+    { at: at(121), call: 'look' as const, ops: 0 },
+    { at: at(211), call: 'look' as const, ops: 0 },
+  ]
+  // The first answer got a design; the second only a look that changed nothing.
+  expect(onTimeShare(calls, events)).toBe(50)
+  expect(usefulShare(calls)).toBe(40)
+  expect([79, 80, 90, 95, 98].map(p => shareScore(p, ON_TIME_BARS))).toEqual([1, 2, 3, 4, 5])
+  expect([34, 40, 50, 65, 80].map(p => shareScore(p, USEFUL_BARS))).toEqual([1, 2, 3, 4, 5])
+  expect(onTimeShare([], events)).toBeUndefined()
 })
 
 test("the cost item is the mod's model calls against the session's own, on the strict bar", () => {

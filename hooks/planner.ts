@@ -156,7 +156,35 @@ const byPath = (a: string, b: string): number => {
 
 // A design answer on the board: its ops among the ones a fork may use, in order, an op the board
 // refuses left out; the steps an op "add" or a redraw brings take the statuses Claude gave them.
-export const runDesign = (board: Board, text: string, now: number): { board: Board; applied: number } => {
+// A redraw that gives its steps in the adds after it (a "set" with no steps, then top-level "add"s)
+// is one redraw: left apart, the empty set is refused and the adds land after the old plan's steps.
+const folded = (text: string): string => {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1))
+  } catch {
+    return text
+  }
+  if (!Array.isArray(raw)) return text
+  const out: Array<Record<string, unknown>> = []
+  let open: unknown[] | undefined
+  for (const op of raw as Array<Record<string, unknown>>) {
+    if (open !== undefined && op?.op === 'add' && op.parent == null && Array.isArray(op.nodes)) {
+      open.push(...op.nodes)
+      continue
+    }
+    open = undefined
+    if (op?.op === 'set' && (!Array.isArray(op.nodes) || op.nodes.length === 0)) {
+      open = []
+      out.push({ ...op, nodes: open })
+    } else out.push(op)
+  }
+
+  return JSON.stringify(out)
+}
+
+export const runDesign = (board: Board, answer: string, now: number): { board: Board; applied: number } => {
+  const text = folded(answer)
   const statuses = addedStatuses(text)
   let applied = 0
   parseOps(text).forEach((op, i) => {

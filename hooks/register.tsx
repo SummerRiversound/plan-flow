@@ -27,7 +27,10 @@ import { manifestUrl, newerVersion, runningVersion, staleRelease } from './versi
 
 const PLUGIN = 'plan-flow'
 const PANE = 'plan-flow'
-const KEPT_SESSIONS = 20
+// Boards and switches are small and a person may keep twenty sessions open for days, so many are
+// kept; call logs are large (the store holds 4 MiB in all), so only the most recent sessions keep one.
+export const KEPT_BOARDS = 100
+const KEPT_CALL_LOGS = 20
 
 const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan())
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
@@ -700,11 +703,11 @@ async function tick($: $, running: boolean): Promise<void> {
   }
 }
 
-const newest = <T extends { savedAt: number },>(all: Record<string, T>): Record<string, T> =>
+const newest = <T extends { savedAt: number },>(all: Record<string, T>, kept = KEPT_BOARDS): Record<string, T> =>
   Object.fromEntries(
     Object.entries(all)
       .sort((a, b) => b[1].savedAt - a[1].savedAt)
-      .slice(0, KEPT_SESSIONS),
+      .slice(0, kept),
   )
 
 // One board per session, the most recent sessions kept.
@@ -712,7 +715,8 @@ async function save($: $, plan: Plan, shelf: Shelved[]): Promise<void> {
   const sid = await $.session.id()
   const saved = ((await $.store.get('plans')) ?? {}) as Saved
   saved[sid] = { plan, shelf, savedAt: await $.clock.now() }
-  await $.store.set('plans', newest(saved))
+  // A store that refuses the write (it is full) must not take the board on screen down with it.
+  await $.store.set('plans', newest(saved)).catch(() => undefined)
 }
 
 // The session's recent model calls, beside its board; never shown to Claude.
@@ -721,7 +725,7 @@ async function record($: $, c: Call): Promise<void> {
     const sid = await $.session.id()
     const log = ((await $.store.get('calls')) ?? {}) as Calls
     log[sid] = { calls: [...(log[sid]?.calls ?? []), c].slice(-KEPT_CALLS), savedAt: c.at + c.ms }
-    await $.store.set('calls', newest(log))
+    await $.store.set('calls', newest(log, KEPT_CALL_LOGS))
   }).catch(() => undefined)
 }
 
@@ -865,6 +869,8 @@ let lastLook = 0
 let busy: Promise<void> | null = null
 let queued = false
 let again = false
+// Whether the planner's last look left the board as it was.
+let idleLook = false
 let held = false
 // A failed look is tried once more after RETRY_MS; a look a hook asks for earns its own retry again.
 const RETRY_MS = 15_000
@@ -954,6 +960,7 @@ async function planOnce($: $): Promise<void> {
   const ops = parseOps(r.text)
   let applied = 0
   for (const op of ops) if (!('error' in (await apply($, op)))) applied++
+  idleLook = applied === 0
   await record($, { at, call: 'look', ms, result: 'answered', ops: applied, ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
   if (designOn && design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
   await keepRunning($)
@@ -971,6 +978,7 @@ async function designOnce($: $): Promise<void> {
   // A finished plan is designed too: what the last answer left with the person belongs on it.
   if (board.plan.nodes.length === 0) return
   const at = await $.clock.now()
+  const spent = sinceDesign
   sinceDesign = 0
   let timer: Timer | undefined
   const late = new Promise<'late'>(resolve => {
@@ -980,6 +988,9 @@ async function designOnce($: $): Promise<void> {
   const r = await Promise.race([$.model.fork({ prompt: designPrompt(board) }).catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) })), late])
   timer?.cancel()
   const ms = (await $.clock.now()) - at
+  // A design that gave no answer (the model was busy, as with many sessions at once) did not spend
+  // the budget: the next answer asks again.
+  if (r === 'late' || !r.isAnswered) sinceDesign += spent
   if (r === 'late') return record($, { at, call: 'design', ms, result: 'timed out' })
   // Nothing to fork yet means no request was made: nothing to keep.
   if (!r.isAnswered) return r.reason === 'nothing-to-fork' ? undefined : record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
@@ -1014,7 +1025,9 @@ async function designDue($: $): Promise<boolean> {
   // Another plan than the one in hand at the last answer, and older than it: it was on the shelf.
   const back = planKey(plan) !== hand.key && (plan.startedAt ?? 0) < hand.startedAt
 
-  return back || sinceDesign >= DESIGN_EVERY
+  // An answer the planner looked at and changed nothing for leaves the board as it was before the
+  // work: Claude is asked whatever the budget says, so no answer after work goes by with the board unchanged.
+  return back || idleLook || sinceDesign >= DESIGN_EVERY
 }
 
 // Asks for a look outside the hook that noticed something, one at a time; a look asked for while

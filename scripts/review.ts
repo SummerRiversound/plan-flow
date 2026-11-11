@@ -319,10 +319,16 @@ const forkAsk = (sid: string, cwd: string, prompt: string): string => {
     maxBuffer: 1 << 26,
     stdio: ['pipe', 'pipe', 'ignore'],
   })
-  const r = JSON.parse(out) as { result?: string; usage?: { cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
-  say(`  fork read ${r.usage?.cache_read_input_tokens ?? 0} cached, wrote ${r.usage?.cache_creation_input_tokens ?? 0}`)
+  const r = JSON.parse(out) as { result?: string; usage?: Record<string, number> }
+  const u = r.usage ?? {}
+  const [read, wrote] = [u.cache_read_input_tokens ?? 0, u.cache_creation_input_tokens ?? 0]
+  say(`  fork read ${read} cached, wrote ${wrote}`)
+  // What this call costs the mod, in input tokens of the main model: there the fork reads the whole
+  // conversation from the cache, which a session reopened here long after has to write anew.
+  forkCost = Math.round((u.input_tokens ?? 0) + 0.1 * (read + wrote) + 5 * (u.output_tokens ?? 0))
   return r.result ?? ''
 }
+let forkCost: number | undefined
 
 // `from`: a folder of earlier results whose fork answers are applied again instead of asking anew.
 // The whole board written anew by Claude, who did the work.
@@ -399,8 +405,8 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string,
   const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
   const verdict = judge(claudeMd.slice(claudeMd.indexOf('## Decisions')), events, board, last.savedAt, 'Claude가 대화 전체를 읽고 다시 짠 판')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer } }, null, 2))
-  console.log(`${sid.slice(0, 8)} ${verdict?.overall ?? '?'}`)
+  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer, cost: forkCost } }, null, 2))
+  console.log(`${sid.slice(0, 8)} ${verdict?.overall ?? '?'}${forkCost === undefined ? '' : ` · design call cost ${forkCost}`}`)
 }
 
 const time = (ms: number): string => new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })

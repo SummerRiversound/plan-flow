@@ -103,6 +103,15 @@ test('Claude, designing, may redraw the plan in hand whole: it takes its place w
   expect(board).toContain('2 Coupon field on the cart - in_progress')
 })
 
+test('a design asked on the budget is not told the five things and cannot redraw the plan', () => {
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  expect(designPrompt(start.board, false)).not.toContain(DESIGN_BAR)
+  const answer = JSON.stringify([{ op: 'set', title: 'Other', nodes: [{ title: 'Else' }] }])
+  expect(runDesign(start.board, answer, 9, false).applied).toBe(0)
+  expect(runDesign(start.board, answer, 9).applied).toBe(1)
+})
+
 test('a redraw that gives its steps in the adds after it replaces the plan in hand, not adds to it', () => {
   const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon' }, { title: 'Percent coupon' }] }, 1)
   if ('error' in start) throw new Error(start.error)

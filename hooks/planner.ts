@@ -132,7 +132,8 @@ export const DESIGN_OPS: ReadonlySet<PlanOp['op']> = new Set(['update', 'add', '
 export const DESIGN_BAR =
   'The person reads this board while switching between many sessions, and it is good only if all five hold. 1) The title names the work by its subject and the goal says what the person is after in the end, covering the whole session when the work widened, with the result first and short enough for one line. 2) Every status is true now, the last requests and their results included; nothing is shown done that someone else still has to do, and no work appears twice. 3) What you will go on to do without asking is a solid step; every question, choice or approval your last answer left with the person, and every reply or action awaited from someone else, is a "needs_check" step or in "expected". 4) Stages are deliverables on the way to the goal with checkpoints under them, never one stage per request in the order things happened, never a routine name, never a file name or command. 5) Each title reads on its own with its verb and object, each step has a detail saying what and why (finished ones: what was found or made), with no number, abbreviation, setting name or coordinate the person has not used, and nothing in parentheses in a title. Change the board wherever one of the five fails.'
 
-export const designPrompt = (board: Board): string =>
+// `mend`: the board was left off, so the design is told what it is read for and may redraw it.
+export const designPrompt = (board: Board, mend = true): string =>
   [
     'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
     `A smaller model drew this board from the calls it saw:\n${describeBoard(board)}`,
@@ -142,7 +143,7 @@ export const designPrompt = (board: Board): string =>
     'Reshape the board with op "update" (the goal, the title, a step\'s title, detail or status), "add", "remove" and "move" by the ids it shows. You know what you did: a step you finished is "completed", one the work went past without doing is "skipped" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never "completed", and neither is anything you told the person you did not verify. Go through every step the board shows and give each the status that is true now.',
     'Work of this plan that the board does not show goes on it with op "add" under the stage it belongs to; in an op "add" from you, and only there, a STEP may carry "status" (and "note"), so work already done is added as "completed". What your last answer left with the person (a choice to make, something to look at or approve) is not finished: a step only they can confirm is "needs_check" with a note naming what to look at, and work that waits on their go-ahead goes in "expected". When your statuses finish the last step, give "summary" with that op "update".',
     'Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as "merged" with its link. Write in the language the person writes in.',
-    DESIGN_BAR,
+    ...(mend ? [DESIGN_BAR] : []),
     'Answer with only a JSON array of op objects, and [] when the board already fits. No prose, no code fence.',
   ].join('\n\n')
 
@@ -183,14 +184,14 @@ const folded = (text: string): string => {
   return JSON.stringify(out)
 }
 
-export const runDesign = (board: Board, answer: string, now: number): { board: Board; applied: number } => {
+export const runDesign = (board: Board, answer: string, now: number, mend = true): { board: Board; applied: number } => {
   const text = folded(answer)
   const statuses = addedStatuses(text)
   let applied = 0
   parseOps(text).forEach((op, i) => {
     // A "set" from the design redraws the plan in hand in place: the same work, so nothing goes to
     // the shelf and the plan keeps the time it started.
-    const redraw = op.op === 'set'
+    const redraw = mend && op.op === 'set'
     if (!redraw && !DESIGN_OPS.has(op.op)) return
     const before = new Set(redraw ? [] : board.plan.nodes.map(n => n.id))
     const old = board.plan.nodes

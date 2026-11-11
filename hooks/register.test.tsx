@@ -332,6 +332,9 @@ test('an answer after work that the planner changed nothing for is designed what
   forkReplies.push([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }])
   await plan($)
   expect(forked).toHaveLength(2)
+  // Only the design asked because the board was left off is told what the board is read for.
+  expect(forked[0]).not.toContain('all five hold')
+  expect(forked[1]).toContain('all five hold')
   expect(await shown($)).toContain('1 조사 - completed')
 })
 

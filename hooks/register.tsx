@@ -871,6 +871,8 @@ let queued = false
 let again = false
 // Whether the planner's last look left the board as it was.
 let idleLook = false
+// Whether the design about to be asked mends a board left off: told what the board is read for, free to redraw.
+let mend = false
 let held = false
 // A failed look is tried once more after RETRY_MS; a look a hook asks for earns its own retry again.
 const RETRY_MS = 15_000
@@ -942,7 +944,7 @@ async function planOnce($: $): Promise<void> {
   const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
   const head: Happened[] = request === '' || take.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
   const r = await $.model
-    .complete({ model: PLANNER_MODEL, system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...take]), maxTokens: 4000, timeoutMs: LOOK_TIMEOUT_MS })
+    .complete({ model: PLANNER_MODEL, effort: 'low', system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...take]), maxTokens: 4000, timeoutMs: LOOK_TIMEOUT_MS })
     .catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) }))
   const ms = (await $.clock.now()) - at
   if (!r.isAnswered) {
@@ -980,12 +982,13 @@ async function designOnce($: $): Promise<void> {
   const at = await $.clock.now()
   const spent = sinceDesign
   sinceDesign = 0
+  const mending = mend
   let timer: Timer | undefined
   const late = new Promise<'late'>(resolve => {
     timer = $.clock.after(DESIGN_WAIT_MS, () => resolve('late'))
   })
   // A fork given up on may still answer later; nothing waits for it then, so its ops never land.
-  const r = await Promise.race([$.model.fork({ prompt: designPrompt(board) }).catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) })), late])
+  const r = await Promise.race([$.model.fork({ prompt: designPrompt(board, mending) }).catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) })), late])
   timer?.cancel()
   const ms = (await $.clock.now()) - at
   // A design that gave no answer (the model was busy, as with many sessions at once) did not spend
@@ -1003,7 +1006,7 @@ async function designOnce($: $): Promise<void> {
     const same = now.title === board.plan.title && now.startedAt === board.plan.startedAt && board.plan.nodes.every(n => now.nodes.find(m => m.id === n.id)?.title === n.title)
     if (!same) return null
     const shelf = await read($, shelfAtom)
-    const ran = runDesign({ plan: now, shelf }, r.text, await $.clock.now())
+    const ran = runDesign({ plan: now, shelf }, r.text, await $.clock.now(), mending)
     await land($, now, shelf, ran.board)
 
     return ran.applied
@@ -1020,6 +1023,7 @@ const planKey = (plan: Plan): string => `${plan.startedAt ?? 0} ${plan.title}`
 // returns as the planner left it, before the work done under the plan that took its place, so the next
 // answer has Claude set it right whatever passed since the last design.
 async function designDue($: $): Promise<boolean> {
+  mend = false
   if (!atAnswer) return sinceDesign >= 2 * DESIGN_EVERY
   const plan = await read($, planAtom)
   // Another plan than the one in hand at the last answer, and older than it: it was on the shelf.
@@ -1027,7 +1031,9 @@ async function designDue($: $): Promise<boolean> {
 
   // An answer the planner looked at and changed nothing for leaves the board as it was before the
   // work: Claude is asked whatever the budget says, so no answer after work goes by with the board unchanged.
-  return back || idleLook || sinceDesign >= DESIGN_EVERY
+  mend = back || idleLook
+
+  return mend || sinceDesign >= DESIGN_EVERY
 }
 
 // Asks for a look outside the hook that noticed something, one at a time; a look asked for while

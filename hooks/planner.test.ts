@@ -103,6 +103,23 @@ test('Claude, designing, may redraw the plan in hand whole: it takes its place w
   expect(board).toContain('2 Coupon field on the cart - in_progress')
 })
 
+test('a step redrawn under the same title keeps its links and a check the person already confirmed', () => {
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon' }, { title: 'Percent coupon' }, { title: 'Coupon field' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  const worked = runOp(start.board, { op: 'update', updates: [{ id: '1', status: 'completed', links: ['https://example.com/pull/7'] }, { id: '2', status: 'completed' }] }, 2)
+  if ('error' in worked) throw new Error(worked.error)
+  const answer = JSON.stringify([
+    { op: 'set', title: 'Coupons at checkout', previous: 'cancel', nodes: [{ title: 'Coupon kinds', children: [{ title: 'Fixed coupon', status: 'completed' }, { title: 'Percent coupon', status: 'needs_check', note: 'try 15% on the cart' }] }, { title: 'Coupon field' }] },
+  ])
+  const { board } = runDesign(worked.board, answer, 9)
+  const step = (title: string) => board.plan.nodes.find(n => n.title === title)
+  expect(step('Fixed coupon')?.links).toEqual(['https://example.com/pull/7'])
+  // The board had it done, so the redraw does not ask for the same check again.
+  expect(step('Percent coupon')?.status).toBe('completed')
+  expect(step('Percent coupon')?.note).toBeUndefined()
+  expect(step('Coupon field')?.status).toBe('pending')
+})
+
 test('the planner keeps a step open while Claude waits for the person to answer, so the board can say it waits', () => {
   expect(PLANNER_SYSTEM).toContain('When Claude\'s answer asks the person to approve, choose or say whether to go on')
 })

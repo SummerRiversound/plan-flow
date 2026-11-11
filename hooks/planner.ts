@@ -165,6 +165,7 @@ export const runDesign = (board: Board, text: string, now: number): { board: Boa
     const redraw = op.op === 'set'
     if (!redraw && !DESIGN_OPS.has(op.op)) return
     const before = new Set(redraw ? [] : board.plan.nodes.map(n => n.id))
+    const old = board.plan.nodes
     const ran = runOp(redraw ? { plan: emptyPlan(), shelf: board.shelf } : board, op, now)
     if ('error' in ran) return
     board = redraw && board.plan.nodes.length > 0 ? { ...ran.board, plan: { ...ran.board.plan, startedAt: board.plan.startedAt } } : ran.board
@@ -174,6 +175,18 @@ export const runDesign = (board: Board, text: string, now: number): { board: Boa
     const updates = added.flatMap((id, k) => (given[k] === undefined ? [] : [{ id, ...given[k] }]))
     const marked = updates.length === 0 ? undefined : runOp(board, { op: 'update', updates }, now)
     if (marked !== undefined && !('error' in marked)) board = marked.board
+    if (!redraw) return
+    // A step drawn again under the same title keeps what the old one carried: its links, and a check
+    // already confirmed (a step the redraw leaves waiting for a check that the board had as done).
+    const kept = board.plan.nodes.flatMap(n => {
+      const was = old.find(o => o.title === n.title)
+      if (was === undefined) return []
+      const confirmed = n.status === 'needs_check' && was.status === 'completed'
+      const links = (was.links ?? []).length > 0
+      return confirmed || links ? [{ id: n.id, ...(confirmed ? { status: 'completed' as const, note: '' } : {}), ...(links ? { links: was.links } : {}) }] : []
+    })
+    const carried = kept.length === 0 ? undefined : runOp(board, { op: 'update', updates: kept }, now)
+    if (carried !== undefined && !('error' in carried)) board = carried.board
   })
 
   return { board, applied }

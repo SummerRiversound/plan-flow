@@ -60,6 +60,8 @@ test('Claude, designing, says where each step stands: its statuses land, and a s
   const prompt = designPrompt({ plan: emptyPlan(), shelf: [] })
   expect(prompt).toContain('give each the status that is true now')
   expect(prompt).not.toContain('leave every status as it is')
+  // What the last answer left with the person stays on the board, a finished plan's included.
+  expect(prompt).toContain('go back over your last answer for every question you asked')
   // A name Claude writes may run a few words longer than the planner's.
   expect(prompt).not.toContain('Every title is at most 4 words.')
   expect(PLANNER_SYSTEM).toContain('Every title is at most 4 words.')

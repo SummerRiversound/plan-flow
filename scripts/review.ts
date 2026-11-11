@@ -24,7 +24,7 @@ import type { Plan, PlanInput, PlanStatus } from '../hooks/plan'
 import { closing, currentLeaf, emptyPlan, hasOpenWork, setPlan, STATUSES, updateNodes, withExpected, withGoal } from '../hooks/plan'
 import { describeBoard, EXPECTED_RULE, PLAN_RULES, runOp } from '../hooks/plan-tool'
 import type { Happened } from '../hooks/planner'
-import { DESIGN_OPS, LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember, runDesign } from '../hooks/planner'
+import { LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember, runDesign } from '../hooks/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
@@ -303,13 +303,7 @@ const compare = (a: string, b: string): void => {
 
 // The design wording under trial, as changes to the released one; it moves into hooks/ only once it wins.
 const CANDIDATE: ReadonlyArray<[string, string]> = [
-  [
-    'Answer with only a JSON array of op objects, and [] when the board already fits.',
-    'When the plan in hand is not the work this session is on now (work dropped or long finished, while the session moved to other work), put the right plan in hand: op "set" with the current work\'s plan and "previous" "cancel" for dropped work or "park" for work to come back to, or op "resume" with the title of a shelved plan the work went back to. Answer with only a JSON array of op objects, and [] when the board already fits.',
-  ],
 ]
-// The ops the candidate design may run: the released ones, and putting the right plan in hand.
-const CANDIDATE_OPS: ReadonlySet<string> = new Set([...DESIGN_OPS, 'set', 'resume', 'cancel'])
 const candidatePrompt = (board: Board): string => CANDIDATE.reduce((p, [from, to]) => {
   if (!p.includes(from)) throw new Error(`the released design wording changed; update CANDIDATE: ${from.slice(0, 60)}`)
   return p.replace(from, to)
@@ -401,11 +395,7 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string,
       ? forkAsk(sid, cwd, whole ? wholePrompt(board) : candidate ? candidatePrompt(board) : designPrompt(board))
       : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
   if (whole) board = wholeBoard(answer, board, last.savedAt) ?? board
-  else if (!candidate) board = runDesign(board, answer, last.savedAt).board
-  else for (const op of parseOps(answer).filter(op => CANDIDATE_OPS.has(op.op))) {
-    const r = runOp(board, op, last.savedAt)
-    if (!('error' in r)) board = r.board
-  }
+  else board = runDesign(board, answer, last.savedAt).board
   const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
   const verdict = judge(claudeMd.slice(claudeMd.indexOf('## Decisions')), events, board, last.savedAt, 'Claude가 대화 전체를 읽고 다시 짠 판')
   mkdirSync(dir, { recursive: true })

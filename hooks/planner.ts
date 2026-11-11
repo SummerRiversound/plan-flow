@@ -4,7 +4,7 @@
 // and answers with the same ops the board has always run.
 import type { Board } from './board'
 import type { PlanOp } from './plan-tool'
-import { STATUSES } from './plan'
+import { emptyPlan, STATUSES } from './plan'
 import type { PlanStatus } from './plan'
 import { DESIGN_TITLE_RULE, PLAN_RULES, TITLE_RULE, TOOL_DESCRIPTION, describeBoard, parseOp, runOp } from './plan-tool'
 
@@ -128,6 +128,10 @@ export const DESIGN_OPS: ReadonlySet<PlanOp['op']> = new Set(['update', 'add', '
 
 // The one question put to a fork of the main conversation: Claude, who does the work, designs the plan
 // and says where each step stands, since it knows what it did and the planner only saw the calls.
+// What the person reads the board for, told to the design so it mends whatever falls short of it.
+export const DESIGN_BAR =
+  'The person reads this board while switching between many sessions, and it is good only if all five hold. 1) The title names the work by its subject and the goal says what the person is after in the end, covering the whole session when the work widened, with the result first and short enough for one line. 2) Every status is true now, the last requests and their results included; nothing is shown done that someone else still has to do, and no work appears twice. 3) What you will go on to do without asking is a solid step; every question, choice or approval your last answer left with the person, and every reply or action awaited from someone else, is a "needs_check" step or in "expected". 4) Stages are deliverables on the way to the goal with checkpoints under them, never one stage per request in the order things happened, never a routine name, never a file name or command. 5) Each title reads on its own with its verb and object, each step has a detail saying what and why (finished ones: what was found or made), with no number, abbreviation, setting name or coordinate the person has not used, and nothing in parentheses in a title. Change the board wherever one of the five fails.'
+
 export const designPrompt = (board: Board): string =>
   [
     'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
@@ -138,6 +142,7 @@ export const designPrompt = (board: Board): string =>
     'Reshape the board with op "update" (the goal, the title, a step\'s title, detail or status), "add", "remove" and "move" by the ids it shows. You know what you did: a step you finished is "completed", one the work went past without doing is "skipped" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never "completed", and neither is anything you told the person you did not verify. Go through every step the board shows and give each the status that is true now.',
     'Work of this plan that the board does not show goes on it with op "add" under the stage it belongs to; in an op "add" from you, and only there, a STEP may carry "status" (and "note"), so work already done is added as "completed". What your last answer left with the person (a choice to make, something to look at or approve) is not finished: a step only they can confirm is "needs_check" with a note naming what to look at, and work that waits on their go-ahead goes in "expected". When your statuses finish the last step, give "summary" with that op "update".',
     'Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as "merged" with its link. Write in the language the person writes in.',
+    DESIGN_BAR,
     'Answer with only a JSON array of op objects, and [] when the board already fits. No prose, no code fence.',
   ].join('\n\n')
 
@@ -150,19 +155,22 @@ const byPath = (a: string, b: string): number => {
 }
 
 // A design answer on the board: its ops among the ones a fork may use, in order, an op the board
-// refuses left out; the steps an op "add" brings take the statuses Claude gave them.
+// refuses left out; the steps an op "add" or a redraw brings take the statuses Claude gave them.
 export const runDesign = (board: Board, text: string, now: number): { board: Board; applied: number } => {
   const statuses = addedStatuses(text)
   let applied = 0
   parseOps(text).forEach((op, i) => {
-    if (!DESIGN_OPS.has(op.op)) return
-    const before = new Set(board.plan.nodes.map(n => n.id))
-    const ran = runOp(board, op, now)
+    // A "set" from the design redraws the plan in hand in place: the same work, so nothing goes to
+    // the shelf and the plan keeps the time it started.
+    const redraw = op.op === 'set'
+    if (!redraw && !DESIGN_OPS.has(op.op)) return
+    const before = new Set(redraw ? [] : board.plan.nodes.map(n => n.id))
+    const ran = runOp(redraw ? { plan: emptyPlan(), shelf: board.shelf } : board, op, now)
     if ('error' in ran) return
-    board = ran.board
+    board = redraw && board.plan.nodes.length > 0 ? { ...ran.board, plan: { ...ran.board.plan, startedAt: board.plan.startedAt } } : ran.board
     applied++
     const given = statuses[i] ?? []
-    const added = op.op === 'add' ? board.plan.nodes.map(n => n.id).filter(id => !before.has(id)).sort(byPath) : []
+    const added = op.op === 'add' || op.op === 'set' ? board.plan.nodes.map(n => n.id).filter(id => !before.has(id)).sort(byPath) : []
     const updates = added.flatMap((id, k) => (given[k] === undefined ? [] : [{ id, ...given[k] }]))
     const marked = updates.length === 0 ? undefined : runOp(board, { op: 'update', updates }, now)
     if (marked !== undefined && !('error' in marked)) board = marked.board
@@ -197,7 +205,7 @@ export const addedStatuses = (text: string): AddedStatus[][] => {
 
   return (raw as Raw[]).flatMap(r => {
     const p = parseOp(r)
-    return 'error' in p || p.op.op === 'show' ? [] : [r?.op === 'add' ? walk(r.nodes) : []]
+    return 'error' in p || p.op.op === 'show' ? [] : [r?.op === 'add' || r?.op === 'set' ? walk(r.nodes) : []]
   })
 }
 

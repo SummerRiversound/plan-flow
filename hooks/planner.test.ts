@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { emptyPlan } from './plan'
 import { describeBoard, EXPECTED_RULE, runOp } from './plan-tool'
-import { designPrompt, MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from './planner'
+import { DESIGN_BAR, designPrompt, MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from './planner'
 import type { Happened } from './planner'
 
 test('a tool call is one line: what it says it is for, else the file it touches, never a whole command or file', () => {
@@ -59,7 +59,8 @@ test('the planner is told the field names the board reads, so its steps are not 
 test('Claude, designing, says where each step stands: its statuses land, and a step it adds as done is done', () => {
   const prompt = designPrompt({ plan: emptyPlan(), shelf: [] })
   expect(prompt).toContain('give each the status that is true now')
-  expect(prompt).not.toContain('leave every status as it is')  // A name Claude writes may run a few words longer than the planner's.
+  expect(prompt).not.toContain('leave every status as it is')
+  // A name Claude writes may run a few words longer than the planner's.
   expect(prompt).not.toContain('Every title is at most 4 words.')
   expect(PLANNER_SYSTEM).toContain('Every title is at most 4 words.')
 
@@ -67,11 +68,11 @@ test('Claude, designing, says where each step stands: its statuses land, and a s
   if ('error' in start) throw new Error(start.error)
   const answer = JSON.stringify([
     { op: 'update', updates: [{ id: '1', status: 'completed' }] },
-    { op: 'set', title: 'Another plan', nodes: [{ title: 'x' }], previous: 'cancel' },
+    { op: 'resume', title: 'Another plan' },
     { op: 'add', parent: '2', nodes: [{ title: 'Its test', status: 'completed' }, { title: 'Rounding', status: 'skipped', note: 'whole amounts only' }, { title: 'Stacking' }] },
   ])
   const ran = runDesign(start.board, answer, 2)
-  // The fork never swaps the plan in hand; the two ops it may use ran.
+  // The fork never brings another plan into hand; the two ops it may use ran.
   expect(ran.applied).toBe(2)
   const board = describeBoard(ran.board)
   expect(board).toContain('Plan: Coupons')
@@ -79,6 +80,27 @@ test('Claude, designing, says where each step stands: its statuses land, and a s
   expect(board).toContain('2.1 Its test - completed')
   expect(board).toContain('2.2 Rounding - skipped')
   expect(board).toContain('2.3 Stacking - pending')
+})
+
+test('Claude, designing, may redraw the plan in hand whole: it takes its place with its statuses, nothing goes to the shelf', () => {
+  expect(designPrompt({ plan: emptyPlan(), shelf: [] })).toContain(DESIGN_BAR)
+
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon' }, { title: 'Percent coupon' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  const answer = JSON.stringify([
+    { op: 'set', title: 'Coupons at checkout', previous: 'cancel', nodes: [{ title: 'Coupon kinds', children: [{ title: 'Fixed amount off', status: 'completed' }, { title: 'Percent off', status: 'needs_check', note: 'try 15% on the cart' }] }, { title: 'Coupon field on the cart' }] },
+    { op: 'update', updates: [{ id: '2', status: 'in_progress' }] },
+  ])
+  const ran = runDesign(start.board, answer, 9)
+  expect(ran.applied).toBe(2)
+  // Open work was on the board, and it is neither parked nor cancelled: the same work, drawn again.
+  expect(ran.board.shelf).toEqual([])
+  expect(ran.board.plan.startedAt).toBe(start.board.plan.startedAt)
+  const board = describeBoard(ran.board)
+  expect(board).toContain('Plan: Coupons at checkout')
+  expect(board).toContain('1.1 Fixed amount off - completed')
+  expect(board).toContain('1.2 Percent off - needs_check')
+  expect(board).toContain('2 Coupon field on the cart - in_progress')
 })
 
 test('the planner keeps a step open while Claude waits for the person to answer, so the board can say it waits', () => {

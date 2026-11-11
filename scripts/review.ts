@@ -29,7 +29,7 @@ import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
 import type { Heard } from './session'
-import { heard } from './session'
+import { costScore, costShare, heard, itemMean } from './session'
 
 declare const process: { argv: string[]; cwd: () => string; env: Record<string, string | undefined>; exit: (code: number) => never; stderr: { write: (s: string) => void } }
 declare const console: { log: (text: string) => void }
@@ -229,7 +229,7 @@ const judge = (decisions: string, events: readonly Heard[], b: Board, at: number
 const verdictHtml = (title: string, v: Verdict | undefined): string =>
   v === undefined
     ? `<h2>${esc(title)}</h2><p>평가 결과를 읽지 못했어요.</p>`
-    : `<h2>${esc(title)} · 종합 ${v.overall}/5</h2><p style="color:#e8e6e3">${esc(v.verdict)}</p>
+    : `<h2>${esc(title)} · 종합 ${v.overall}/5 · 항목 평균 ${itemMean(v.scores)}</h2><p style="color:#e8e6e3">${esc(v.verdict)}</p>
 <table><tr><th>항목</th><th>점수</th><th>이유</th><th>고칠 점</th></tr>${v.scores
         .map(s => `<tr><td>${esc(s.name)}</td><td class="n">${s.score === 0 ? '–' : s.score}</td><td>${esc(s.why)}</td><td>${esc(s.fix)}</td></tr>`)
         .join('')}</table>${
@@ -446,6 +446,11 @@ const main = (): void => {
     say('judging the board the person last saw…')
     const real: Board = { plan: last.plan, shelf: last.shelf }
     const v = judge(decisions, events, real, last.savedAt, '사람이 마지막으로 본 판')
+    // The sixth item is counted, not judged: what the mod's own model calls cost beside the work.
+    const share = costShare(savedCalls(sid), readFileSync(path, 'utf8'))
+    if (v !== undefined && share !== undefined) {
+      v.scores.push({ name: '비용', score: costScore(share), why: `계획판 모델과 계획 다듬기 호출이 이 세션 본 작업 비용의 ${share.toFixed(1)}%를 썼어요.`, fix: '' })
+    }
     report.saved = { savedAt: last.savedAt, verdict: v }
     sections.push(verdictHtml(`사람이 마지막으로 본 판 · ${time(last.savedAt)}`, v), boardHtml(real, last.savedAt))
   }

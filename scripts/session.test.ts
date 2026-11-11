@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { heard } from './session'
+import { costScore, costShare, heard } from './session'
 
 const line = (o: Record<string, unknown>): string => JSON.stringify({ timestamp: '2026-11-09T00:00:00.000Z', ...o })
 
@@ -46,4 +46,16 @@ test('a delegated session reads back with the subagent calls merged in time orde
   expect(out.map(h => h.kind)).toEqual(['request', 'tool', 'subagent', 'answer'])
   expect(out[2].text).toBe('List files (failed)')
   expect(out[2].guarded).toBe(true)
+})
+
+test("the cost item is the mod's model calls against the session's own, on the strict bar", () => {
+  const turn = (id: string, output: number) => line({ type: 'assistant', message: { id, usage: { input_tokens: 1000, output_tokens: output } } })
+  // The work: 2 requests of 1000 in and 200 out, one written twice in the log = 4000.
+  const jsonl = [turn('a', 200), turn('a', 200), turn('b', 200)].join('\n')
+  const at = Date.parse('2026-11-09T00:00:00.000Z')
+  const use = (input: number) => ({ input, cacheRead: 0, cacheWrite: 0, output: 0 })
+  // A design call of 100 and a planner call of 100 at a fifth of the price = 120, so 3%.
+  expect(Math.round(costShare([{ at, call: 'design', usage: use(100) }, { at, call: 'look', usage: use(100) }, { at, call: 'look' }], jsonl) ?? 0)).toBe(3)
+  expect(costShare([{ at, call: 'look' }], jsonl)).toBeUndefined()
+  expect([0.5, 1, 1.5, 3, 4.1, 8, 20].map(costScore)).toEqual([5, 5, 4, 3, 2, 2, 1])
 })

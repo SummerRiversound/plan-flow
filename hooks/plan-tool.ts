@@ -44,11 +44,15 @@ export const TOOL_DESCRIPTION = [
 export const EXPECTED_RULE =
   'Work Claude goes on with without asking, the routine that follows from the request included (a review, merge or release it does on its own), is a step, drawn solid. "expected" holds only work very likely to follow that Claude will not start on its own: it waits on the person\'s go-ahead (a merge into the default branch, a deploy or release they decide on) or on someone else (review comments still to come); work only someone else does stays off the board.'
 
+// How long a step's name is. The planner's names stay short; Claude, designing, may spend a few more words to be understood.
+export const TITLE_RULE = 'Every title is at most 4 words.'
+export const DESIGN_TITLE_RULE = 'Every title is a short phrase that reads on its own (about 2 to 6 words): what the step makes or changes, with no issue or PR number and no abbreviation the person has not used.'
+
 // How a good plan is shaped, for whoever keeps the board.
 export const PLAN_RULES = [
   'Shape a plan as 2 to 5 stages, the parts of the outcome in order, each holding the tasks that make it up; a task gets checkpoints when it has parts worth seeing: one for each thing the person checks on its own (each draft, screen or file they open), never one step for several of them. A flat list of steps hides the shape of the work, so group the steps even when the task is small.',
   "Name stages for what will exist when they are done, in this task's own words, not phases: a name that would fit any other task unchanged (setup, decision record, implement, test, commit, PR, wrap-up) is a phase, so rename it. The repo's routine (an issue comment, a worktree, test-first, a commit, the pull request) goes inside the stage it serves, never a stage of its own. When one stage holds more than half of five or more tasks, split it by what each part delivers. A stage holding a single task is just that task: leave it a step with no children.",
-  'Every title is at most 4 words.',
+  TITLE_RULE,
   'Steps are checkpoints for following where the work stands, not the edits: the deepest level is something the person would recognise as done (a screen works, a test proves it), and the file-by-file changes stay out of the plan.',
   'Give every step a detail: one plain sentence saying what it does and why, with no file names, code or commands, in words the person already uses.',
   EXPECTED_RULE,

@@ -5,7 +5,8 @@
 import type { Board } from './board'
 import type { PlanOp } from './plan-tool'
 import { STATUSES } from './plan'
-import { PLAN_RULES, TOOL_DESCRIPTION, describeBoard, parseOp } from './plan-tool'
+import type { PlanStatus } from './plan'
+import { DESIGN_TITLE_RULE, PLAN_RULES, TITLE_RULE, TOOL_DESCRIPTION, describeBoard, parseOp, runOp } from './plan-tool'
 
 // One line of what happened, oldest first.
 export type Happened = { kind: 'request' | 'notice' | 'tool' | 'subagent' | 'said' | 'answer'; text: string }
@@ -41,8 +42,30 @@ export const toolLine = (tool: string, input: Record<string, unknown>): string =
   if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Read'].includes(tool)) return cut(`${tool} ${base(input.file_path ?? input.notebook_path)}`, MAX_LINE)
   if (said !== '') return cut(`${tool}: ${said}`, MAX_LINE)
   if (typeof input.pattern === 'string') return cut(`${tool} ${input.pattern}`, MAX_LINE)
+  // A connected tool has no description of its own: its short fields say what the call did.
+  const name = tool.replace(/^mcp__.*__/, '')
+  const fields = QUIET.has(tool) ? '' : hint(input, 0)
 
-  return tool
+  return fields === '' ? name : cut(`${name}: ${fields}`, MAX_HINT)
+}
+
+// Tools whose input says nothing of the work.
+const QUIET: ReadonlySet<string> = new Set(['ToolSearch'])
+const MAX_HINT = 120
+// A field longer than this is content (a message, a script, a page), not what the call is for.
+const MAX_FIELD = 60
+const NOT_TELLING = /(^|_)(ids?|ur[il]|path)$|Ids?$/
+const hint = (v: unknown, depth: number): string => {
+  if (typeof v === 'string') return v.length <= MAX_FIELD ? v.replace(/\s+/g, ' ').trim() : ''
+  if (typeof v !== 'object' || v === null || depth > 2) return ''
+  if (Array.isArray(v)) return v.slice(0, 3).map(x => hint(x, depth + 1)).filter(s => s !== '').join('; ')
+
+  return Object.entries(v)
+    .filter(([k]) => !NOT_TELLING.test(k))
+    .map(([k, x]) => [k, hint(x, depth + 1)] as const)
+    .filter(([, s]) => s !== '')
+    .map(([k, s]) => `${k} ${s}`)
+    .join(', ')
 }
 
 // The log kept short: the newest lines, each request and answer cut to fit.
@@ -103,17 +126,80 @@ export const plannerPrompt = (board: Board, log: readonly Happened[]): string =>
 // The ops a fork may use: it reshapes the plan in hand, never starts, ends or swaps one.
 export const DESIGN_OPS: ReadonlySet<PlanOp['op']> = new Set(['update', 'add', 'remove', 'move'])
 
-// The one question put to a fork of the main conversation: Claude, who does the work, designs the plan.
+// The one question put to a fork of the main conversation: Claude, who does the work, designs the plan
+// and says where each step stands, since it knows what it did and the planner only saw the calls.
 export const designPrompt = (board: Board): string =>
   [
     'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
     `A smaller model drew this board from the calls it saw:\n${describeBoard(board)}`,
     'Design the plan of this work as you, who are doing it, see it. The goal is the end the person is after: what will be true or exist for them once the work is done, never the steps or what was done so far. The stages run the whole way to that end, the ones not started yet included, so the person sees what is left; the work after them that waits on the person or someone else goes in "expected" with op "update".',
     OP_SHAPES,
-    PLAN_RULES,
-    'Reshape the board with op "update" (the goal, the title, a step\'s title or detail), "add", "remove" and "move" only, by the ids it shows, and leave every status as it is. Write in the language the person writes in.',
+    PLAN_RULES.replace(TITLE_RULE, DESIGN_TITLE_RULE),
+    'Reshape the board with op "update" (the goal, the title, a step\'s title, detail or status), "add", "remove" and "move" by the ids it shows. You know what you did: a step you finished is "completed", one the work went past without doing is "skipped" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never "completed", and neither is anything you told the person you did not verify. Go through every step the board shows and give each the status that is true now.',
+    'Work of this plan that the board does not show goes on it with op "add" under the stage it belongs to; in an op "add" from you, and only there, a STEP may carry "status" (and "note"), so work already done is added as "completed". What your last answer left with the person (a choice to make, something to look at or approve) is not finished: a step only they can confirm is "needs_check" with a note naming what to look at, and work that waits on their go-ahead goes in "expected". When your statuses finish the last step, give "summary" with that op "update".',
+    'Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as "merged" with its link. Write in the language the person writes in.',
     'Answer with only a JSON array of op objects, and [] when the board already fits. No prose, no code fence.',
   ].join('\n\n')
+
+// Step ids in reading order: "2.10" after "2.9", a step before the steps under it.
+const byPath = (a: string, b: string): number => {
+  const [x, y] = [a.split('.').map(Number), b.split('.').map(Number)]
+  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return (x[i] ?? 0) - (y[i] ?? 0)
+
+  return x.length - y.length
+}
+
+// A design answer on the board: its ops among the ones a fork may use, in order, an op the board
+// refuses left out; the steps an op "add" brings take the statuses Claude gave them.
+export const runDesign = (board: Board, text: string, now: number): { board: Board; applied: number } => {
+  const statuses = addedStatuses(text)
+  let applied = 0
+  parseOps(text).forEach((op, i) => {
+    if (!DESIGN_OPS.has(op.op)) return
+    const before = new Set(board.plan.nodes.map(n => n.id))
+    const ran = runOp(board, op, now)
+    if ('error' in ran) return
+    board = ran.board
+    applied++
+    const given = statuses[i] ?? []
+    const added = op.op === 'add' ? board.plan.nodes.map(n => n.id).filter(id => !before.has(id)).sort(byPath) : []
+    const updates = added.flatMap((id, k) => (given[k] === undefined ? [] : [{ id, ...given[k] }]))
+    const marked = updates.length === 0 ? undefined : runOp(board, { op: 'update', updates }, now)
+    if (marked !== undefined && !('error' in marked)) board = marked.board
+  })
+
+  return { board, applied }
+}
+
+// A status Claude gave a step it adds, by the step's place among the op's steps in reading order.
+export type AddedStatus = { status: PlanStatus; note?: string } | undefined
+
+// The statuses on the steps of each op "add" in a design answer: one list per op the board would run, in
+// order (empty for the other ops). Only leaves carry one: a step with children takes its status from them.
+export const addedStatuses = (text: string): AddedStatus[][] => {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(raw)) return []
+  type Raw = { op?: unknown; nodes?: unknown; status?: unknown; note?: unknown; children?: unknown } | null
+  const walk = (nodes: unknown): AddedStatus[] =>
+    (Array.isArray(nodes) ? (nodes as Raw[]) : []).flatMap(n => {
+      const kids = Array.isArray(n?.children) && n.children.length > 0
+      const mine: AddedStatus =
+        !kids && typeof n?.status === 'string' && n.status !== 'pending' && (STATUSES as readonly string[]).includes(n.status)
+          ? { status: n.status as PlanStatus, ...(typeof n.note === 'string' ? { note: n.note } : {}) }
+          : undefined
+      return [mine, ...(kids ? walk(n?.children) : [])]
+    })
+
+  return (raw as Raw[]).flatMap(r => {
+    const p = parseOp(r)
+    return 'error' in p || p.op.op === 'show' ? [] : [r?.op === 'add' ? walk(r.nodes) : []]
+  })
+}
 
 // The ops in the planner's answer, in order; anything that is not an op is left out.
 export const parseOps = (text: string): PlanOp[] => {

@@ -24,7 +24,7 @@ import type { Plan, PlanInput, PlanStatus } from '../hooks/plan'
 import { closing, currentLeaf, emptyPlan, hasOpenWork, setPlan, STATUSES, updateNodes, withExpected, withGoal } from '../hooks/plan'
 import { describeBoard, EXPECTED_RULE, PLAN_RULES, runOp } from '../hooks/plan-tool'
 import type { Happened } from '../hooks/planner'
-import { DESIGN_OPS, LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember } from '../hooks/planner'
+import { DESIGN_OPS, LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember, runDesign } from '../hooks/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
@@ -93,10 +93,12 @@ const ask = (model: string, system: string, prompt: string): string =>
 
 // The side planner's looks, as the mod times them: on each request and answer, and while Claude
 // works once enough state-changing calls or time have passed, never closer than the gap. With
-// `design`, Opus designs the plan where the mod forks Claude: when a look starts a plan or
-// changes its goal, and after each answer that followed work.
+// `design`, Opus designs the plan when a look starts a plan or changes its goal, and after each
+// answer that followed work.
 // shortcut: the design reads the session's log, not the whole conversation with tool results the
-// real fork reads, and every Bash call counts as state-changing; widen both if replays drift from real boards.
+// real fork reads, every Bash call counts as state-changing, and the design is asked more often than
+// the mod's budget allows (a log has no count of the main turn's requests); `--fork` asks the real
+// design once, on the saved board. Widen these if replays drift from real boards.
 const replay = (events: readonly Heard[], design = false): Frame[] => {
   let board = emptyBoard()
   let wanted: 'none' | 'wanted' | 'done' = 'none'
@@ -128,8 +130,7 @@ const replay = (events: readonly Heard[], design = false): Frame[] => {
     wanted = 'done'
     say(`  design after look ${frames.length}`)
     const answer = ask('opus', 'You are Claude, the coding assistant of this session. The conversation so far is given as a log.', `# The conversation so far, oldest first\n${story(events.filter(x => x.at <= at), 200_000)}\n\n${designPrompt(board)}`)
-    const reshape = parseOps(answer).filter(op => DESIGN_OPS.has(op.op))
-    for (const op of reshape) run(op, at)
+    board = runDesign(board, answer, at).board
     frames.push({ at, why: 'Claude가 계획을 다시 짬', board, ops: answer.trim() })
   }
   for (const e of events) {
@@ -302,11 +303,6 @@ const compare = (a: string, b: string): void => {
 
 // The design wording under trial, as changes to the released one; it moves into hooks/ only once it wins.
 const CANDIDATE: ReadonlyArray<[string, string]> = [
-  ['Every title is at most 4 words.', 'Every title is a short phrase that reads on its own (about 2 to 6 words): what the step makes or changes, with no issue or PR number and no abbreviation the person has not used.'],
-  [
-    "a step's title or detail), \"add\", \"remove\" and \"move\" only, by the ids it shows, and leave every status as it is.",
-    "a step's title, detail or status), \"add\", \"remove\" and \"move\" by the ids it shows. You know what you did: a step you finished is \"completed\", one the work went past without doing is \"skipped\" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never \"completed\". Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as \"merged\" with its link. Go through every step the board shows and give each the status that is true now.",
-  ],
   [
     'Answer with only a JSON array of op objects, and [] when the board already fits.',
     'When the plan in hand is not the work this session is on now (work dropped or long finished, while the session moved to other work), put the right plan in hand: op "set" with the current work\'s plan and "previous" "cancel" for dropped work or "park" for work to come back to, or op "resume" with the title of a shelved plan the work went back to. Answer with only a JSON array of op objects, and [] when the board already fits.',
@@ -405,7 +401,8 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string,
       ? forkAsk(sid, cwd, whole ? wholePrompt(board) : candidate ? candidatePrompt(board) : designPrompt(board))
       : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
   if (whole) board = wholeBoard(answer, board, last.savedAt) ?? board
-  else for (const op of parseOps(answer).filter(op => (candidate ? CANDIDATE_OPS : DESIGN_OPS).has(op.op))) {
+  else if (!candidate) board = runDesign(board, answer, last.savedAt).board
+  else for (const op of parseOps(answer).filter(op => CANDIDATE_OPS.has(op.op))) {
     const r = runOp(board, op, last.savedAt)
     if (!('error' in r)) board = r.board
   }

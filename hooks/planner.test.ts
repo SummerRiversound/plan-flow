@@ -103,6 +103,21 @@ test('Claude, designing, may redraw the plan in hand whole: it takes its place w
   expect(board).toContain('2 Coupon field on the cart - in_progress')
 })
 
+test('a redraw that gives its steps in the adds after it replaces the plan in hand, not adds to it', () => {
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon' }, { title: 'Percent coupon' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  const answer = JSON.stringify([
+    { op: 'set', title: 'Coupons at checkout', goal: 'A shopper can pay with a coupon.', nodes: [] },
+    { op: 'add', nodes: [{ title: 'Coupon kinds', status: 'completed' }] },
+    { op: 'add', nodes: [{ title: 'Coupon field on the cart', status: 'in_progress' }] },
+  ])
+  const board = describeBoard(runDesign(start.board, answer, 9).board)
+  expect(board).toContain('Plan: Coupons at checkout')
+  expect(board).toContain('1 Coupon kinds - completed')
+  expect(board).toContain('2 Coupon field on the cart - in_progress')
+  expect(board).not.toContain('Fixed coupon')
+})
+
 test('a step redrawn under the same title keeps its links and a check the person already confirmed', () => {
   const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon' }, { title: 'Percent coupon' }, { title: 'Coupon field' }] }, 1)
   if ('error' in start) throw new Error(start.error)

@@ -124,6 +124,37 @@ export const costShare = (calls: readonly Spent[], jsonl: string): number | unde
 // The cost item's bar, picked on 2026-11-11 ("엄격"): 5 up to 1%, 4 up to 2%, 3 up to 4%, 2 up to 8%, else 1.
 export const costScore = (percent: number): number => 5 - [1, 2, 4, 8].filter(limit => percent > limit).length
 
+export type Looked = Spent & { ops?: number }
+
+// How many of the answers that followed work saw the board change before the next request (within
+// three minutes), as a percentage, over the span the kept calls cover; undefined with no such answer.
+export const onTimeShare = (calls: readonly Looked[], events: readonly Heard[]): number | undefined => {
+  const [from, to] = [calls[0]?.at, calls.at(-1)?.at]
+  if (from === undefined || to === undefined) return undefined
+  let [answers, onTime, worked] = [0, 0, false]
+  events.forEach((e, i) => {
+    if (e.at < from || e.at > to) return
+    if (e.kind === 'tool' || e.kind === 'subagent') worked = true
+    if (e.kind === 'request') worked = false
+    if (e.kind !== 'answer' || !worked) return
+    worked = false
+    const next = events.slice(i + 1).find(x => x.kind === 'request')?.at ?? Infinity
+    answers++
+    if (calls.some(c => (c.ops ?? 0) > 0 && c.at >= e.at - 2_000 && c.at < Math.min(next, e.at + 180_000))) onTime++
+  })
+
+  return answers === 0 ? undefined : (100 * onTime) / answers
+}
+
+// How many of the mod's model calls changed the board, as a percentage; undefined with no call.
+export const usefulShare = (calls: readonly Looked[]): number | undefined =>
+  calls.length === 0 ? undefined : (100 * calls.filter(c => (c.ops ?? 0) > 0).length) / calls.length
+
+// The timing items' bars, picked on 2026-11-11: a share scores 1 plus the bars it reaches.
+export const ON_TIME_BARS = [80, 90, 95, 98] as const
+export const USEFUL_BARS = [35, 50, 65, 80] as const
+export const shareScore = (percent: number, bars: readonly number[]): number => 1 + bars.filter(bar => percent >= bar).length
+
 // The mean over the items that got a score, the cost item included when the session has one.
 export const itemMean = (scores: ReadonlyArray<{ score: number }>): number => {
   const xs = scores.map(s => s.score).filter(x => x > 0)

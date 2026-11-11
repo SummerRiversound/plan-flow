@@ -310,6 +310,31 @@ test('Claude designs the plan in a fork of the main conversation on a budget: at
   expect(forked).toHaveLength(3)
 })
 
+test('an answer after work that the planner changed nothing for is designed whatever the budget says', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  await step($, '')
+  forkReplies.push([])
+  await plan($, { op: 'next' })
+  expect(forked).toHaveLength(1)
+  // One request of work later the budget is far from full, and the planner moves the board: no design.
+  await $.prompt.submit({ text: '문구도 고쳐줘', wait: false, origin: { kind: 'composer' } })
+  await step($, '')
+  await plan($, { op: 'next' })
+  expect(forked).toHaveLength(1)
+  // The same again, but the planner leaves the board as it was: Claude says where the work stands.
+  await $.prompt.submit({ text: '테스트도 더해줘', wait: false, origin: { kind: 'composer' } })
+  await step($, '')
+  forkReplies.push([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }])
+  await plan($)
+  expect(forked).toHaveLength(2)
+  expect(await shown($)).toContain('1 조사 - completed')
+})
+
 test('a short job is designed once, at its answer: Claude says which steps it finished, adds work the board missed as done, and leaves what waits on the person', KO, async ($, on) => {
   engine(on)
   await start($)
@@ -333,6 +358,27 @@ test('a short job is designed once, at its answer: Claude says which steps it fi
   expect(board).toContain('2.2 세션 저장 - needs_check')
   expect(board).toContain('2.3 오류 문구 - completed')
   expect(board).toMatch(/2\.4 비밀번호 찾기 - (pending|in_progress)/)
+})
+
+test('a design that gets no answer does not spend the budget: the next answer after work asks again', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  replies.push([PLAN])
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  await step($, '')
+  // The fork gives nothing back, as when the model is busy.
+  await plan($)
+  expect(forked).toHaveLength(1)
+  await $.prompt.submit({ text: '이어서 해줘', wait: false, origin: { kind: 'composer' } })
+  await theClock?.advance(1)
+  await plannerIdle()
+  await step($, '')
+  forkReplies.push([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }])
+  await plan($)
+  expect(forked).toHaveLength(2)
+  expect(await shown($)).toContain('1 조사 - completed')
 })
 
 test('a plan the answer finished is still designed, so what the answer left for later is drawn after it', KO, async ($, on) => {
@@ -972,6 +1018,20 @@ test('a detour the planner parks shows a toast, and a reload finds the shelf aga
   expect(toasts).toContain('"로그인 기능 추가" 보관 · "버그" 시작')
   await start($)
   expect(await shown($)).toContain('Parked: "로그인 기능 추가" (0/5 done)')
+})
+
+test('a session keeps its board through a reload while thirty other sessions saved theirs after it; call logs stay with the most recent twenty', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  const later = Number.MAX_SAFE_INTEGER
+  const others = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`other-${i}`, { plan: { title: '', nodes: [], lastChild: {}, startedAt: 0 }, shelf: [], savedAt: later - i }]))
+  stored.set('plans', others)
+  stored.set('calls', Object.fromEntries(Object.keys(others).map((sid, i) => [sid, { calls: [], savedAt: later - i }])))
+  await plan($, PLAN)
+  expect(Object.keys(stored.get('plans') as object)).toHaveLength(31)
+  await start($)
+  expect(await shown($)).toContain('Plan: 로그인 기능 추가')
+  expect(Object.keys(stored.get('calls') as object).length).toBeLessThanOrEqual(20)
 })
 
 test('/flow demo shows canned boards above the prompt and leaves the real plan alone', KO, async ($, on) => {

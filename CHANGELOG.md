@@ -2,6 +2,20 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.44 — 2026-11-12
+
+### Added
+
+- A `↻` button in the drawer's head, just left of the view switch: the small model looks again at once over what happened lately, even when nothing is new, and a toast says how many places it fixed.
+
+### Changed
+
+- A long goal can be read whole: the band shows it in up to three rows while open and one when folded, and the drawer's head shows all of it.
+
+### Fixed
+
+- The list view no longer hides its first steps under a goal longer than one row.
+
 ## 0.1.43 — 2026-11-12
 
 ### Changed

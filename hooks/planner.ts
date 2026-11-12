@@ -107,7 +107,8 @@ export const PLANNER_SYSTEM = [
 ].join('\n\n')
 
 // What the planner reads: the board as it stands, then the newest of what happened.
-export const plannerPrompt = (board: Board, log: readonly Happened[]): string => {
+// `again`: the person pressed ↻, so the log is what happened lately, seen before, to check the board against.
+export const plannerPrompt = (board: Board, log: readonly Happened[], again = false): string => {
   const label = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
   const lines: string[] = []
   let size = 0
@@ -120,7 +121,11 @@ export const plannerPrompt = (board: Board, log: readonly Happened[]): string =>
   }
   const now = board.plan.nodes.length === 0 && board.shelf.length === 0 ? 'The board is empty.' : describeBoard(board)
 
-  return [`The board now:\n${now}`, `What happened since your last look, oldest first:\n${lines.join('\n') || '- nothing'}`, 'Answer with the JSON array of ops.'].join('\n\n')
+  const heading = again
+    ? 'The person asked you to look again. What happened lately, oldest first, given again (you saw it before): put right every status, step, title or goal on the board it does not bear out, and add nothing it already holds:'
+    : 'What happened since your last look, oldest first:'
+
+  return [`The board now:\n${now}`, `${heading}\n${lines.join('\n') || '- nothing'}`, 'Answer with the JSON array of ops.'].join('\n\n')
 }
 
 // The ops a fork may use: it reshapes the plan in hand, never starts, ends or swaps one.

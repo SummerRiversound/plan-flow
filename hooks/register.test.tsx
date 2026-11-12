@@ -800,7 +800,7 @@ test('on the desktop app each step row is one Client: the mark, the title, the p
   await plan($, { op: 'set', title: '갈래', nodes: [{ title: '묶음', children: [{ title: '먼저' }, { title: '같이', parallel: true, children: [{ title: '하나' }, { title: '둘' }] }] }, { title: '끝', children: [{ title: '마무리' }] }] })
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // No Button for a row: every row is a Client named after its step.
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view'])
+  expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'refresh', 'view'])
   const clients = await pane.findAll({ type: 'Client' })
   expect(clients.map(c => c.key)).toEqual(['step-1', 'step-1.1', 'step-1.2.1', 'step-1.2.2', 'step-2'])
   const props = (key: string) => clients.find(c => c.key === key)?.props.props as { strong: boolean; pill: string | null; right: { text: string } | null }
@@ -900,7 +900,7 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
   for (const surface of ['terminal', 'vscode'] as const) {
     const pane = await $.ui.mount({ ...PANE, surface })
     // The buttons that fold every box, then the rows in the order they are drawn; the running stage holds the ring.
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'view', '1', '2', '2.1', '2.2', '3'])
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['expand-all', 'collapse-all', 'refresh', 'view', '1', '2', '2.1', '2.2', '3'])
     // The drawer's own buttons are drawn as buttons, with no hotkey; the boxes stay plain rows.
     const expand = (await pane.find({ type: 'Button', key: 'expand-all' }))?.props
     expect(expand?.label).toBe('모두 펼치기')
@@ -910,7 +910,7 @@ test('in the drawer, Enter on a folded box unfolds it and the focus is kept', KO
     // The list button swaps the flowchart for the tree and back.
     await pane.press({ key: 'view' })
     // The terminal's list presses steps; the editor's draws every row as a Button.
-    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(surface === 'terminal' ? ['view', '1', '2.1', '2.2'] : ['view', '1', '2', '2.1', '2.2', '3'])
+    expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(surface === 'terminal' ? ['refresh', 'view', '1', '2.1', '2.2'] : ['refresh', 'view', '1', '2', '2.1', '2.2', '3'])
     await pane.press({ key: 'view' })
     expect((await pane.find({ type: 'Button', key: '2' }))?.props.autoFocus).toBe(true)
     // ↓ moves the ring to the next box; a redraw keeps it there.
@@ -954,6 +954,51 @@ test('in the drawer, 확인 완료 under a step waiting for a check finishes it 
   // What to look at goes with the check.
   expect(board).not.toContain('화면 보기')
   expect(await pane.find({ type: 'Button', key: 'confirm' })).toBeUndefined()
+})
+
+test("the drawer's ↻ has the planner look again at once over what happened lately, though nothing is new, and a toast says what changed", KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Bash', command: 'npm test', description: '테스트 돌리기' })
+  await plan($, PLAN)
+  const looks = asked.length
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const pane = await $.ui.mount({ ...PANE, surface })
+    expect(await pane.find({ type: 'Button', key: 'refresh' })).toBeDefined()
+    await pane.unmount()
+  }
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  replies.push([{ op: 'next' }])
+  toasts.length = 0
+  await pane.press({ key: 'refresh' })
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked).toHaveLength(looks + 1)
+  const again = asked[asked.length - 1] ?? ''
+  expect(again).toContain('given again')
+  expect(again).toContain('The person asked: 로그인 만들어줘')
+  expect(again).toContain('Claude ran: 테스트 돌리기')
+  expect(again).toContain('Claude answered: 했어요')
+  expect(toasts).toEqual(['다시 확인해서 1곳을 고쳤어요'])
+  // Nothing to change: said so.
+  replies.push([])
+  await pane.press({ key: 'refresh' })
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(toasts[toasts.length - 1]).toBe('다시 확인했어요. 고칠 곳이 없어요')
+  // A look again that fails says so, and the retry looks again too.
+  await pane.press({ key: 'refresh' })
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(toasts[toasts.length - 1]).toBe('다시 확인하지 못했어요. 잠시 뒤 한 번 더 해 볼게요')
+  const before = asked.length
+  replies.push([])
+  await theClock?.advance(15_000)
+  await plannerIdle()
+  expect(asked).toHaveLength(before + 1)
+  expect(asked[asked.length - 1]).toContain('given again')
+  expect(toasts[toasts.length - 1]).toBe('다시 확인했어요. 고칠 곳이 없어요')
 })
 
 test('a detour the planner parks shows a toast, and a reload finds the shelf again', KO, async ($, on) => {

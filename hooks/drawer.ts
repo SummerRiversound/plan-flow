@@ -8,7 +8,7 @@ import type { Plan, PlanNode } from './plan'
 import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, isFinished, progress } from './plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
-import { OPEN_BUTTON, drawTree, fitLine, isLive, isWaiting, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
+import { OPEN_BUTTON, bandRows, fitLine, isLive, isWaiting, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
 import { t } from './i18n'
 
@@ -64,7 +64,9 @@ export const EXPAND_ALL = 'expand-all'
 export const COLLAPSE_ALL = 'collapse-all'
 export const FOLLOW = 'follow'
 export const VIEW = 'view'
-export const BOXED: ReadonlySet<string> = new Set([EXPAND_ALL, COLLAPSE_ALL, FOLLOW, VIEW, OPEN_BUTTON])
+// Has the planner look again at what happened lately, for a board that fell behind the work.
+export const REFRESH = 'refresh'
+export const BOXED: ReadonlySet<string> = new Set([EXPAND_ALL, COLLAPSE_ALL, FOLLOW, VIEW, REFRESH, OPEN_BUTTON])
 // The band's main action, drawn as the surface marks the one to press.
 export const PRIMARY: ReadonlySet<string> = new Set([OPEN_BUTTON])
 // Under a picked step: mark it checked, or start a message about it in the prompt box. Their
@@ -457,29 +459,34 @@ const rule = (width: number): Line => [{ text: ` ${'┄'.repeat(Math.max(0, widt
 
 // The head's top: the plan's title, goal, progress, steps to check and what Claude is doing.
 const headTop = (plan: Plan, shelf: readonly Shelved[], activity: Activity, width: number, now: number): Line[] =>
-  planHead(plan, activity, 6, width - 1, now, undefined, shelf.filter(s => s.state === 'parked').length, undefined, undefined, 3)
+  planHead(plan, activity, 6, width - 1, now, undefined, shelf.filter(s => s.state === 'parked').length, undefined, undefined, WHOLE)
     .filter(l => l.length > 0)
     .map((l): Line => [{ text: ' ' }, ...l])
 
-// The head's button row: `right` (the view switch) flush with the rule's end, so it stays put
-// when the view changes; the others from the left, while they fit before it.
-const toolRow = (left: ReadonlyArray<[string, string]>, [id, text]: [string, string], width: number): Line => {
-  const r = 4 + cells(text)
-  if (r + 1 > width - 1) return buttonRow([[id, text]], width)
-  const l = buttonRow(left, width - 1 - r - 2)
-  const used = cells(lineText(l)) + 4 * l.filter(s => s.button !== undefined).length
+// The cells a button row takes, the engine's `[ ` and ` ]` around each button included.
+const rowCells = (l: Line): number => cells(lineText(l)) + 4 * l.filter(s => s.button !== undefined).length
 
-  return [...l, { text: padRight('', width - 1 - r - used) }, { text, color: 'text', bold: true, button: id }]
+// The head's button row: `right` (↻, then the view switch) flush with the rule's end, so the
+// view switch stays put when the view changes; the others from the left, while they fit before it.
+const toolRow = (left: ReadonlyArray<[string, string]>, right: ReadonlyArray<[string, string]>, width: number): Line => {
+  const r = buttonRow(right, width - 1, '').filter(s => s.text !== '')
+  const rw = rowCells(r)
+  if (rw + 1 > width - 1) return buttonRow(right, width)
+  const l = buttonRow(left, width - 1 - rw - 2)
+
+  return [...l, { text: padRight('', width - 1 - rw - rowCells(l)) }, ...r]
 }
 
-// The flowchart's button row: fold every box, and switch to the list.
+const refresh: [string, string] = [REFRESH, '↻']
+
+// The flowchart's button row: fold every box, look again, and switch to the list.
 const flowTools = (width: number): Line =>
   toolRow(
     [
       [EXPAND_ALL, t().expandAll],
       [COLLAPSE_ALL, t().collapseAll],
     ],
-    [VIEW, t().toList],
+    [refresh, [VIEW, t().toList]],
     width,
   )
 
@@ -490,7 +497,7 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
   if (plan.nodes.length === 0) return { head: [], body: [...before, ...wrap(t().empty, width - 1, 4).map((text): Line => [{ text, color: 'inactive' }]), ...shelved], buttons: kept, at: null }
   const top = headTop(plan, shelf, activity, width, now)
   const flow = drawFlow(plan, drawer, { width, now, live: isLive(activity), waiting: isWaiting(plan, activity) })
-  const tools = (left: ReadonlyArray<[string, string]>, r: [string, string]): Line => toolRow(left, r, width)
+  const tools = (left: ReadonlyArray<[string, string]>, r: ReadonlyArray<[string, string]>): Line => toolRow(left, r, width)
   const leaf = currentLeaf(plan)
   // The step Claude is on, else the nearest row above it that shows.
   const ids = leaf === null ? [] : leaf.id.split('.').map((_, i, parts) => parts.slice(0, parts.length - i).join('.'))
@@ -499,8 +506,8 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
   if (flow.cut || drawer.list === true) {
     // Each step's row picks it, with its buttons under it, as in the flowchart.
     const steps: string[] = []
-    const tree = drawTree(plan, activity, { maxRows: plan.nodes.length + 6, width, now })
-      .slice(top.length + 1)
+    const tree = bandRows(plan, activity, plan.nodes.length + 6, width, now)
+      .map(r => r.line)
       .flatMap((l): Line[] => {
         const n = plan.nodes.find(x => l[0]?.node === x.id)
         if (n === undefined || hasChildren(plan.nodes, n.id)) return [l]
@@ -515,7 +522,7 @@ export const drawerView = (plan: Plan, shelf: readonly Shelved[], drawer: Drawer
       })
     const hint: Line[] = flow.cut ? [fitLine([{ text: t().narrow, color: 'inactive' }], width), []] : [[]]
     const at = find(tree)
-    const toggle = flow.cut ? [] : [tools([], [VIEW, t().toFlow])]
+    const toggle = [tools([], flow.cut ? [refresh] : [refresh, [VIEW, t().toFlow]])]
 
     const close = summaryRows(plan, width - 2).map((r): Line => [{ text: ' ' }, ...r])
     const end = close.length === 0 ? [] : [[], ...close]

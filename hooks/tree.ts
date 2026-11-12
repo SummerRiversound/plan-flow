@@ -193,6 +193,9 @@ export const checkLine = (plan: Plan, width: number, lead = ''): Line | null => 
 export const goalLines = (plan: Plan, width: number, rows: number): Line[] =>
   plan.goal === undefined ? [] : wrap(plan.goal, width, rows).map((t): Line => [{ text: t, color: 'inactive' }])
 
+// The band's goal: one row folded, more when the person opens the band to read it.
+export const bandGoalRows = (folded: boolean | undefined): number => (folded === true ? 1 : 3)
+
 // The titles of the plans this session finished, newest first, on one dim row: other work the session did.
 export const finishedLine = (finished: readonly string[], width: number): Line[] =>
   finished.length === 0
@@ -338,7 +341,7 @@ const stepRows = (plan: Plan, activity: Activity, budget: number, width: number,
 
 export const drawTree = (plan: Plan, activity: Activity, { maxRows, width, now, open, parked = 0, folded, notice, finished = [] }: TreeOptions): Line[] => {
   if (plan.nodes.length === 0 || maxRows <= 0 || width <= 0) return []
-  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice, 1, finished)
+  const top = planHead(plan, activity, maxRows, width, now, open, parked, folded, notice, bandGoalRows(folded), finished)
   if (folded === true) return top.slice(0, 2 + goalLines(plan, width, 1).length + finishedLine(finished, width).length)
 
   return [...top, ...bandRows(plan, activity, maxRows - top.length, width, now).map(r => r.line)]

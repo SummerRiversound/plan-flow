@@ -114,7 +114,17 @@ const ask = (model: string, system: string, prompt: string): string => {
 // real fork reads, every Bash call counts as state-changing, and the design is asked more often than
 // the mod's budget allows (a log has no count of the main turn's requests); `--fork` asks the real
 // design once, on the saved board. Widen these if replays drift from real boards.
-const replay = (events: readonly Heard[], design = false): Frame[] => {
+// DESIGN_POLICY says when a replay asks for the design: "each" (after each answer that followed work, and
+// when a plan starts), "budget" (the mod's rule: the first free, then twenty requests apart at an answer,
+// forty with no answer, and any answer the planner changed nothing for), "idle" (only such an answer),
+// "first+idle" (the first answer after work, then only such answers), "first" (the first answer after
+// work only), "spaced" (the first, then such answers at least twenty requests apart).
+const replay = (events: readonly Heard[], design = false, reqAt: readonly number[] = []): Frame[] => {
+  const policy = process.env.DESIGN_POLICY ?? 'each'
+  let since = policy === 'idle' ? 0 : 20
+  let ri = 0
+  let designed = false
+  let afterWork = false
   let board = emptyBoard()
   let wanted: 'none' | 'wanted' | 'done' = 'none'
   let worked = false
@@ -137,15 +147,45 @@ const replay = (events: readonly Heard[], design = false): Frame[] => {
     say(`  look ${frames.length + 1} (${why})`)
     const text = ask('haiku', PLANNER_SYSTEM, plannerPrompt(board, [...head, ...take]))
     const ops = parseOps(text)
-    for (const op of ops) run(op, at)
+    let applied = 0
+    for (const op of ops) {
+      const before = board
+      run(op, at)
+      if (board !== before) applied++
+    }
     if (hasOpenWork(board.plan) && currentLeaf(board.plan)?.status === 'pending') run({ op: 'next' }, at)
     frames.push({ at, why, board, ops: text.trim() })
+    while (ri < reqAt.length && (reqAt[ri] as number) <= at) {
+      ri++
+      since++
+    }
     if (wanted === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) wanted = 'wanted'
-    if (!design || wanted !== 'wanted' || board.plan.nodes.length === 0) return
+    if (!design || board.plan.nodes.length === 0) return
+    const answered = why === '답' && afterWork
+    const idle = answered && applied === 0
+    const due =
+      policy === 'each'
+        ? wanted === 'wanted'
+        : policy === 'budget'
+          ? answered
+            ? idle || since >= 20
+            : since >= 40
+          : policy === 'idle'
+            ? idle
+            : policy === 'first'
+              ? answered && !designed
+              : policy === 'spaced'
+                ? answered && (!designed || (idle && since >= 20))
+                : idle || (answered && !designed)
+    if (!due) return
+    // Told what the board is read for, and free to redraw, only when the planner left the board off.
+    const mend = policy === 'each' || idle
     wanted = 'done'
+    designed = true
+    since = 0
     say(`  design after look ${frames.length}`)
-    const answer = ask('opus', 'You are Claude, the coding assistant of this session. The conversation so far is given as a log.', `# The conversation so far, oldest first\n${story(events.filter(x => x.at <= at), 200_000)}\n\n${designPrompt(board)}`)
-    board = runDesign(board, answer, at).board
+    const answer = ask('opus', 'You are Claude, the coding assistant of this session. The conversation so far is given as a log.', `# The conversation so far, oldest first\n${story(events.filter(x => x.at <= at), 200_000)}\n\n${designPrompt(board, mend)}`)
+    board = runDesign(board, answer, at, mend).board
     frames.push({ at, why: 'Claude가 계획을 다시 짬', board, ops: answer.trim() })
   }
   for (const e of events) {
@@ -158,6 +198,7 @@ const replay = (events: readonly Heard[], design = false): Frame[] => {
       look(e.at, '요청')
     } else if (e.kind === 'answer') {
       if (worked) wanted = 'wanted'
+      afterWork = worked
       worked = false
       look(e.at, '답')
     } else if (e.kind === 'tool' || e.kind === 'subagent') {
@@ -500,7 +541,7 @@ const main = (): void => {
 
   const sections: string[] = []
   const report: Record<string, unknown> = { session: sid, transcript: path, events: events.length }
-  if (last !== undefined) {
+  if (last !== undefined && process.env.SKIP_SAVED === undefined) {
     say('judging the board the person last saw…')
     const real: Board = { plan: last.plan, shelf: last.shelf }
     const v = judge(decisions, events, real, last.savedAt, '사람이 마지막으로 본 판')
@@ -523,7 +564,20 @@ const main = (): void => {
   }
   if (flags.includes('--replay')) {
     say(`replaying ${events.length} events through the side planner…`)
-    const frames = replay(events, flags.includes('--design'))
+    // When each request of the main turn was made, for the policies that count them.
+    const seen = new Set<string>()
+    const reqAt: number[] = []
+    for (const row of readFileSync(path, 'utf8').split('\n')) {
+      if (!row.includes('"usage"')) continue
+      try {
+        const e = JSON.parse(row) as { type?: string; isSidechain?: boolean; timestamp?: string; message?: { id?: string } }
+        const id = e.message?.id
+        if (e.type !== 'assistant' || e.isSidechain === true || id === undefined || seen.has(id)) continue
+        seen.add(id)
+        reqAt.push(Date.parse(e.timestamp ?? ''))
+      } catch {}
+    }
+    const frames = replay(events, flags.includes('--design'), reqAt)
     const final = frames.at(-1)
     const v = final === undefined ? undefined : judge(decisions, events, final.board, final.at, '지금 지시문으로 다시 돌린 판')
     report.replay = { looks: frames.length, asked, verdict: v, board: final?.board, at: final?.at, ops: frames.map(f => ({ at: f.at, why: f.why, ops: f.ops })) }

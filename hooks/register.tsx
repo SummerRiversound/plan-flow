@@ -886,10 +886,8 @@ let designing: Promise<void> | null = null
 // conversation from the cache.
 let design: 'none' | 'wanted' | 'done' = 'none'
 // A fork reads the whole conversation again, about what one model request of the main turn costs, so it
-// runs on a budget: after an answer, once this many main requests passed since the last design (a short
-// follow-up is left to the planner); while Claude works, after twice as many. The session's first is free.
-const DESIGN_EVERY = 20
-let sinceDesign = DESIGN_EVERY
+// is asked only when the board was left off: see designDue. A design that gave no answer is owed.
+let owed = false
 // The plan in hand at the last answer, to tell one that came back from the shelf; whether the turn has answered.
 let hand = { key: '', startedAt: 0 }
 let atAnswer = false
@@ -980,9 +978,8 @@ async function designOnce($: $): Promise<void> {
   // A finished plan is designed too: what the last answer left with the person belongs on it.
   if (board.plan.nodes.length === 0) return
   const at = await $.clock.now()
-  const spent = sinceDesign
-  sinceDesign = 0
   const mending = mend
+  owed = false
   let timer: Timer | undefined
   const late = new Promise<'late'>(resolve => {
     timer = $.clock.after(DESIGN_WAIT_MS, () => resolve('late'))
@@ -991,9 +988,9 @@ async function designOnce($: $): Promise<void> {
   const r = await Promise.race([$.model.fork({ prompt: designPrompt(board, mending) }).catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) })), late])
   timer?.cancel()
   const ms = (await $.clock.now()) - at
-  // A design that gave no answer (the model was busy, as with many sessions at once) did not spend
-  // the budget: the next answer asks again.
-  if (r === 'late' || !r.isAnswered) sinceDesign += spent
+  // A design that gave no answer (the model was busy, as with many sessions at once) is owed: the
+  // next answer after work asks again.
+  if (r === 'late' || !r.isAnswered) owed = true
   if (r === 'late') return record($, { at, call: 'design', ms, result: 'timed out' })
   // Nothing to fork yet means no request was made: nothing to keep.
   if (!r.isAnswered) return r.reason === 'nothing-to-fork' ? undefined : record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
@@ -1019,21 +1016,22 @@ async function designOnce($: $): Promise<void> {
 // One plan among the session's: its start and title.
 const planKey = (plan: Plan): string => `${plan.startedAt ?? 0} ${plan.title}`
 
-// Whether a design wanted now fits the budget. A plan that came back from the shelf is the exception: it
-// returns as the planner left it, before the work done under the plan that took its place, so the next
-// answer has Claude set it right whatever passed since the last design.
+// Whether a design wanted now is asked: only at an answer, and only when the board was left off. A plan
+// that came back from the shelf returns as the planner left it, before the work done under the plan
+// that took its place, so the next answer has Claude set it right.
 async function designDue($: $): Promise<boolean> {
   mend = false
-  if (!atAnswer) return sinceDesign >= 2 * DESIGN_EVERY
+  if (!atAnswer) return false
   const plan = await read($, planAtom)
   // Another plan than the one in hand at the last answer, and older than it: it was on the shelf.
   const back = planKey(plan) !== hand.key && (plan.startedAt ?? 0) < hand.startedAt
 
   // An answer the planner looked at and changed nothing for leaves the board as it was before the
-  // work: Claude is asked whatever the budget says, so no answer after work goes by with the board unchanged.
-  mend = back || idleLook
+  // work: Claude is asked, so no answer after work goes by with the board unchanged. Replayed over five
+  // sessions, designs asked beyond these moments cost a quarter more and left the boards' score as it was.
+  mend = back || idleLook || owed
 
-  return mend || sinceDesign >= DESIGN_EVERY
+  return mend
 }
 
 // Asks for a look outside the hook that noticed something, one at a time; a look asked for while
@@ -1183,15 +1181,9 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) return r
     stepped = true
     if (r.toolUses.length > 0) worked = true
-    sinceDesign++
     const said = r.toolUses.length > 0 && r.answer.trim() !== ''
     if (said) fresh = remember(fresh, { kind: 'said', text: r.answer })
-    // Long work with no answer in sight is designed along the way; a design that is due is not held back by the gap.
-    if (designOn && designing === null && (await read($, planAtom)).nodes.length > 0 && (await designDue($))) {
-      design = 'wanted'
-      planSoon($)
-    }
-    else if (said) await planWhileWorking($)
+    if (said) await planWhileWorking($)
 
     return r
   })

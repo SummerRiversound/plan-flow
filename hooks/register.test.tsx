@@ -65,8 +65,7 @@ const step = async ($: Engine, answer: string, isLast = false) => {
   await theClock?.advance(1)
   await plannerIdle()
 }
-// Claude works on with no answer: `requests` model requests of the main turn. Twenty is what a session's
-// first design waits for while Claude works, and what an answer needs behind it to earn the next one.
+// Claude works on with no answer: `requests` model requests of the main turn.
 const work = async ($: Engine, requests = 20) => {
   for (let i = 0; i < requests; i++) await step($, '')
 }
@@ -263,107 +262,40 @@ test('while Claude works the planner looks at most once every 20 seconds, and wh
   expect(asked).toHaveLength(3)
 })
 
-test('Claude designs the plan in a fork of the main conversation on a budget: at the first answer after work, then after an answer with twenty requests behind it, or forty with no answer', KO, async ($, on) => {
+test('Claude designs the plan in a fork of the main conversation only when the board was left off: at an answer after work that the planner changed nothing for', KO, async ($, on) => {
   engine(on)
   await start($)
   replies.push([PLAN])
   await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
   await theClock?.advance(1)
   await plannerIdle()
-  // The plan is set, but Claude has not answered the request yet: nothing to fork from.
-  expect(forked).toHaveLength(0)
-  forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }, { op: 'add', nodes: [{ title: '리뷰 반영', detail: '받은 리뷰를 고친다.' }] }, { op: 'cancel' }])
-  // A fork reads the whole conversation again: it waits for the answer, where Claude knows what it did.
-  await step($, '')
+  // The planner moves the board at the answer: Claude is not asked, however long the work ran.
+  await work($, 45)
   expect(forked).toHaveLength(0)
   await plan($, { op: 'next' })
+  expect(forked).toHaveLength(0)
+  // The planner leaves the board as it was after work: Claude says where the work stands.
+  await $.prompt.submit({ text: '테스트도 더해줘', wait: false, origin: { kind: 'composer' } })
+  await step($, '')
+  forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }, { op: 'add', nodes: [{ title: '리뷰 반영', detail: '받은 리뷰를 고친다.' }] }, { op: 'cancel' }])
+  await plan($)
   expect(forked).toHaveLength(1)
   expect(forked[0]).toContain('Plan: 로그인 기능 추가')
-  // A short follow-up on the plan Claude just designed is left to the planner.
-  await $.prompt.submit({ text: '문구도 고쳐줘', wait: false, origin: { kind: 'composer' } })
-  await step($, '')
-  await plan($, { op: 'next' })
-  expect(forked).toHaveLength(1)
-  // Twenty requests of work later, the answer is worth Claude's own account of where the plan stands.
-  await $.prompt.submit({ text: '이어서 해줘', wait: false, origin: { kind: 'composer' } })
-  await work($)
-  expect(forked).toHaveLength(1)
-  forkReplies.push([{ op: 'update', goal: '아이디와 비밀번호로 로그인할 수 있다' }])
-  await plan($, { op: 'next' })
-  expect(forked).toHaveLength(2)
+  // It mends a board left off, so it is told what the board is read for.
+  expect(forked[0]).toContain('all five hold')
   const board = await shown($)
-  expect(board).toContain('Goal: 아이디와 비밀번호로 로그인할 수 있다')
+  expect(board).toContain('Goal: 아이디로 로그인할 수 있다')
   expect(board).toContain('리뷰 반영')
   // The fork reshapes the plan; it does not end it.
   expect(board).toContain('Plan: 로그인 기능 추가')
-  // An answer with no work behind it (a question explained) forks nothing.
+  // An answer with no work behind it (a question explained) forks nothing, changed or not.
   await $.prompt.submit({ text: '이거 뭐야?', wait: false, origin: { kind: 'composer' } })
   await step($, '설명할게요', true)
   await plan($)
-  expect(forked).toHaveLength(2)
-  // Long work with no answer in sight is designed along the way, after twice as many requests.
-  await $.prompt.submit({ text: '끝까지 해줘', wait: false, origin: { kind: 'composer' } })
-  forkReplies.push([])
-  await work($, 38)
-  expect(forked).toHaveLength(2)
-  await step($, '')
-  expect(forked).toHaveLength(3)
+  expect(forked).toHaveLength(1)
 })
 
-test('an answer after work that the planner changed nothing for is designed whatever the budget says', KO, async ($, on) => {
-  engine(on)
-  await start($)
-  replies.push([PLAN])
-  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
-  await theClock?.advance(1)
-  await plannerIdle()
-  await step($, '')
-  forkReplies.push([])
-  await plan($, { op: 'next' })
-  expect(forked).toHaveLength(1)
-  // One request of work later the budget is far from full, and the planner moves the board: no design.
-  await $.prompt.submit({ text: '문구도 고쳐줘', wait: false, origin: { kind: 'composer' } })
-  await step($, '')
-  await plan($, { op: 'next' })
-  expect(forked).toHaveLength(1)
-  // The same again, but the planner leaves the board as it was: Claude says where the work stands.
-  await $.prompt.submit({ text: '테스트도 더해줘', wait: false, origin: { kind: 'composer' } })
-  await step($, '')
-  forkReplies.push([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }])
-  await plan($)
-  expect(forked).toHaveLength(2)
-  // Only the design asked because the board was left off is told what the board is read for.
-  expect(forked[0]).not.toContain('all five hold')
-  expect(forked[1]).toContain('all five hold')
-  expect(await shown($)).toContain('1 조사 - completed')
-})
-
-test('a short job is designed once, at its answer: Claude says which steps it finished, adds work the board missed as done, and leaves what waits on the person', KO, async ($, on) => {
-  engine(on)
-  await start($)
-  replies.push([PLAN])
-  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
-  await theClock?.advance(1)
-  await plannerIdle()
-  await step($, '')
-  expect(forked).toHaveLength(0)
-  forkReplies.push([
-    { op: 'update', updates: [{ id: '1', status: 'completed' }, { id: '2.1', status: 'completed' }, { id: '2.2', status: 'needs_check', note: '로그인 유지가 되는지 봐 주세요' }] },
-    { op: 'add', parent: '2', nodes: [{ title: '오류 문구', detail: '틀린 비밀번호에 안내를 보여요.', status: 'completed' }, { title: '비밀번호 찾기', detail: '메일로 재설정해요.' }] },
-  ])
-  // The planner saw one call and changed nothing; the session's first design is free, so the answer earns it.
-  await plan($)
-  expect(forked).toHaveLength(1)
-  expect(forked[0]).toContain('give each the status that is true now')
-  const board = await shown($)
-  expect(board).toContain('1 조사 - completed')
-  expect(board).toContain('2.1 로그인 화면 - completed')
-  expect(board).toContain('2.2 세션 저장 - needs_check')
-  expect(board).toContain('2.3 오류 문구 - completed')
-  expect(board).toMatch(/2\.4 비밀번호 찾기 - (pending|in_progress)/)
-})
-
-test('a design that gets no answer does not spend the budget: the next answer after work asks again', KO, async ($, on) => {
+test('a design that gets no answer is owed: the next answer after work asks again, though the planner moved the board', KO, async ($, on) => {
   engine(on)
   await start($)
   replies.push([PLAN])
@@ -372,19 +304,24 @@ test('a design that gets no answer does not spend the budget: the next answer af
   await plannerIdle()
   await step($, '')
   // The fork gives nothing back, as when the model is busy.
-  await plan($)
+  forkWait = 200_000
+  replies.push([])
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(200_000)
+  await plannerIdle()
+  forkWait = 0
   expect(forked).toHaveLength(1)
   await $.prompt.submit({ text: '이어서 해줘', wait: false, origin: { kind: 'composer' } })
   await theClock?.advance(1)
   await plannerIdle()
   await step($, '')
-  forkReplies.push([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }])
-  await plan($)
+  forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }])
+  await plan($, { op: 'next' })
   expect(forked).toHaveLength(2)
-  expect(await shown($)).toContain('1 조사 - completed')
+  expect(await shown($)).toContain('Goal: 아이디로 로그인할 수 있다')
 })
 
-test('a plan the answer finished is still designed, so what the answer left for later is drawn after it', KO, async ($, on) => {
+test('a finished plan the planner left as it was is designed too, so what the answer left for later is drawn after it', KO, async ($, on) => {
   engine(on)
   await start($)
   replies.push([{ op: 'set', title: '오타 수정', nodes: [{ title: '안내 문구' }] }])
@@ -392,8 +329,12 @@ test('a plan the answer finished is still designed, so what the answer left for 
   await theClock?.advance(1)
   await plannerIdle()
   await step($, '')
-  forkReplies.push([{ op: 'update', updates: [], expected: ['배포 승인 뒤 운영 반영'] }])
   await plan($, { op: 'next' })
+  expect(forked).toHaveLength(0)
+  await $.prompt.submit({ text: '배포는?', wait: false, origin: { kind: 'composer' } })
+  await step($, '')
+  forkReplies.push([{ op: 'update', updates: [], expected: ['배포 승인 뒤 운영 반영'] }])
+  await plan($)
   expect(forked).toHaveLength(1)
   expect(forked[0]).toContain('1 안내 문구 - completed')
   expect(await shown($)).toContain('배포 승인 뒤 운영 반영')
@@ -434,7 +375,8 @@ test("each design call's token use is kept, so a fork that missed the conversati
   await plannerIdle()
   forkUsage = { input_tokens: 1_500, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 240_000 }
   forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }])
-  await work($)
+  await step($, '')
+  await plan($)
   expect(keptCalls().find(c => c.call === 'design')).toMatchObject({ result: 'answered', usage: { input: 1_500, cacheRead: 240_000, cacheWrite: 0, output: 400 } })
 })
 
@@ -513,17 +455,17 @@ test('a design call that hangs does not hold back the looks after it, and is giv
   await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
   await theClock?.advance(1)
   await plannerIdle()
-  // The design is asked on the main turn's twentieth request with no answer.
-  await work($, 19)
-  stepAnswer = { answer: '', toolUses: [{ id: 'u1', name: 'Bash', input: {} }] }
-  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'opus', messageCount: 2 })) void _
+  // The design is asked at an answer after work the planner changed nothing for.
+  await step($, '')
+  replies.push([])
+  await $.turn.complete(TURN as never)
   await theClock?.advance(1)
   expect(forked).toHaveLength(1)
-  // The fork is still out; the answer's look lands all the same.
+  // The fork is still out; the next answer's look lands all the same.
   replies.push([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }])
   await $.turn.complete(TURN as never)
   await theClock?.advance(1)
-  expect(asked).toHaveLength(2)
+  expect(asked).toHaveLength(3)
   await theClock?.advance(120_000)
   await plannerIdle()
   const board = await shown($)
@@ -544,10 +486,11 @@ test('a design that comes back after the planner replaced the plan is not applie
   await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
   await theClock?.advance(1)
   await plannerIdle()
-  await work($, 19)
-  stepAnswer = { answer: '', toolUses: [{ id: 'u1', name: 'Bash', input: {} }] }
-  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'opus', messageCount: 2 })) void _
+  await step($, '')
+  replies.push([])
+  await $.turn.complete(TURN as never)
   await theClock?.advance(1)
+  expect(forked).toHaveLength(1)
   replies.push([{ op: 'set', title: '버그', nodes: [{ title: '재현' }], previous: 'cancel' }])
   await $.turn.complete(TURN as never)
   await theClock?.advance(30_000)
@@ -568,11 +511,13 @@ test('each planner and design call is kept in the store with when, how long, how
   forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }])
   await theClock?.advance(15_000)
   await plannerIdle()
-  await work($)
+  await step($, '')
+  await plan($)
   const kept = keptCalls()
   expect(kept).toEqual([
     { at: 1_000, call: 'look', ms: 0, result: 'failed', reason: 'api-error 500 api_error', usage: NONE_USED },
     { at: 16_000, call: 'look', ms: 0, result: 'answered', ops: 1, usage: NONE_USED, text: JSON.stringify([PLAN]) },
+    expect.objectContaining({ call: 'look', result: 'answered', ops: 0 }),
     expect.objectContaining({ call: 'design', result: 'answered', ops: 1, text: '[{"op":"update","goal":"아이디로 로그인할 수 있다"}]' }),
   ])
   for (let i = 0; i < 60; i++) await plan($)
@@ -761,11 +706,12 @@ test('/flow status tells whether plan-flow and the design are on and what the re
   await plannerIdle()
   forkUsage = { input_tokens: 1_500, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 240_000 }
   forkReplies.push([{ op: 'update', goal: '아이디로 로그인할 수 있다' }])
-  await work($)
+  await step($, '')
+  await plan($)
   const status = await flow($, 'status')
   expect(status).toContain('이 세션에서 켜져 있어요')
   expect(status).toContain('Claude 설계: 켜짐')
-  expect(status).toContain('Haiku 1번')
+  expect(status).toContain('Haiku 2번')
   expect(status).toContain('Claude 설계 1번')
   expect(status).toContain('캐시 읽기 240,000')
   await flow($, 'off')

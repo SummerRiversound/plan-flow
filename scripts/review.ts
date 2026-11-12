@@ -12,6 +12,7 @@
 //       design wording under trial. Writes <dir>/<session>.json for --compare.
 //       --log <model>: the design asked of that model with the session's record in the prompt and no
 //       fork (DESIGN_EFFORT sets its effort, DESIGN_RECORD the record's size in characters).
+//   ANSWER_MODEL hands the replayed look at an answer after work to that model (ANSWER_EFFORT its effort).
 //   PLANNER_EFFORT sets the replayed planner's effort; REVIEW_DIR moves where a review is written.
 // Models are called through `claude -p` on the developer's own sign-in, with no settings, hooks,
 // plugins or CLAUDE.md of theirs loaded.
@@ -86,8 +87,7 @@ const transcriptOf = (sid: string): string | undefined =>
 
 // Tokens each model was asked for and answered with, summed over this run's calls.
 const asked: Record<string, { calls: number; input: number; output: number }> = {}
-const ask = (model: string, system: string, prompt: string): string => {
-  const effort = model === 'haiku' ? process.env.PLANNER_EFFORT : undefined
+const ask = (model: string, system: string, prompt: string, effort: string | undefined = model === 'haiku' ? process.env.PLANNER_EFFORT : undefined): string => {
   const out = execFileSync('claude', ['-p', '--model', model, ...(effort === undefined ? [] : ['--effort', effort]), '--setting-sources', '', '--tools', '', '--no-session-persistence', '--output-format', 'json', '--system-prompt', system], {
     input: prompt,
     // A terminal that wraps claude reports each run's status into the pane it runs in; these runs are not the session there.
@@ -145,7 +145,9 @@ const replay = (events: readonly Heard[], design = false, reqAt: readonly number
     last = at
     const head: Happened[] = request === '' || take.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
     say(`  look ${frames.length + 1} (${why})`)
-    const text = ask('haiku', PLANNER_SYSTEM, plannerPrompt(board, [...head, ...take]))
+    // ANSWER_MODEL: the look at an answer after work goes to that model instead of the planner's.
+    const other = why === '답' && afterWork ? process.env.ANSWER_MODEL : undefined
+    const text = other === undefined ? ask('haiku', PLANNER_SYSTEM, plannerPrompt(board, [...head, ...take])) : ask(other, PLANNER_SYSTEM, plannerPrompt(board, [...head, ...take]), process.env.ANSWER_EFFORT)
     const ops = parseOps(text)
     let applied = 0
     for (const op of ops) {

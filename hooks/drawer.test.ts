@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
-import { ASK, CONFIRM, COLLAPSE_ALL, EXPAND_ALL, FOLLOW, VIEW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, pickStep, shelfLines, toggleFold } from './drawer'
+import { ASK, CONFIRM, COLLAPSE_ALL, EXPAND_ALL, FOLLOW, REFRESH, VIEW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, pickStep, shelfLines, toggleFold } from './drawer'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
 import { idleActivity } from './activity'
@@ -57,17 +57,23 @@ test('the pinned head names the plan, its progress, then the buttons that fold e
   expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
   expect(head[1]).toMatch(/━+╸?━+ +3\/14 · 21%$/)
   expect(head.find(l => l.includes('모두 펼치기'))).toContain('모두 접기')
-  expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL, VIEW])
+  expect(view(sample()).head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([EXPAND_ALL, COLLAPSE_ALL, REFRESH, VIEW])
+  // ↻ sits right before the view switch, which stays flush with the rule's end.
+  expect(head.find(l => l.includes('↻'))).toMatch(/\[ ↻ \] \[ 목록 보기 \]$|↻ +목록 보기$/)
   for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
 })
 
-test('the drawer head wraps the goal under the title to three rows at most', () => {
-  const goal = '아이디와 비밀번호로 실제 로그인이 되게 하고, 화면을 앱의 다른 화면과 같은 모양으로 맞춘 뒤, 테스트와 문서까지 갖춰 스테이징을 거쳐 운영에 내보내고 사용자 반응까지 살펴보기'
+test('the drawer head wraps the whole goal under the title, however long', () => {
+  const goal = '아이디와 비밀번호로 실제 로그인이 되게 하고, 화면을 앱의 다른 화면과 같은 모양으로 맞춘 뒤, 테스트와 문서까지 갖춰 스테이징을 거쳐 운영에 내보내고 사용자 반응까지 살펴보고, 문제가 있으면 바로 되돌릴 수 있게 하기'
   const head = view({ ...sample(), goal }).head.map(lineText)
   expect(head[0]?.startsWith(' 로그인 기능 추가')).toBe(true)
-  expect(head.slice(1, 4).every(l => l.startsWith(' ') && !l.includes('━'))).toBe(true)
-  expect(head[3]?.endsWith('…')).toBe(true)
-  expect(head[4]).toMatch(/━+╸?━+ +3\/14 · 21%$/)
+  const bar = head.findIndex(l => l.includes('━'))
+  expect(bar).toBeGreaterThan(4)
+  expect(head.slice(1, bar).every(l => l.startsWith(' ') && !l.endsWith('…'))).toBe(true)
+  expect(head.slice(1, bar).join(' ').replace(/\s+/g, ' ')).toContain('바로 되돌릴 수 있게 하기')
+  expect(head[bar]).toMatch(/━+╸?━+ +3\/14 · 21%$/)
+  // The list under so long a head still starts at the first step.
+  expect(view({ ...sample(), goal }, { ...closed, list: true }).body.map(lineText).find(l => l.startsWith('├─'))).toContain('조사')
   for (const l of head) expect(cells(l)).toBeLessThanOrEqual(53)
 })
 
@@ -403,9 +409,9 @@ test('finished steps step back dim, steps still to come read plain, the running 
 
 test('a drawer wide enough for the flowchart offers the list, and the list offers the flowchart back', () => {
   const buttons = (v: ReturnType<typeof view>) => v.head.flat().filter(s => s.button !== undefined).map(s => `${s.button}:${s.text}`)
-  expect(buttons(view(sample()))).toEqual([`${EXPAND_ALL}:모두 펼치기`, `${COLLAPSE_ALL}:모두 접기`, `${VIEW}:목록 보기`])
+  expect(buttons(view(sample()))).toEqual([`${EXPAND_ALL}:모두 펼치기`, `${COLLAPSE_ALL}:모두 접기`, `${REFRESH}:↻`, `${VIEW}:목록 보기`])
   const list = view(sample(), { ...closed, list: true })
-  expect(buttons(list)).toEqual([`${VIEW}:흐름도 보기`])
+  expect(buttons(list)).toEqual([`${REFRESH}:↻`, `${VIEW}:흐름도 보기`])
   // The switch ends where the rule ends in both views, so it does not move when pressed.
   const end = (v: ReturnType<typeof view>) => {
     const l = v.head.find(x => x.some(s => s.button === VIEW)) ?? []
@@ -421,9 +427,9 @@ test('a drawer wide enough for the flowchart offers the list, and the list offer
   expect(lineText(list.body[list.at ?? -1] ?? [])).toContain('비밀번호 확인')
 })
 
-test('a drawer too narrow for the flowchart shows the list with no way to switch', () => {
+test('a drawer too narrow for the flowchart shows the list with no way to switch, and still offers ↻', () => {
   const narrow = view(sample(), closed, 24)
-  expect(narrow.head.flat().some(s => s.button !== undefined)).toBe(false)
+  expect(narrow.head.flat().filter(s => s.button !== undefined).map(s => s.button)).toEqual([REFRESH])
   expect(narrow.body.map(lineText).some(l => l.includes('창을 넓히면'))).toBe(true)
 })
 

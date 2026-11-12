@@ -42,6 +42,13 @@ test('the planner reads the board and what happened, oldest first', () => {
   expect(p).toContain('Claude answered: 추가했어요')
 })
 
+test('asked to look again, the planner is told the lines are what happened lately, given again to check the board against', () => {
+  const p = plannerPrompt({ plan: emptyPlan(), shelf: [] }, [{ kind: 'tool', text: 'Edit cart.js' }], true)
+  expect(p).not.toContain('since your last look')
+  expect(p).toContain('given again')
+  expect(p).toContain('Claude ran: Edit cart.js')
+})
+
 test("the planner's answer is read as ops; prose, fences, bad ops and show are left out", () => {
   expect(parseOps('```json\n[{"op":"next"},{"op":"show"},{"op":"fly"}]\n```')).toEqual([{ op: 'next' }])
   expect(parseOps('Sure! [{"op":"set","title":"T","nodes":[{"title":"a"}]}]')).toHaveLength(1)

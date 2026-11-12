@@ -145,15 +145,16 @@ test('the running step shows its detail under it, wrapped to two rows; other ste
   expect(lines.every(l => cells(l) <= 40)).toBe(true)
 })
 
-test('the goal sits dim under the title in one row, and stays when the band is folded', () => {
+test('the goal sits dim under the title: up to three rows while the band is open, one row when it is folded', () => {
   const p = { ...sample(), goal: '아이디와 비밀번호로 로그인되게 하고 화면을 앱과 같은 모양으로 맞추기' }
   const open = drawTree(p, working, { maxRows: 12, width: 40, now: 0, folded: false })
-  expect(lineText(open[1] ?? [])).toBe('아이디와 비밀번호로 로그인되게 하고 화…')
+  expect(lineText(open[1] ?? [])).toBe('아이디와 비밀번호로 로그인되게 하고')
+  expect(lineText(open[2] ?? [])).toBe('화면을 앱과 같은 모양으로 맞추기')
   expect(open[1]?.every(s => s.color === 'inactive')).toBe(true)
-  expect(lineText(open[2] ?? [])).toMatch(/\d+\/\d+ · \d+%/)
+  expect(lineText(open[3] ?? [])).toMatch(/\d+\/\d+ · \d+%/)
   const folded = texts(p, working, 12, 40, true)
   expect(folded).toHaveLength(3)
-  expect(folded[1]).toBe(lineText(open[1] ?? []))
+  expect(folded[1]).toBe('아이디와 비밀번호로 로그인되게 하고 화…')
   expect(texts(sample(), working, 12, 40, false)[1]).toMatch(/\d+\/\d+ · \d+%/)
 })
 

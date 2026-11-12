@@ -4,7 +4,7 @@ import type { EngineInterface, ModelUsage, Register, RenderChildren, Space, Time
 import type { Activity, DrawerState, Shelved } from '../types'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, DONE, FOLLOW, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
+import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, DONE, FOLLOW, REFRESH, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
 import type { AxisItem, CardItem, CardStep } from './cards'
 import type { CardHead } from './cards'
 import { cardButtons, cardsOf, headOf, isDone } from './cards'
@@ -13,14 +13,14 @@ import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWor
 import type { PlanOp } from './plan-tool'
 import { runOp } from './plan-tool'
 import type { Happened } from './planner'
-import { designPrompt, GUARDED, LOOK_EVERY_MS, LOOK_GAP_MS, noticeLine, PERSON, PLAN_EVERY, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from './planner'
+import { designPrompt, GUARDED, LOOK_EVERY_MS, LOOK_GAP_MS, MAX_LOG, noticeLine, PERSON, PLAN_EVERY, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from './planner'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
 import { dottedTrunkSvg, joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
 import type { Line } from './tree'
 import type { BandRow } from './tree'
 import type { StepRowProps } from './step-row'
-import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, WAIT_COLOR, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, isWaiting, noteText, planHead } from './tree'
+import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, WAIT_COLOR, bandGoalRows, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, isWaiting, noteText, planHead } from './tree'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
@@ -221,7 +221,7 @@ const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: bo
     <Box flexDirection="column" gap="xs">
       {nativeHead($, e, headOf(plan, o.parked, activity), {
         folded: o.folded,
-        goalRows: 1,
+        goalRows: bandGoalRows(o.folded),
         finished: o.finished,
         title: (
           <Box flexDirection="row" alignItems="center" gap="xs">
@@ -635,6 +635,9 @@ const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer
                 </Button>
               )}
               <Box flexGrow={1} />
+              <Button key={REFRESH} accessibilityLabel={t().refresh} onPress={() => onPress(REFRESH)}>
+                ↻
+              </Button>
               <Button key={VIEW} onPress={() => onPress(VIEW)}>
                 {list ? t().toFlow : t().toList}
               </Button>
@@ -783,6 +786,11 @@ async function pressDrawer($: $, id: string): Promise<void> {
     await update($, drawerAtom, d => ({ ...d, pick: undefined }))
     return
   }
+  if (id === REFRESH) {
+    if (frame !== undefined) return $.ui.toast(t().demo.untouched)
+    recheck = true
+    return planSoon($)
+  }
   // A draft, not a send: the person writes the rest and sends it themselves.
   if (id === ASK && picked !== undefined) {
     const r = await $.prompt.fill({ text: `[${picked.title}] `, mode: 'insert' })
@@ -863,6 +871,9 @@ async function resolveLanguage($: $, option: unknown): Promise<void> {
 // is kept); move them to $.state if a reload mid-turn drops too much.
 const PLANNER_MODEL = 'haiku'
 let fresh: Happened[] = []
+// What earlier looks were handed, the newest MAX_LOG; ↻ (`recheck`) hands it to the next look again.
+let seen: Happened[] = []
+let recheck = false
 let request = ''
 let calls = 0
 let lastLook = 0
@@ -933,22 +944,30 @@ const whyNot = (r: { reason: string; status?: number | null; error?: string }): 
 
 // One look: the board and what happened since the last, to the planner, then its ops on the board.
 async function planOnce($: $): Promise<void> {
+  const rechecking = recheck
+  recheck = false
   const take = fresh
   fresh = []
   calls = 0
-  if (take.length === 0) return
+  const log = rechecking ? [...seen, ...take] : take
+  if (log.length === 0) return rechecking ? $.ui.toast(t().rechecked(0)) : undefined
   const at = await $.clock.now()
   lastLook = at
   const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
-  const head: Happened[] = request === '' || take.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
+  const head: Happened[] = request === '' || log.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
   const r = await $.model
-    .complete({ model: PLANNER_MODEL, effort: 'low', system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...take]), maxTokens: 4000, timeoutMs: LOOK_TIMEOUT_MS })
+    .complete({ model: PLANNER_MODEL, effort: 'low', system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...log], rechecking), maxTokens: 4000, timeoutMs: LOOK_TIMEOUT_MS })
     .catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) }))
   const ms = (await $.clock.now()) - at
   if (!r.isAnswered) {
     // Kept for the next look, so a failed call loses nothing; tried again soon, so a failure at the
     // session's last answer does not leave the board as it was.
     fresh = [...take, ...fresh]
+    // The retry looks again too.
+    if (rechecking) {
+      recheck = true
+      $.ui.toast(t().rechecked(null))
+    }
     await record($, { at, call: 'look', ms, result: r.reason === 'aborted' && ms >= LOOK_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
     if (!retried) {
       retried = true
@@ -956,10 +975,12 @@ async function planOnce($: $): Promise<void> {
     }
     return
   }
+  seen = [...seen, ...take].slice(-MAX_LOG)
   $.ui.log(`planner: ${r.text}`, { to: 'debug' })
   const ops = parseOps(r.text)
   let applied = 0
   for (const op of ops) if (!('error' in (await apply($, op)))) applied++
+  if (rechecking) $.ui.toast(t().rechecked(applied))
   idleLook = applied === 0
   await record($, { at, call: 'look', ms, result: 'answered', ops: applied, ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
   if (designOn && design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
@@ -1286,7 +1307,7 @@ export const register: Register = (on, options) => {
     // A surface with its own type draws the band natively; a demo's bar stays as lines over it.
     if (e.surface !== 'terminal') {
       const folded = frame?.folded ?? (await bandFolded($, plan))
-      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice, 1, finished).length
+      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice, bandGoalRows(folded), finished).length
       return (
         <Box flexDirection="column" gap="xs">
           {top.map(l => row($, e, l, null, press))}

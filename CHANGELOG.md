@@ -2,6 +2,25 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.1.43 — 2026-11-12
+
+### Changed
+
+- Claude, reshaping the plan, also says where each step stands: it sets which steps are done, adds work the board missed as already done, and leaves what its answer left with you as a step to check or as expected work.
+- Claude is asked to reshape the plan only when the board was left off: after an answer that followed work, when the small model looked at it and changed nothing, and at the next answer once a plan comes back after a detour. It is then told what the board is read for and may redraw the plan in hand whole. Asked this way the boards scored the same in replays as when it was asked after every answer, for less than half the cost.
+- The small model that keeps the board thinks at low effort: the same boards in replays, with answers about a third shorter.
+- Boards are kept for your 100 most recent sessions (20 before), so a session left open for a day finds its plan again after a reload. Call logs stay with the 20 most recent.
+- A call to a connected tool reaches the small model with its short fields (a command, a title, a status) instead of a bare tool name.
+- Each kept model call also keeps the start of what it answered, so a wrong board can be traced to the answer that drew it.
+
+### Fixed
+
+- An answer after work no longer goes by with the board unchanged.
+- A reshape that got no answer, as when the model is busy with many sessions open, is asked again at the next answer after work.
+- A redrawn plan whose steps came in separate additions takes the old plan's place; before, the new stages landed after the old ones.
+- A step redrawn under the same title keeps its links and a check you already confirmed.
+- When the mod's storage refuses a write, the board on screen stays as it is.
+
 ## 0.1.42 — 2026-11-09
 
 ### Added

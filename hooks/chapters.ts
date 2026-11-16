@@ -17,6 +17,7 @@ export type Heard =
   | { kind: 'answered'; id: string }
   | { kind: 'background'; id: string }
   | { kind: 'backgroundDone'; id: string }
+  | { kind: 'status'; result: string; left: Item[] }
 
 // `seq` counts everything heard; `since` holds what came after the rewrite `base` was written from.
 // Open questions and background work are the session's, so they outlive a rewrite.
@@ -86,6 +87,9 @@ export const shown = (k: Kept): { board: Board; asked: string[]; running: number
     if (h.kind === 'request' && !(goAhead(h.text) && chapters.length > 0))
       chapters.push({ request: words(h.text, 200), title: words(h.text, 40), result: '', links: [], done: false, left: [], receipts: [] })
     if (h.kind === 'receipt') chapters.at(-1)?.receipts.push(h.receipt)
+    const latest = chapters.at(-1)
+    // The status block Claude ended its answer with (an opt-in experiment): everything left now.
+    if (h.kind === 'status' && latest !== undefined) chapters[chapters.length - 1] = { ...latest, result: h.result === '' ? latest.result : h.result, left: h.left }
   }
   return { board: { ...k.base, chapters }, asked: k.asked.map(a => a.question), running: k.running.length }
 }

@@ -40,7 +40,7 @@ A failed payment notifies the customer only once
 
 A new request starts a new chapter, named by your words until the board is written again; a bare go-ahead (`ok`, `go on`) stays in the chapter before. Between writes, rules add what is certain the moment it happens: a new chapter, a pull request opened, marked ready or merged, a release, a question Claude asks in a dialog, background work starting and finishing.
 
-After an answer that followed work, a model of the mod's own (Sonnet) reads the whole session again and writes the board anew: the subject, the goal, each chapter's title and result, and what is left. The working conversation never sees the board: nothing is added to what it reads, so the mod does not change how it works.
+After an answer that followed work, a model of the mod's own (Sonnet) reads the whole session again and writes the board anew: the subject, the goal, each chapter's title and result, and what is left. The working conversation never sees the board: nothing is added to what it reads (unless you turn on `statusBlock`), so the mod does not change how it works.
 
 ## Options
 
@@ -51,8 +51,9 @@ Set them on the install screen, or later in `/config`.
 | `language` | `auto` | The language of the band, the drawer and the notices: `en` or `ko`. `auto` follows Claude Code's own language setting, then the system locale, then English. |
 | `autoShow` | on | Shows the band as soon as you send the first request. Off, it shows only after you type `/flow`. |
 | `enabled` | on | Runs plan-flow in each new session. Off, a session starts with no board and no model calls until you type `/flow on`. |
+| `statusBlock` | off | An experiment. On, Claude is asked, through one section of its system prompt, to end each answer that followed work with a short `<status>` block: what the answer achieved, what waits on you, what it goes on with, what waits on others and what it did not check. The board reads the block at once into the latest chapter until the board is next written; the block stays visible in the answer. Off, nothing is added to what Claude reads. |
 
-`/flow off` turns plan-flow off in the current session only: the band and the drawer go away and no model is called. `/flow on` turns it back on and writes the board again from the whole session. The choice survives `/reload-plugins`. `/flow status` says whether it is on here and how many tokens its recent board writes used.
+`/flow off` turns plan-flow off in the current session only: the band and the drawer go away and no model is called. `/flow on` turns it back on and writes the board again from the whole session. The choice survives `/reload-plugins`. `/flow status` says whether it is on here, whether `statusBlock` is on, and how many tokens its recent board writes used.
 
 ## Try it without a task
 
@@ -60,7 +61,7 @@ Set them on the install screen, or later in `/config`.
 
 ## What it reads and keeps
 
-The mod writes no files and works only through Claude Code's own hooks. It adds no tool, and nothing to what Claude reads.
+The mod writes no files and works only through Claude Code's own hooks. It adds no tool, and nothing to what Claude reads unless you turn on `statusBlock`.
 
 - **Keeps** the board of your 100 most recent sessions in Claude Code's storage for this mod, so a session that resumes finds its board again. A board holds the subject, goal, chapter titles, requests (cut to 200 characters until the board is written again), results, links and what is left, as the model wrote them, plus the dialog questions still open and the background work still running. Beside it, for the 20 most recent sessions, go the mod's last 50 board writes for that session (when, how long it took, how it ended, how many tokens it used), so a board that stopped changing can be explained. For the drawer's list of all sessions, each of your 20 most recent sessions also keeps one line: its subject, whether it waits on you, works or is done, how many things wait on you, and when that changed; `/flow off` removes the session's line.
 - **Asks Sonnet to write the board**: after an answer that followed work, three minutes after an answer when something happened since the last write, when you press `↻` in the drawer, and when a resumed session has no board yet; writes start at least 30 seconds apart, except for `↻`. It sends the session as short lines: your messages, what Claude says, one line per tool call, a subagent's included (what the call says it is for, the file it touches or the pattern it searches, marked when it failed; never file contents or command output), the questions Claude asks in a dialog with your answers, and one line per notice Claude gets (a background task finishing), the newest 200,000 characters. These calls go through Claude Code's own model access, outside the session's cost total.

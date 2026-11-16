@@ -23,6 +23,8 @@ const PANE = {
   props: { title: '세션 목차', isFocused: true, bodyColumns: 53, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
+// A system prompt render as the engine asks for one.
+const COMPOSE = { model: 'opus', promptModel: 'opus', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] } as const
 // What the plugins registered as tools, and the context the last request reached the model with.
 const registered: string[] = []
 let handedContext: readonly string[] | undefined
@@ -135,7 +137,7 @@ test('nothing of plan-flow reaches what Claude reads: no tool, no system prompt 
   engine(on)
   await start($)
   expect(registered).toEqual([])
-  const composed = await $.prompt.compose({ traits: [], tools: [], sections: [] } as never)
+  const composed = await $.prompt.compose(COMPOSE)
   expect(composed.sections ?? []).toEqual([])
   await ask($, '로그인 만들어줘')
   expect(handedContext ?? []).toEqual([])
@@ -591,4 +593,44 @@ test('with plan-flow off in a session, no notification and no line for the other
   await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: '재시도는 몇 번으로 할까요?' }] } as never)
   expect(notices).toEqual([])
   expect(linesOf().s1).toBeUndefined()
+})
+
+const STATUS_ON = { options: { language: 'ko', statusBlock: true } }
+const BLOCK = '큐를 바꿨어요.\n<status>\ndone: 재시도 큐를 교체했다\nmine: 스테이징에서 결제 한 건 확인\n</status>'
+
+test('with statusBlock on, one section of the system prompt asks Claude for the status block, and nothing else reaches it', STATUS_ON, async ($, on) => {
+  engine(on)
+  await start($)
+  const composed = await $.prompt.compose(COMPOSE)
+  expect(composed.sections.map(x => [x.id, x.scope])).toEqual([['plan-flow:status', 'session']])
+  expect(composed.sections[0]?.text).toContain('<status>')
+  expect(registered).toEqual([])
+  await ask($, '로그인 만들어줘')
+  expect(handedContext ?? []).toEqual([])
+  // Off in the session, the section goes too.
+  await flow($, 'off')
+  expect((await $.prompt.compose(COMPOSE)).sections).toEqual([])
+})
+
+test("with statusBlock on, the block Claude's answer ends with sets the latest chapter's result and what waits on you, and notifies", STATUS_ON, async ($, on) => {
+  engine(on)
+  await start($)
+  await ask($, '재시도 정리해줘')
+  await $.turn.complete({ ...TURN, answer: BLOCK } as never)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const all = await texts(band)
+  expect(all).toContain('→ 재시도 큐를 교체했다')
+  expect(all).toContain('스테이징에서 결제 한 건 확인')
+  expect(notices.map(n => n.text)).toEqual(['스테이징에서 결제 한 건 확인'])
+  await band.unmount()
+  expect(await flow($, 'status')).toContain('상태 블록: 켜짐')
+})
+
+test('with statusBlock off, a block in the answer is not read', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await ask($, '재시도 정리해줘')
+  await $.turn.complete({ ...TURN, answer: BLOCK } as never)
+  expect(keptOf()?.since.map(s => s.heard.kind)).toEqual(['request'])
+  expect(await flow($, 'status')).toContain('상태 블록: 꺼짐')
 })

@@ -44,6 +44,12 @@
       "title": "Run in new sessions",
       "description": "Run plan-flow in each new session; off, a session starts with no board and no model calls until /flow on",
       "default": true
+    },
+    "statusBlock": {
+      "type": "boolean",
+      "title": "Ask Claude for a status block",
+      "description": "Experimental: ask Claude, through one section of its system prompt, to end each answer that followed work with a short status block that the board reads; off adds nothing to what Claude reads",
+      "default": false
     }
   }
 }

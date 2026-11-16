@@ -37,9 +37,10 @@ const en = {
   turnedOn: 'Turned plan-flow on in this session',
   turnedOff: 'Turned plan-flow off in this session: no board and no model calls until /flow on',
   isOff: 'plan-flow is off in this session; /flow on turns it on',
-  status: (on: boolean, startOn: boolean, kept: number, write: Usage) =>
+  status: (on: boolean, startOn: boolean, block: boolean, kept: number, write: Usage) =>
     [
       `plan-flow is ${on ? 'on' : 'off'} in this session (new sessions start ${startOn ? 'on' : 'off'})`,
+      `Status block: ${block ? 'on' : 'off'} (option statusBlock)`,
       `In the last ${kept} calls:`,
       `  Sonnet board ${write.count} ${write.count === 1 ? 'call' : 'calls'}: input ${n(write.input)} · cache read ${n(write.cacheRead)} · output ${n(write.output)} tokens`,
     ].join('\n'),
@@ -96,9 +97,10 @@ const ko: Strings = {
   turnedOn: '이 세션에서 plan-flow를 켰어요',
   turnedOff: '이 세션에서 plan-flow를 껐어요. /flow on 전까지 판도 모델 호출도 없어요',
   isOff: '이 세션에서는 plan-flow가 꺼져 있어요. /flow on으로 켤 수 있어요',
-  status: (on, startOn, kept, write) =>
+  status: (on, startOn, block, kept, write) =>
     [
       `plan-flow가 이 세션에서 ${on ? '켜져' : '꺼져'} 있어요 (새 세션은 ${startOn ? '켜진' : '꺼진'} 채로 시작)`,
+      `상태 블록: ${block ? '켜짐' : '꺼짐'} (statusBlock 옵션)`,
       `최근 호출 ${kept}번 안에서:`,
       `  Sonnet 판 쓰기 ${write.count}번: 입력 ${n(write.input)} · 캐시 읽기 ${n(write.cacheRead)} · 출력 ${n(write.output)} 토큰`,
     ].join('\n'),

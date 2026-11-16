@@ -345,6 +345,8 @@ let writing: Promise<void> | null = null
 let writeAgain = false
 let held: Timer | null = null
 let lastWrite = Number.NEGATIVE_INFINITY
+// The title last sent to the tab.
+let sentTitle = ''
 let idleTimer: Timer | null = null
 // Everything heard counts; a write after three idle minutes is skipped when nothing came since the last.
 let heardCount = 0
@@ -467,6 +469,15 @@ export const writerIdle = async (): Promise<void> => {
   while (writing !== null) await writing
 }
 
+// The tab shows the session's subject. A title can only be set as a request goes out or the session
+// starts, so it carries the board's title, never a status; it is sent only when it changed.
+async function titled<R extends { sessionTitle?: string }>($: $, r: R): Promise<R> {
+  const title = shownOf(await read($, keptAtom)).board.title
+  if (!enabled || title === '' || title === sentTitle || r.sessionTitle !== undefined) return r
+  sentTitle = title
+  return { ...r, sessionTitle: title }
+}
+
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const startOn = options.enabled !== false
@@ -536,6 +547,12 @@ export const register: Register = (on, options) => {
         await act($, { type: 'permissionEnd' })
       }
     }
+  })
+
+  on('classic.UserPromptSubmit', async ($, e, next) => titled($, await next(e)))
+  on('classic.SessionStart', async ($, e, next) => {
+    sentTitle = ''
+    return titled($, await next(e))
   })
 
   on('classic.PermissionRequest', async ($, e, next) => {

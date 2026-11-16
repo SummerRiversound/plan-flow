@@ -42,7 +42,7 @@ const text = (rows: readonly Row[]): string[] => rows.map(r => rowText(r).replac
 describe('the band above the prompt', () => {
   test('a written board shows its subject, goal, the latest chapters with results, receipts and what is left by who moves next', () => {
     expect(text(bandRows(s, idle, { width: 80, maxRows: 20, folded: false, now: 0 }))).toEqual([
-      expect.stringMatching(/^결제 웹훅 재시도 정리 ▴ +목차 보기 ▸$/),
+      expect.stringMatching(/^결제 웹훅 재시도 정리 ▴ +전체 보기 ▸$/),
       '결제 실패 알림이 고객에게 한 번만 가게',
       '1 ✓ 중복 알림 원인 찾기  → 재시도가 두 번 등록됨',
       '2 ✓ 재시도 큐 교체  → PR #142',

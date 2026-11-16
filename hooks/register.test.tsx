@@ -20,7 +20,7 @@ const PANE = {
   plugin: 'plan-flow',
   component: 'Pane',
   requestId: 'plan-flow',
-  props: { title: '요청 목차', isFocused: true, bodyColumns: 53, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  props: { title: '세션 목차', isFocused: true, bodyColumns: 53, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
 // What the plugins registered as tools, and the context the last request reached the model with.
@@ -39,6 +39,10 @@ const stored = new Map<string, unknown>()
 // Toasts the plugin raised, newest last.
 const toasts: string[] = []
 let stepAnswer: { answer: string; toolUses: unknown[] } = { answer: '', toolUses: [] }
+// Native notifications the plugin raised, and the keys it took back.
+type Notice = { text: string; title?: string; key?: string; delayMs?: number; untilBack?: boolean }
+const notices: Notice[] = []
+const cancelled: string[] = []
 
 // The engine beneath the plugin: each hook answers what the session would.
 const engine = (on: On) => {
@@ -50,6 +54,10 @@ const engine = (on: On) => {
   written.length = 0
   messages = []
   toasts.length = 0
+  notices.length = 0
+  cancelled.length = 0
+  on('ui.notify', (_, e) => (notices.push(e), { value: { isSent: true, channel: 'client' } }) as never)
+  on('ui.cancelNotify', (_, e) => (cancelled.push(e.key), { value: { isSent: true } }))
   on('session.messages', () => ({ value: messages }) as never)
   on('model.complete', (_, e) => {
     written.push(typeof e.prompt === 'string' ? e.prompt : '')
@@ -328,7 +336,7 @@ test('/flow off hides the board and calls no model in this session, a reload kee
   expect(await band.find({ type: 'Text', text: /결제 웹훅 재시도/ })).toBeDefined()
   await band.unmount()
   // The drawer /flow off closed opens again.
-  expect(await flow($, '')).toBe('요청 목차를 열었어요')
+  expect(await flow($, '')).toBe('세션 목차를 열었어요')
 })
 
 test('with enabled off, a new session starts off until /flow on', { options: { enabled: false, language: 'ko' } }, async ($, on) => {
@@ -356,8 +364,8 @@ test('/flow status tells whether plan-flow is on and what the recent board write
 test('/flow opens the drawer and closes it again', KO, async ($, on) => {
   engine(on)
   await start($)
-  expect((await $.command.run(FLOW)).text).toBe('요청 목차를 열었어요')
-  expect((await $.command.run(FLOW)).text).toBe('요청 목차를 닫았어요')
+  expect((await $.command.run(FLOW)).text).toBe('세션 목차를 열었어요')
+  expect((await $.command.run(FLOW)).text).toBe('세션 목차를 닫았어요')
 })
 
 test('a resumed session gets its board back, while thirty other sessions saved theirs after it; call logs stay with the most recent twenty', KO, async ($, on) => {
@@ -505,4 +513,82 @@ test('with plan-flow off in a session, the tab title is left alone', KO, async (
   await worked($, '재시도 정리해줘', BOARD)
   await $.command.run({ ...FLOW, args: 'off' })
   expect((await $.classic.UserPromptSubmit({ prompt: '리뷰 반영해줘' } as never)).sessionTitle).toBeUndefined()
+})
+
+type LineLike = { title: string; state: string; mine: number; savedAt: number }
+const linesOf = (): Record<string, LineLike> => (stored.get('sessions') as Record<string, LineLike> | undefined) ?? {}
+
+test('each session keeps one line about itself for the others: title, state and how many things wait on you; the newest twenty are kept, and /flow off takes it out', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  stored.set('sessions', Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`other-${i}`, { title: `세션 ${i}`, state: 'done', mine: 0, savedAt: 500 - i }])))
+  await worked($, '재시도 정리해줘', BOARD)
+  expect(linesOf().s1).toMatchObject({ title: '결제 웹훅 재시도', state: 'mine', mine: 1 })
+  expect(Object.keys(linesOf())).toHaveLength(20)
+  await ask($, '머지해줘')
+  await $.tool.call({ tool: 'Bash', command: 'gh pr merge 142' })
+  expect(linesOf().s1?.state).toBe('working')
+  await flow($, 'off')
+  expect(linesOf().s1).toBeUndefined()
+  await $.turn.complete(TURN as never)
+  expect(linesOf().s1).toBeUndefined()
+})
+
+test('the drawer lists every other session, your turn first, then working, then the rest, with how long ago each changed', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await worked($, '재시도 정리해줘', BOARD)
+  const now = 1_000 + WRITE_GAP_MS
+  stored.set('sessions', {
+    ...linesOf(),
+    a: { title: '끝난 배포', state: 'done', mine: 0, savedAt: now - 60_000 },
+    b: { title: '도는 마이그레이션', state: 'working', mine: 0, savedAt: now },
+    c: { title: '답을 기다리는 리뷰', state: 'mine', mine: 1, savedAt: now - 3 * 60_000 },
+  })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const pane = await $.ui.mount({ ...PANE, surface })
+    const all = await texts(pane)
+    const order = ['모든 세션', '답을 기다리는 리뷰', '도는 마이그레이션', '끝난 배포'].map(x => all.indexOf(x))
+    expect(order.every((x, i) => x > (order[i - 1] ?? all.indexOf('스테이징 확인')))).toBe(true)
+    expect(all).toContain('3분 전')
+    expect(all.split('결제 웹훅 재시도')).toHaveLength(2)
+    await pane.unmount()
+  }
+})
+
+test('something newly waiting on you after a write raises one notification with the session title, held until you are away, and the same items never again', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await worked($, '재시도 정리해줘', BOARD)
+  expect(notices).toHaveLength(1)
+  expect(notices[0]).toMatchObject({ title: '결제 웹훅 재시도', text: '스테이징 확인', untilBack: true })
+  expect(notices[0]?.key).toContain('s1')
+  expect(notices[0]?.delayMs ?? 0).toBeGreaterThan(0)
+  await worked($, '정리 더 해줘', BOARD)
+  expect(notices).toHaveLength(1)
+  const more = { ...BOARD, chapters: [...BOARD.chapters, { request: '배포해줘', title: '배포', result: '', links: [], done: false, left: [{ text: '배포 승인', kind: 'mine' }] }] }
+  await worked($, '배포해줘', more)
+  expect(notices.map(n => n.text)).toEqual(['스테이징 확인', '배포 승인'])
+  expect(notices[1]?.key).toBe(notices[0]?.key)
+})
+
+test('a dialog question Claude opens notifies, and a request you send takes the notification back', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await ask($, '재시도 정리해줘')
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: '재시도는 몇 번으로 할까요?' }] } as never)
+  expect(notices.map(n => n.text)).toEqual(['재시도는 몇 번으로 할까요?'])
+  expect(cancelled).toEqual([])
+  await ask($, '3번으로 해')
+  expect(cancelled).toEqual([notices[0]?.key])
+})
+
+test('with plan-flow off in a session, no notification and no line for the others', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await flow($, 'off')
+  await ask($, '재시도 정리해줘')
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: '재시도는 몇 번으로 할까요?' }] } as never)
+  expect(notices).toEqual([])
+  expect(linesOf().s1).toBeUndefined()
 })

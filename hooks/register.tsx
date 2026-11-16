@@ -8,7 +8,9 @@ import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoLi
 import { spinSvg } from './gui'
 import type { StepRowProps } from './step-row'
 import type { Line, Row, Shown } from './view'
-import { BOXED, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, PRIMARY, REFRESH, bandStack, drawerRows, fitLine, titleOf } from './view'
+import { BOXED, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, PRIMARY, REFRESH, bandStack, drawerRows, fitLine, mineOf, titleOf } from './view'
+import type { Lines } from './sessions'
+import { othersOf, sessionRows, stateOf } from './sessions'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Heard, Kept } from './chapters'
 import { backgroundDone, emptyKept, hear, isBackground, receiptOf, rewritten, shown as shownOf } from './chapters'
@@ -22,6 +24,13 @@ const PANE = 'plan-flow'
 // kept; call logs are large (the store holds 4 MiB in all), so only the most recent sessions keep one.
 export const KEPT_BOARDS = 100
 const KEPT_CALL_LOGS = 20
+// One line per session for the drawer's list of every session; the person keeps about twenty open.
+const KEPT_LINES = 20
+// How long a desktop client holds a notification before raising it; it drops it if the person
+// comes back to the session first.
+export const NOTIFY_AFTER_MS = 60_000
+// While the drawer is open it is drawn again this often, for the other sessions' lines.
+const OTHERS_REDRAW_MS = 30_000
 
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
@@ -116,7 +125,7 @@ const nativeRows = ($: $, e: Ev, rows: readonly Row[], now: number, oneGoalRow =
     if (r.kind === 'note') return void note.push(r)
     if (r.kind === 'title') return
     if (r.kind === 'rule' || r.kind === 'blank') return void (gap = true)
-    out.push(one(r, i, gap && r.kind === 'chapter'))
+    out.push(one(r, i, gap && (r.kind === 'chapter' || r.kind === 'heading')))
     gap = false
   })
   if (note.length > 0)
@@ -192,6 +201,53 @@ async function visible($: $, autoShow: boolean): Promise<boolean> {
 
 async function act($: $, ev: ActivityEvent): Promise<void> {
   await update($, activityAtom, a => step(a, ev))
+  await syncLine($)
+}
+
+// This session's line for the others, written only when its title, state or count changed.
+let lastLine = ''
+async function syncLine($: $): Promise<void> {
+  if (!enabled) return
+  const s = shownOf(await read($, keptAtom))
+  const title = titleOf(s.board)
+  if (title === '') return
+  const line = { title, ...stateOf(s, await read($, activityAtom)) }
+  const key = JSON.stringify(line)
+  if (key === lastLine) return
+  lastLine = key
+  await editLines($, async (all, sid) => (all[sid] = { ...line, savedAt: await $.clock.now() }))
+}
+// shortcut: each session rewrites the shared map, so two writing at once can drop the other's change
+// until it next changes; give each session its own key if that shows.
+async function editLines($: $, edit: (all: Lines, sid: string) => Promise<unknown>): Promise<void> {
+  await inTurn(async () => {
+    const sid = await $.session.id()
+    const all = ((await $.store.get('sessions')) ?? {}) as Lines
+    await edit(all, sid)
+    await $.store.set('sessions', newest(all, KEPT_LINES))
+  }).catch(() => undefined)
+}
+
+// What waits on the person and was already told, so the same items never notify twice; the
+// notification still out, taken back when the person sends a request here.
+let told = new Set<string>()
+let notice: Promise<unknown> | null = null
+const noticeKey = async ($: $) => `mine-${await $.session.id()}`
+async function notifyMine($: $): Promise<void> {
+  if (!enabled) return
+  const s = shownOf(await read($, keptAtom))
+  const mine = mineOf(s)
+  const fresh = mine.filter(m => !told.has(m))
+  for (const m of mine) told.add(m)
+  if (fresh[0] === undefined) return
+  notice = $.ui.notify(fresh[0], { title: titleOf(s.board), key: await noticeKey($), delayMs: NOTIFY_AFTER_MS, untilBack: true }).catch(() => undefined)
+}
+async function takeBackNotice($: $): Promise<void> {
+  const out = notice
+  notice = null
+  if (out === null) return
+  await out
+  await $.ui.cancelNotify(await noticeKey($)).catch(() => undefined)
 }
 
 let ticker: Timer | null = null
@@ -234,10 +290,12 @@ function inTurn<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // Opens the drawer; the band steps aside while it is on screen.
+let othersTicker: Timer | null = null
 async function openDrawer($: $): Promise<boolean> {
   await update($, askedAtom, () => true)
   const opened = await $.ui.open({ id: PANE, title: t().pane, focus: true, closeOnEscape: true })
   await update($, paneAtom, () => true)
+  othersTicker ??= $.clock.every(OTHERS_REDRAW_MS, () => $.ui.invalidate('ui.render'))
 
   return opened.isPlaced
 }
@@ -316,6 +374,9 @@ async function setEnabled($: $, on: boolean): Promise<void> {
   const all = ((await $.store.get('enabled')) ?? {}) as Switches
   all[sid] = { on, savedAt: await $.clock.now() }
   await $.store.set('enabled', newest(all))
+  lastLine = ''
+  if (on) await syncLine($)
+  else await editLines($, async (lines, id) => delete lines[id])
 }
 
 // What `/flow status` says: on or off here, the default, and what the kept calls used.
@@ -364,6 +425,7 @@ async function saveKept($: $): Promise<void> {
   const all = ((await $.store.get('chapters')) ?? {}) as SavedKept
   all[sid] = { kept: await read($, keptAtom), savedAt: await $.clock.now() }
   await $.store.set('chapters', newest(all)).catch(() => undefined)
+  await syncLine($)
 }
 
 // One write; whether the board was written.
@@ -390,6 +452,7 @@ async function writeOnce($: $): Promise<boolean> {
   writtenCount = counted
   await update($, keptAtom, k => rewritten(k, board, cut))
   await saveKept($)
+  await notifyMine($)
   await record($, { at, call: 'write', ms, result: 'answered', ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
   return true
 }
@@ -492,9 +555,14 @@ export const register: Register = (on, options) => {
     const kept = (((await $.store.get('chapters')) ?? {}) as SavedKept)[await $.session.id()]?.kept ?? emptyKept()
     await update($, keptAtom, () => kept)
     await update($, awayAtom, () => false)
+    // What already waited on the person before a reload was told then.
+    told = new Set(mineOf(shownOf(kept)))
+    notice = null
+    lastLine = ''
     // A resumed session with no board yet has it written from what is already there.
     if (enabled && kept.seq === 0 && (await $.session.messages().catch(() => [])).length > 0) writeSoon($)
     await update($, activityAtom, () => idleActivity())
+    await syncLine($)
     // A reload runs this again: forget what the older copy saw, then look afresh without holding the start.
     await update($, newerAtom, () => null)
     void checkVersion($).catch(() => undefined)
@@ -514,6 +582,7 @@ export const register: Register = (on, options) => {
     }
     worked = false
     await back($)
+    await takeBackNotice($)
     await hearRule($, { kind: 'request', text: e.text })
 
     return next(e)
@@ -532,7 +601,10 @@ export const register: Register = (on, options) => {
     // The call's input fields come on the event itself.
     const input = e as unknown as Record<string, unknown>
     heardCount++
-    if (question && !sub) await hearRule($, { kind: 'asked', id: e.tool_use_id, question: ((input.questions as Array<{ question?: string }> | undefined) ?? []).map(q => q.question ?? '').join(' / ') })
+    if (question && !sub) {
+      await hearRule($, { kind: 'asked', id: e.tool_use_id, question: ((input.questions as Array<{ question?: string }> | undefined) ?? []).map(q => q.question ?? '').join(' / ') })
+      await notifyMine($)
+    }
     if (isBackground(e.tool, input)) await hearRule($, { kind: 'background', id: e.tool_use_id })
     try {
       const out = await next(e)
@@ -685,9 +757,12 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal') onTerminal = true
     const { shown, activity, now } = await board($)
     const press = (id: string) => void pressDrawer($, id)
-    if (e.surface !== 'terminal') return nativeDrawer($, e, shown, drawerRows(shown, activity, { now }), now, press)
+    const at = await $.clock.now()
+    const others = othersOf(((await $.store.get('sessions').catch(() => undefined)) ?? {}) as Lines, await $.session.id(), at)
+    const rows = (width?: number) => [...drawerRows(shown, activity, { ...(width === undefined ? {} : { width }), now }), ...sessionRows(others, at, width)]
+    if (e.surface !== 'terminal') return nativeDrawer($, e, shown, rows(), now, press)
 
-    return <Box flexDirection="column">{drawerRows(shown, activity, { width: e.props.bodyColumns, now }).map(r => termRow($, e, r, press))}</Box>
+    return <Box flexDirection="column">{rows(e.props.bodyColumns).map(r => termRow($, e, r, press))}</Box>
   })
 
   // The band's title row, a Client on the desktop app, was pressed: fold or unfold the band.
@@ -704,6 +779,8 @@ export const register: Register = (on, options) => {
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const closed = await next(e)
     await update($, paneAtom, () => false)
+    othersTicker?.cancel()
+    othersTicker = null
 
     return closed
   })

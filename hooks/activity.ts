@@ -1,4 +1,4 @@
-// What Claude is doing right now, as one line under the plan's progress. A pure
+// What Claude is doing right now, as one line under the latest chapter. A pure
 // reducer: register.tsx turns hook events into these and stores the result.
 //
 // Waiting on the person (a question, then a permission dialog) outranks compaction,

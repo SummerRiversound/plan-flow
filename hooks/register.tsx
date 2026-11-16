@@ -1,77 +1,59 @@
 // Wiring only: hook events in, the pure modules beside this file decide, state out.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, ModelUsage, Register, RenderChildren, Space, Timer } from 'claude-code'
-import type { Activity, DrawerState, Shelved } from '../types'
+import type { EngineInterface, ModelUsage, Register, RenderChildren, Timer } from 'claude-code'
 import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
-import { ASK, BOXED, PRIMARY, COLLAPSE_ALL, CONFIRM, EXPAND_ALL, DONE, FOLLOW, REFRESH, SHELF, VIEW, drawFlow, drawerPage, drawerView, foldAll, hrefOf, linkLabel, pickStep, toggleFold } from './drawer'
-import type { AxisItem, CardItem, CardStep } from './cards'
-import type { CardHead } from './cards'
-import { cardButtons, cardsOf, headOf, isDone } from './cards'
-import type { Plan, PlanNode } from './plan'
-import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, isFinished, progress, runningLeaves } from './plan'
-import type { PlanOp } from './plan-tool'
-import { runOp } from './plan-tool'
-import type { Happened } from './planner'
-import { designPrompt, GUARDED, LOOK_EVERY_MS, LOOK_GAP_MS, MAX_LOG, noticeLine, PERSON, PLAN_EVERY, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from './planner'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
-import { dottedTrunkSvg, joinSvg, progressSvg, ruleSvg, spinSvg, splitSvg, trunkSvg } from './gui'
-import type { Line } from './tree'
-import type { BandRow } from './tree'
+import { spinSvg } from './gui'
 import type { StepRowProps } from './step-row'
-import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, WAIT_COLOR, bandGoalRows, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, isWaiting, noteText, planHead } from './tree'
+import type { Line, Row, Shown } from './view'
+import { BOXED, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, PRIMARY, REFRESH, bandStack, drawerRows, fitLine, titleOf } from './view'
 import { pickLanguage, setLanguage, t } from './i18n'
 import type { Heard, Kept } from './chapters'
-import { backgroundDone, emptyKept, hear, isBackground, receiptOf, rewritten } from './chapters'
+import { backgroundDone, emptyKept, hear, isBackground, receiptOf, rewritten, shown as shownOf } from './chapters'
 import { MAX_STORY, WRITER_SYSTEM, parseBoard, storyOf, writerPrompt } from './writer'
+import { PERSON } from './lines'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
 
-const PLUGIN = 'plan-flow'
 const PANE = 'plan-flow'
 // Boards and switches are small and a person may keep twenty sessions open for days, so many are
 // kept; call logs are large (the store holds 4 MiB in all), so only the most recent sessions keep one.
 export const KEPT_BOARDS = 100
 const KEPT_CALL_LOGS = 20
 
-const planAtom = atom({ plugin: 'plan-flow', key: 'plan' } as const, emptyPlan())
 const activityAtom = atom({ plugin: 'plan-flow', key: 'activity' } as const, idleActivity())
-const shelfAtom = atom({ plugin: 'plan-flow', key: 'shelf' } as const, [] as Shelved[])
-const drawerAtom = atom({ plugin: 'plan-flow', key: 'drawer' } as const, { open: {}, focus: null } as DrawerState)
 const askedAtom = atom({ plugin: 'plan-flow', key: 'asked' } as const, false)
 const demoAtom = atom({ plugin: 'plan-flow', key: 'demo' } as const, null as DemoAt | null)
 const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const foldAtom = atom({ plugin: 'plan-flow', key: 'fold' } as const, false)
-const doneOpenAtom = atom({ plugin: 'plan-flow', key: 'doneOpen' } as const, false)
+const awayAtom = atom({ plugin: 'plan-flow', key: 'away' } as const, false)
 const newerAtom = atom({ plugin: 'plan-flow', key: 'newer' } as const, null as Newer | null)
 const keptAtom = atom({ plugin: 'plan-flow', key: 'chapters' } as const, emptyKept())
 
 type $ = EngineInterface
 type Ev = Parameters<$['ui']['resolve']>[0]
 
-// Neutral greys at low opacity for the desktop app and the editor: one value reads on the
-// light and the dark theme, where no theme key gives a faint edge or a pointer highlight.
+// A neutral grey at low opacity for the desktop app and the editor: one value reads on the light
+// and the dark theme, where no theme key gives a faint edge or a pointer highlight.
 const HOVER = '#8080801a'
 const EDGE = '#80808033'
-const EDGE_RUN = '#80808080'
-type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 // One call the mod made to a model for the board, kept so a board that stopped changing can be explained.
-// Tokens a call used; on a design call a near-zero cacheRead means the fork paid for the whole conversation.
 type Used = { input: number; cacheRead: number; cacheWrite: number; output: number }
-type Call = { at: number; call: 'look' | 'design' | 'write'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string; usage?: Used; text?: string }
-// The start of a model's answer kept with its call, enough to read back which ops it sent.
+type Call = { at: number; call: 'write'; ms: number; result: 'answered' | 'failed' | 'timed out'; reason?: string; usage?: Used; text?: string }
+// The start of a model's answer kept with its call, enough to read back what it wrote.
 const KEPT_TEXT = 600
 type Calls = Record<string, { calls: Call[]; savedAt: number }>
 const KEPT_CALLS = 50
 
-// Draws one line of pieces; the pieces marked with a node id become that node's fold Button.
-// The terminal's lines (and a demo's bar); surfaces with their own type draw natively.
-const row = ($: $, e: Ev, line: Line, focus: string | null, onPress: (id: string) => void) => {
+// Draws one line of pieces on the terminal; a piece with a `button` becomes that Button, framed
+// where the button is one of BOXED, and a piece with an `href` a Link.
+const row = ($: $, e: Ev, line: Line, onPress: (id: string) => void) => {
   const { Box, Text, Button, Link } = $.ui.resolve(e)
   const segs = (ss: Line) =>
     ss.map(s => (
-      <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined} strikethrough={s.strike === true ? true : undefined}>
+      <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined}>
         {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
       </Text>
     ))
@@ -89,7 +71,7 @@ const row = ($: $, e: Ev, line: Line, focus: string | null, onPress: (id: string
         p.id === undefined ? (
           segs(p.segs)
         ) : (
-          <Button key={p.id} plain={BOXED.has(p.id ?? '') ? undefined : true} variant={PRIMARY.has(p.id ?? '') ? 'primary' : undefined} autoFocus={p.id === focus ? true : undefined} onPress={() => onPress(p.id ?? '')}>
+          <Button key={p.id} plain={BOXED.has(p.id ?? '') ? undefined : true} variant={PRIMARY.has(p.id ?? '') ? 'primary' : undefined} onPress={() => onPress(p.id ?? '')}>
             {segs(p.segs)}
           </Button>
         ),
@@ -97,595 +79,115 @@ const row = ($: $, e: Ev, line: Line, focus: string | null, onPress: (id: string
     </Box>
   )
 }
+const termRow = ($: $, e: Ev, r: Row, onPress: (id: string) => void) => row($, e, r.indent === 0 ? r.line : [{ text: ' '.repeat(r.indent) }, ...r.line], onPress)
 
-// The drawer on a surface that draws real boxes and its own type (the desktop app, the
-// editor): a head set in the app's type, then each stage a rounded card (the running one in
-// text colour), parallel stages side by side with lines between them, or the same steps as a
-// plain list. A step's title is its Button: a box folds, a step is picked with its buttons under it.
-// The head the native drawer and band share: the title row, the goal, the progress bar and
-// counts, then (unless folded) the steps to check and what Claude is doing, then `tools`.
-const nativeHead = ($: $, e: Ev, hd: CardHead, o: { title: RenderChildren; goalRows: number; folded?: boolean; tools?: RenderChildren; finished?: readonly string[] }) => {
+// The same rows set in the app's own type (the desktop app, the editor): the goal and everything
+// under a chapter in footnote size, links as small underlined names, the running chapter's
+// turning mark a picture; `oneGoalRow` cuts the goal to a row, as a folded band shows it. A title row is drawn by its view, the terminal's rule and blank rows
+// become space between chapters, and the note's rows a framed box.
+const nativeRows = ($: $, e: Ev, rows: readonly Row[], now: number, oneGoalRow = false): RenderChildren[] => {
   const el = $.ui.resolve(e)
-  const { Box, Text } = el
+  const { Box, Text, Link } = el
   const Svg = 'Svg' in el ? el.Svg : null
+  const piece = (s: Line[number], i: number) => {
+    const words = s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>
+    return (
+      <Text key={String(i)} color={s.color} weight={s.bold === true ? 'semibold' : undefined} dimColor={s.dim === true ? true : undefined}>
+        {words}
+      </Text>
+    )
+  }
+  const one = (r: Row, i: number, gap: boolean): RenderChildren => {
+    const size = r.kind === 'chapter' ? undefined : r.kind === 'links' ? 'caption' : 'footnote'
+    const live = r.line.find(s => s.live === true)
+    return (
+      <Box key={`${r.kind}-${i}`} flexDirection="row" alignItems="center" gap="xs" paddingLeft={r.indent} marginTop={gap ? 'sm' : undefined}>
+        {live !== undefined && Svg !== null ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
+        <Text size={size} color={r.kind === 'goal' ? 'inactive' : undefined} wrap={r.kind === 'goal' && oneGoalRow ? 'truncate-end' : undefined}>
+          {r.line.filter(s => !(s.live === true && Svg !== null)).map(piece)}
+        </Text>
+      </Box>
+    )
+  }
+  const out: RenderChildren[] = []
+  const note: Row[] = []
+  let gap = false
+  rows.forEach((r, i) => {
+    if (r.kind === 'note') return void note.push(r)
+    if (r.kind === 'title') return
+    if (r.kind === 'rule' || r.kind === 'blank') return void (gap = true)
+    out.push(one(r, i, gap && r.kind === 'chapter'))
+    gap = false
+  })
+  if (note.length > 0)
+    out.unshift(
+      <Box key="note" flexDirection="column" borderStyle="round" borderColor={EDGE} paddingX="sm" paddingY="xs" gap="xs">
+        {note.map((r, i) => one(r, i, false))}
+      </Box>,
+    )
+
+  return out
+}
+
+// The band above the prompt on a surface with its own type: the title the fold button (a Client
+// on the desktop app, so the whole row counts), the drawer's primary button at the right, then the rows.
+const nativeBand = ($: $, e: Ev, s: Shown, rows: readonly Row[], o: { folded: boolean; notice?: string; now: number; onPress: (id: string) => void }) => {
+  const el = $.ui.resolve(e)
+  const { Box, Text, Button } = el
+  const title = titleOf(s.board)
+  const note = rows.filter(r => r.kind === 'note')
 
   return (
     <Box flexDirection="column" gap="xs" paddingX="xs">
-      {o.title}
-      {hd.goal === undefined ? null : (
-        <Text size="footnote" color="inactive" wrap={o.goalRows === 1 ? 'truncate-end' : undefined}>
-          {hd.goal}
-        </Text>
-      )}
-      {o.finished === undefined || o.finished.length === 0 ? null : (
-        <Text size="footnote" color="inactive" wrap="truncate-end">
-          {t().finishedLine}
-          {o.finished.map(f => (
-            <Text key={f}>
-              {'  '}
-              <Text color="success">✓</Text> {f}
-            </Text>
-          ))}
-        </Text>
-      )}
-      <Box flexDirection="row" alignItems="center" gap="sm">
-        <Box flexGrow={1} flexDirection="column">
-          {Svg === null ? null : <Svg source={progressSvg(hd.slots)} alt={t().progress(hd.done, hd.total)} />}
-        </Box>
-        <Box flexShrink={0}>
-          <Text size="footnote" tabular color="inactive">
-            {`${hd.done}/${hd.total} · ${hd.pct}%${hd.parked > 0 ? t().parked(hd.parked) : ''}`}
-          </Text>
-        </Box>
-      </Box>
-      {o.folded === true || hd.checks.length === 0 ? null : (
-        <Text size="footnote">
-          <Text weight="semibold">{t().checks(hd.checks.length).replace(/:\s*$/, '')}</Text> {hd.checks.join(' · ')}
-        </Text>
-      )}
-      {o.folded === true || hd.activity === undefined ? null : (
-        <Text size="footnote">
-          <Text color={hd.activity.color}>●</Text> {hd.activity.text}
-        </Text>
-      )}
-      {o.tools ?? null}
-    </Box>
-  )
-}
-
-// The band above the prompt on a surface with its own type: the shared head, its title the
-// fold Button, the flowchart Button flush right, then the tree's rows, each step in by its level.
-const nativeBand = ($: $, e: Ev, plan: Plan, activity: Activity, o: { folded: boolean; parked: number; finished: readonly string[]; notice?: string; budget: number; width: number; now: number; onPress: (id: string) => void }) => {
-  const el = $.ui.resolve(e)
-  const { Box, Text, Button } = el
-  const Svg = 'Svg' in el ? el.Svg : null
-  const live = isLive(activity)
-  const rows = o.folded ? [] : bandRows(plan, activity, o.budget, o.width, o.now)
-  const depth = (n: PlanNode) => n.id.split('.').length - 1
-  const row = (r: BandRow): RenderChildren => {
-    if (r.kind === 'more')
-      return (
-        <Text size="footnote" color="inactive">
-          {r.text}
-        </Text>
-      )
-    if (r.kind === 'expected')
-      return (
-        <Text size="footnote" color="inactive" dimColor>
-          {r.text === '' ? ' ┆' : ` ┆ ◌ ${r.text}`}
-        </Text>
-      )
-    if (r.kind === 'detail')
-      return (
-        <Box paddingLeft={depth(r.node) * 2 + 3}>
-          <Text size="footnote" color="inactive">
-            {r.text}
-          </Text>
-        </Box>
-      )
-    const n = r.node
-    const parent = hasChildren(plan.nodes, n.id)
-    const spin = n.status === 'in_progress' && !parent && live && Svg !== null
-    const done = isFinished(n.status) && n.status !== 'needs_check'
-    const glyph = glyphSeg(n, isWaiting(plan, activity))
-    const note = noteText(n)
-    return (
-      <Box key={n.id} flexDirection="row" alignItems="center" gap="xs" paddingLeft={depth(n) * 2}>
-        {spin ? <Svg source={spinSvg(o.now)} alt={t().running} width={14} height={14} /> : <Text color={glyph.color}>{glyph.text}</Text>}
-        <Text weight={r.line.some(s => s.bold === true) || n.status === 'in_progress' ? 'semibold' : undefined} dimColor={done ? true : undefined} strikethrough={n.status === 'skipped' ? true : undefined} wrap="truncate-end">
-          {n.title}
-          {plan.marks?.[n.id] === 'redo' ? ' ↺' : ''}
-        </Text>
-        {n.parallel === true ? (
-          // A tint, not a border: the app pads a bordered box itself, which would make the tag taller than the row.
-          <Box backgroundColor={EDGE} paddingX="xs">
-            <Text size="caption" color="inactive">
-              {t().parallel}
-            </Text>
-          </Box>
-        ) : null}
-        {note === '' ? null : (
-          <Text size="footnote" color={n.status === 'blocked' ? 'error' : 'inactive'} wrap="truncate-end">
-            {note.trim()}
-          </Text>
-        )}
-        <Box flexGrow={1} />
-        {parent ? (
-          <Box flexShrink={0}>
-            <Text size="footnote" tabular color="inactive">
-              {`${counts(plan, n.id)}${r.folded ? ' ▸' : ''}`}
-            </Text>
-          </Box>
-        ) : null}
-      </Box>
-    )
-  }
-
-  return (
-    <Box flexDirection="column" gap="xs">
-      {nativeHead($, e, headOf(plan, o.parked, activity), {
-        folded: o.folded,
-        goalRows: bandGoalRows(o.folded),
-        finished: o.finished,
-        title: (
-          <Box flexDirection="row" alignItems="center" gap="xs">
-            {e.surface === 'desktop' && 'Client' in el ? (
-              // The whole title row folds the band, not only its words.
-              <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, guide: null, mark: null, title: plan.title, strong: true, muted: false, strike: false, redo: false, pill: null, after: o.folded ? '▾' : '▴', right: null, hover: HOVER, edge: EDGE } satisfies StepRowProps} />
-            ) : (
-              <Button key={FOLD_BUTTON} plain onPress={() => o.onPress(FOLD_BUTTON)}>
-                <Text weight="semibold">
-                  {plan.title}
-                  <Text color="inactive">{o.folded ? ' ▾' : ' ▴'}</Text>
-                </Text>
-              </Button>
-            )}
-            {e.surface === 'desktop' ? null : <Box flexGrow={1} />}
-            {o.notice === undefined ? null : <Text size="footnote">{o.notice}</Text>}
-            <Button key={OPEN_BUTTON} variant="primary" onPress={() => o.onPress(OPEN_BUTTON)}>
-              {t().bandOpen}
-            </Button>
-          </Box>
-        ),
-      })}
-      {rows.length === 0 ? null : (
-        <Box flexDirection="column" paddingX="xs">
-          {rows.map(row)}
-        </Box>
-      )}
-    </Box>
-  )
-}
-
-const nativeDrawer = ($: $, e: Ev, plan: Plan, shelf: readonly Shelved[], drawer: DrawerState, activity: Activity, onPress: (id: string) => void, now: number, width: number) => {
-  const el = $.ui.resolve(e)
-  const { Box, Text, Button, Link } = el
-  const Svg = 'Svg' in el ? el.Svg : null
-  // The editor's table may carry the name, but only the desktop app draws Clients.
-  const Client = e.surface === 'desktop' && 'Client' in el ? el.Client : null
-  const live = isLive(activity)
-  // Too narrow for the cards side by side, as the terminal judges it: the list, with no switch.
-  const narrow = drawFlow(plan, drawer, { width, now }).cut
-  const list = drawer.list === true || narrow
-  const waiting = isWaiting(plan, activity)
-  const axis = cardsOf(plan, drawer, waiting)
-  const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
-  const ring = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && cardButtons(axis).includes(id)) ?? null
-  const parked = shelf.filter(s => s.state === 'parked')
-
-  // The pill beside a task that runs with its siblings.
-  const pill = () => (
-    <Box borderStyle="round" borderColor={EDGE} paddingX="xs" flexShrink={0}>
-      <Text size="caption" color="inactive">
-        {t().parallel}
-      </Text>
-    </Box>
-  )
-  // Links sit at the end of their step's row as small underlined names.
-  const links = (ls: readonly string[]) =>
-    ls.length === 0 ? null : (
-      <Box flexDirection="row" flexWrap="wrap" gap="sm" flexShrink={1}>
-        {ls.map(l => {
-          const href = hrefOf(l)
-          return <Text size="caption">{href === undefined ? `↗ ${linkLabel(l)}` : <Link href={href}>↗ {linkLabel(l)}</Link>}</Text>
-        })}
-      </Box>
-    )
-  // A step's row: its mark and title as a plain button (the turning mark, a picture, beside it),
-  // the pill, then links and its count at the right edge.
-  const line = (s: CardStep, top: boolean, together: boolean) => {
-    const spin = s.running && live && !s.parent && Svg !== null
-    const strong = s.running || (top && !isDone(s) && s.status !== 'pending')
-    // Where the surface draws Clients (the desktop app), the whole row is one: a press anywhere on it counts.
-    if (Client !== null) {
-      const props: StepRowProps = {
-        id: s.id,
-        guide: null,
-        mark: spin ? null : { text: s.glyph.text, color: s.glyph.color ?? 'text' },
-        title: s.title,
-        strong,
-        muted: isDone(s),
-        strike: s.status === 'skipped',
-        redo: s.redo,
-        pill: together ? t().parallel : null,
-        after: null,
-        right: s.right === null ? null : { text: s.right.text, color: s.right.color === 'text' || s.right.color === undefined ? 'inactive' : s.right.color },
-        hover: HOVER,
-        edge: EDGE,
-      }
-      return (
-        <Box flexDirection="row" alignItems="center" gap="xs">
-          {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
-          <Client key={`step-${s.id}`} module="./step-row.tsx" props={props} flexGrow={1} />
-          {links(s.links)}
-        </Box>
-      )
-    }
-    return (
+      {nativeRows($, e, note, o.now)}
       <Box flexDirection="row" alignItems="center" gap="xs">
-        {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
-        <Button key={s.id} plain autoFocus={s.id === ring ? true : undefined} onPress={() => onPress(s.id)}>
-          <Text weight={strong ? 'semibold' : undefined} color={isDone(s) ? 'inactive' : undefined} strikethrough={s.status === 'skipped' ? true : undefined}>
-            {spin ? null : <Text color={s.glyph.color}>{s.glyph.text} </Text>}
-            {s.title}
-            {s.redo ? ' ↺' : ''}
-          </Text>
-        </Button>
-        {together ? pill() : null}
-        <Box flexGrow={1} />
-        {links(s.links)}
-        {s.right === null ? null : (
-          <Box flexShrink={0}>
-            <Text size="footnote" tabular color={s.right.color === 'text' ? 'inactive' : s.right.color}>
-              {s.right.text}
+        {e.surface === 'desktop' && 'Client' in el ? (
+          <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, title, after: o.folded ? '▾' : '▴', hover: HOVER } satisfies StepRowProps} />
+        ) : (
+          <Button key={FOLD_BUTTON} plain onPress={() => o.onPress(FOLD_BUTTON)}>
+            <Text weight="semibold">
+              {title}
+              <Text color="inactive">{o.folded ? ' ▾' : ' ▴'}</Text>
             </Text>
-          </Box>
-        )}
-      </Box>
-    )
-  }
-  // What shows under a step's row: its detail and note, the picked step's buttons, its open steps.
-  const under = (s: CardStep, inset: Space | undefined, nested: boolean): RenderChildren[] => [
-    s.detail === undefined ? null : (
-      <Box paddingLeft={inset}>
-        <Text size="footnote" color="inactive">
-          {s.detail}
-        </Text>
-      </Box>
-    ),
-    s.note === undefined ? null : (
-      <Box paddingLeft={inset}>
-        <Text size="footnote" color={s.status === 'blocked' ? 'error' : 'inactive'}>
-          {s.note}
-        </Text>
-      </Box>
-    ),
-    // The step's own buttons: apart from the text above them, at the right, drawn as the actions to press.
-    s.actions.length === 0 ? null : (
-      <Box flexDirection="row" gap="xs" justifyContent="flex-end" marginTop="sm">
-        {s.actions.map(([id, label]) => (
-          <Button key={id} variant="primary" onPress={() => onPress(id)}>
-            {label}
           </Button>
-        ))}
+        )}
+        {e.surface === 'desktop' ? null : <Box flexGrow={1} />}
+        {o.notice === undefined ? null : <Text size="footnote">{o.notice}</Text>}
+        <Button key={OPEN_BUTTON} variant="primary" onPress={() => o.onPress(OPEN_BUTTON)}>
+          {t().bandOpen}
+        </Button>
       </Box>
-    ),
-    s.children.length === 0 ? null : (
-      <Box flexDirection="column" paddingLeft="lg">
-        {flat(s.children).map(([c, together]) => step(c, together, nested))}
-      </Box>
-    ),
-  ]
-  // Steps that run together stay at their siblings' level, each marked with the pill.
-  const flat = (is: readonly CardItem[], together = false): Array<[CardStep, boolean]> => is.flatMap((i): Array<[CardStep, boolean]> => (i.kind === 'step' ? [[i.step, together]] : flat(i.items, true)))
-  // A step inside a card: a row that lights under the pointer, with what shows under it.
-  const step = (s: CardStep, together: boolean, nested: boolean): RenderChildren => (
-    <Box key={`row-${s.id}`} flexDirection="column" gap="xs" paddingY={nested ? undefined : 'xs'} hover={{ backgroundColor: HOVER }}>
-      {line(s, false, together)}
-      {under(s, 'lg', true)}
+      {nativeRows($, e, rows.filter(r => r.kind !== 'note'), o.now, o.folded)}
     </Box>
   )
-  // A hairline between the rows of a card's body.
-  const rule = (key: string) => (Svg === null ? null : <Svg key={key} source={ruleSvg()} alt={t().divider} height={1} />)
-  // A stage: a rounded card, its title row across the top, then a hairline and its open steps, one hairline between each.
-  // The app pads a bordered Box itself, so a fill inside it would float short of the edges: the card has none.
-  const card = (s: CardStep) => {
-    const body = [...under({ ...s, children: [] }, undefined, false), ...flat(s.children).flatMap(([c, together]) => [rule(`rule-${c.id}`), step(c, together, false)])].filter(x => x !== null)
-    return (
-      <Box key={`card-${s.id}`} flexDirection="column" flexGrow={1} borderStyle="round" borderColor={s.running ? EDGE_RUN : EDGE} paddingX="sm" paddingY="xs" gap="xs">
-        {line(s, true, false)}
-        {body}
-      </Box>
-    )
-  }
-  // The app drops a picture with no alt.
-  const pic = (source: string, key: string) => (Svg === null ? null : <Svg key={key} source={source} alt={t().line} />)
-  const summary = (a: Extract<AxisItem, { kind: 'summary' }>) => {
-    const part = (label: string, text: string) => (
-      <Box flexDirection="column">
-        <Text size="caption" color="inactive">
-          {label}
-        </Text>
-        <Text size="footnote">{text}</Text>
-      </Box>
-    )
-    return (
-      <Box flexDirection="column" borderStyle="round" borderColor={EDGE} paddingX="sm" paddingY="xs" gap="sm">
-        <Text weight="semibold">
-          <Text color="success">✓</Text> {t().summary.title}
-        </Text>
-        {part(t().summary.goal, a.goal)}
-        {part(t().summary.result, a.result)}
-        {links(a.links)}
-      </Box>
-    )
-  }
+}
 
-  // Work expected after the plan: a faint card with no row to press, tagged as expected.
-  const ahead = (title: string) => (
-    <Box flexDirection="row" alignItems="center" gap="xs" borderStyle="round" borderColor={EDGE} paddingX="sm" paddingY="xs">
-      <Text color="inactive" dimColor>
-        ◌
-      </Text>
-      <Text color="inactive" dimColor wrap="truncate-end">
-        {title}
-      </Text>
-      <Box flexGrow={1} />
-      <Text size="caption" color="inactive">
-        {t().expected}
-      </Text>
-    </Box>
-  )
-
-  // The list keeps the tree's guides, which show the levels best, monospaced at each row's start so they
-  // line up; the rest of a row is in the app's type, and the whole row is pressable where Clients draw.
-  const listRows = (): RenderChildren[] => {
-    const out: RenderChildren[] = []
-    const sub = (guide: string, child: RenderChildren, key: string) => (
-      <Box key={key} flexDirection="row">
-        <Text mono color="inactive">
-          {guide}
-        </Text>
-        {child}
-      </Box>
-    )
-    if (narrow)
-      out.push(
-        <Text size="footnote" color="inactive">
-          {t().narrow}
-        </Text>,
-      )
-    for (const r of bandRows(plan, activity, plan.nodes.length * 4 + 4, width, now)) {
-      if (r.kind === 'more') {
-        out.push(
-          <Text size="footnote" color="inactive">
-            {r.text}
-          </Text>,
-        )
-        continue
-      }
-      if (r.kind === 'expected') {
-        out.push(
-          <Text mono color="inactive" dimColor>
-            {r.line.map(s => s.text).join('')}
-          </Text>,
-        )
-        continue
-      }
-      const guide = r.line[0]?.text ?? ''
-      // Under a step, the guides go on down past it.
-      const on = guide.replace(/├─ $/, '│  ').replace(/└─ $/, '   ')
-      if (r.kind === 'detail') {
-        out.push(sub(`${guide}`, <Text size="footnote" color="inactive">{r.text}</Text>, `detail-${r.node.id}`))
-        continue
-      }
-      const n = r.node
-      const parent = hasChildren(plan.nodes, n.id)
-      const spin = n.status === 'in_progress' && !parent && live && Svg !== null
-      const glyph = glyphSeg(n, waiting)
-      const right = parent ? `${counts(plan, n.id)}${r.folded ? ' ▸' : ''}` : n.status === 'in_progress' ? (waiting ? t().waiting : t().running) : null
-      const props: StepRowProps = {
-        id: n.id,
-        guide,
-        mark: spin ? null : { text: glyph.text, color: glyph.color ?? 'text' },
-        title: n.title,
-        strong: r.line.some(x => x.bold === true) || n.status === 'in_progress',
-        muted: isFinished(n.status) && n.status !== 'needs_check',
-        strike: n.status === 'skipped',
-        redo: plan.marks?.[n.id] === 'redo',
-        pill: n.parallel === true ? t().parallel : null,
-        after: null,
-        right: right === null ? null : { text: right, color: waiting && !parent && n.status === 'in_progress' ? WAIT_COLOR : 'inactive' },
-        hover: HOVER,
-        edge: EDGE,
-      }
-      out.push(
-        <Box key={`list-${n.id}`} flexDirection="row" alignItems="center" gap="xs">
-          {spin ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
-          {Client !== null ? (
-            <Client key={`step-${n.id}`} module="./step-row.tsx" props={props} flexGrow={1} />
-          ) : (
-            <Button key={n.id} plain autoFocus={n.id === ring ? true : undefined} onPress={() => onPress(n.id)}>
-              <Text>
-                <Text mono color="inactive">
-                  {guide}
-                </Text>
-                <Text color={glyph.color}>{glyph.text} </Text>
-                {n.title}
-              </Text>
-            </Button>
-          )}
-        </Box>,
-      )
-      // A picked step shows its whole detail, its note and its buttons under it.
-      if (drawer.pick === n.id && !parent) {
-        if (n.detail !== undefined && n.status !== 'in_progress') out.push(sub(`${on}   `, <Text size="footnote" color="inactive">{n.detail}</Text>, `pdetail-${n.id}`))
-        const note = noteText(n).trim()
-        if (note !== '') out.push(sub(`${on}   `, <Text size="footnote" color={n.status === 'blocked' ? 'error' : 'inactive'}>{note}</Text>, `pnote-${n.id}`))
-        // The guides run on beside the buttons, two rows tall to span them, so the tree's lines do not break.
-        out.push(
-          <Box key={`pact-${n.id}`} flexDirection="row" alignItems="center">
-            <Text mono color="inactive">
-              {`${on}\n${on}`}
-            </Text>
-            <Box flexDirection="row" flexGrow={1} gap="xs" justifyContent="flex-end">
-              {[...(n.status === 'needs_check' ? [[CONFIRM, t().confirm.replace(/^\[ (.*) \]$/, '$1')] as const] : []), [ASK, t().discuss.replace(/^\[ (.*) \]$/, '$1')] as const].map(([id, label]) => (
-                <Button key={id} variant="primary" onPress={() => onPress(id)}>
-                  {label}
-                </Button>
-              ))}
-            </Box>
-          </Box>,
-        )
-      }
-    }
-    const end = axis.find(a => a.kind === 'summary')
-    if (end !== undefined && end.kind === 'summary') out.push(<Box marginTop="sm">{summary(end)}</Box>)
-    return out
-  }
-  const tree = list ? listRows() : []
-  const flow: RenderChildren[] = []
-  if (!list) axis.forEach((a, i) => {
-    const first = i === 0
-    const last = i === axis.length - 1
-    if (a.kind === 'split') {
-      // Lines only between cards: none above a first group or under a last one.
-      if (!first) flow.push(pic(splitSvg(a.stages.length), `split-${i}`))
-      flow.push(
-        // Each card keeps its own height: one opened beside a short one leaves no empty box.
-        <Box flexDirection="row" alignItems="flex-start">
-          {a.stages.map(s => (
-            <Box width={`${100 / a.stages.length}%`} flexDirection="column" paddingX="xs">
-              {card(s)}
-            </Box>
-          ))}
-        </Box>,
-      )
-      if (!last) flow.push(pic(joinSvg(a.stages.length), `join-${i}`))
-      return
-    }
-    if (a.kind === 'expected') flow.push(pic(dottedTrunkSvg(), `trunk-${i}`))
-    else if (!first && axis[i - 1]?.kind !== 'split') flow.push(pic(trunkSvg(), `trunk-${i}`))
-    flow.push(
-      <Box flexDirection="column" paddingX="xs">
-        {a.kind === 'stage' ? card(a.stage) : a.kind === 'expected' ? ahead(a.title) : summary(a)}
-      </Box>,
-    )
-  })
-
-  // Shelved plans of one state under their label, each row opening to its steps, read only.
-  const shelved = (plans: readonly Shelved[], label: string, prefix: string, finished: boolean) =>
-    plans.length === 0 ? null : (
-      <Box flexDirection="column" gap="xs" paddingX="xs">
-        <Text size="footnote" weight="semibold">
-          {label}
-        </Text>
-        {plans.map((p, i) => {
-          const { done, total } = progress(p.plan)
-          const id = `${prefix}${i}`
-          const open = drawer.open[id] === true
-          const props: StepRowProps = { id, guide: null, mark: finished ? { text: '✓', color: 'success' } : { text: open ? '▾' : '▸', color: 'inactive' }, title: p.plan.title, strong: false, muted: true, strike: false, redo: false, pill: null, after: finished ? (open ? '▾' : '▸') : null, right: { text: `${done}/${total}`, color: 'inactive' }, hover: HOVER, edge: EDGE }
-          return (
-            <Box key={id} flexDirection="column">
-              {Client !== null ? (
-                <Client key={id} module="./step-row.tsx" props={props} flexGrow={1} />
-              ) : (
-                <Button key={id} plain onPress={() => onPress(id)}>
-                  <Text size="footnote" color="inactive">
-                    {`${open ? '▾' : '▸'} ${finished ? '✓ ' : ''}${p.plan.title}  ${done}/${total}`}
-                  </Text>
-                </Button>
-              )}
-              {/* Its steps, read only, each indented by its level with its mark. */}
-              {open
-                ? p.plan.nodes.map(n => (
-                    <Box key={`${id}-${n.id}`} flexDirection="row" gap="xs" paddingLeft={n.id.split('.').length * 2}>
-                      <Text size="footnote" color={glyphSeg(n).color}>
-                        {glyphSeg(n).text}
-                      </Text>
-                      <Text size="footnote" color="inactive">
-                        {n.title}
-                      </Text>
-                    </Box>
-                  ))
-                : null}
-            </Box>
-          )
-        })}
-      </Box>
-    )
-
-  const top =
-    plan.nodes.length === 0 ? (
-      <Text color="inactive">{t().empty}</Text>
-    ) : (
-      nativeHead($, e, headOf(plan, parked.length, activity), {
-        title: (
-          <Text size="heading" weight="semibold">
-            {plan.title}
-          </Text>
-        ),
-        goalRows: 3,
-        tools: (
-            <Box flexDirection="row" alignItems="center" gap="xs">
-              {list ? null : (
-                <Button key={EXPAND_ALL} onPress={() => onPress(EXPAND_ALL)}>
-                  {t().expandAll}
-                </Button>
-              )}
-              {list ? null : (
-                <Button key={COLLAPSE_ALL} onPress={() => onPress(COLLAPSE_ALL)}>
-                  {t().collapseAll}
-                </Button>
-              )}
-              <Box flexGrow={1} />
-              <Button key={REFRESH} accessibilityLabel={t().refresh} onPress={() => onPress(REFRESH)}>
-                ↻
-              </Button>
-              <Button key={VIEW} onPress={() => onPress(VIEW)}>
-                {list ? t().toFlow : t().toList}
-              </Button>
-            </Box>
-        ),
-      })
-    )
+// The drawer on a surface with its own type: a heading title with ↻ at its right, then the rows;
+// the app scrolls it itself.
+const nativeDrawer = ($: $, e: Ev, s: Shown, rows: readonly Row[], now: number, onPress: (id: string) => void) => {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const empty = s.board.chapters.length === 0
 
   return (
-    <Box flexDirection="column" gap="md">
-      {top}
-      {shelved(shelf.filter(x => x.state === 'done'), t().finished, DONE, true)}
-      {flow.length === 0 ? null : (
-        <Box flexDirection="column" gap="xs">
-          {flow}
+    <Box flexDirection="column" gap="xs" paddingX="xs">
+      {empty ? null : (
+        <Box flexDirection="row" alignItems="center" gap="xs">
+          <Text size="heading" weight="semibold">
+            {titleOf(s.board)}
+          </Text>
+          <Box flexGrow={1} />
+          <Button key={REFRESH} onPress={() => onPress(REFRESH)}>
+            ↻
+          </Button>
         </Box>
       )}
-      {tree.length === 0 ? null : (
-        <Box flexDirection="column" paddingX="xs">
-          {tree}
-        </Box>
-      )}
-      {shelved(parked, t().shelf, SHELF, false)}
+      {nativeRows($, e, rows, now)}
     </Box>
   )
 }
 
-async function shown($: $, autoShow: boolean): Promise<boolean> {
+async function visible($: $, autoShow: boolean): Promise<boolean> {
   return enabled && (autoShow || (await read($, askedAtom)))
-}
-
-async function hidden($: $, plan: Plan, autoShow: boolean): Promise<boolean> {
-  return plan.nodes.length === 0 || !(await shown($, autoShow))
-}
-
-// A finished plan stays above the prompt folded to its title and progress until a press opens it;
-// the fold the person set while work runs is kept apart.
-async function bandFolded($: $, plan: Plan): Promise<boolean> {
-  return finishedAt(plan) === null ? read($, foldAtom) : !(await read($, doneOpenAtom))
-}
-
-async function toggleBand($: $): Promise<void> {
-  if (finishedAt(await read($, planAtom)) === null) await update($, foldAtom, f => !f)
-  else await update($, doneOpenAtom, o => !o)
 }
 
 async function act($: $, ev: ActivityEvent): Promise<void> {
@@ -693,18 +195,14 @@ async function act($: $, ev: ActivityEvent): Promise<void> {
 }
 
 let ticker: Timer | null = null
-// Where the drawer's own window stood when it was last drawn, for the person's next scroll.
-let page = { top: 0, max: 0, pinned: false }
-// The band or drawer was drawn on a terminal, where the running step moves by redrawing.
+// The band or drawer was drawn on a terminal, where the running chapter's mark turns by redrawing.
 // shortcut: one flag for the session, so a desktop viewer beside a terminal redraws as often; split per surface if that costs.
 let onTerminal = false
 
-// While a turn runs on an open plan: each frame on a terminal, for the running step's motion;
-// each second elsewhere, for the elapsed times.
-async function tick($: $, running: boolean): Promise<void> {
-  const want = running && hasOpenWork(await read($, planAtom))
-  if (want && ticker === null) ticker = $.clock.every(onTerminal ? FRAME_MS : 1000, () => $.ui.invalidate('ui.render'))
-  if (!want && ticker !== null) {
+// While a turn runs: each frame on a terminal, for the turning mark; the app turns its own picture.
+function tick($: $, running: boolean): void {
+  if (running && onTerminal && ticker === null) ticker = $.clock.every(FRAME_MS, () => $.ui.invalidate('ui.render'))
+  if (!running && ticker !== null) {
     ticker.cancel()
     ticker = null
   }
@@ -717,15 +215,6 @@ const newest = <T extends { savedAt: number },>(all: Record<string, T>, kept = K
       .slice(0, kept),
   )
 
-// One board per session, the most recent sessions kept.
-async function save($: $, plan: Plan, shelf: Shelved[]): Promise<void> {
-  const sid = await $.session.id()
-  const saved = ((await $.store.get('plans')) ?? {}) as Saved
-  saved[sid] = { plan, shelf, savedAt: await $.clock.now() }
-  // A store that refuses the write (it is full) must not take the board on screen down with it.
-  await $.store.set('plans', newest(saved)).catch(() => undefined)
-}
-
 // The session's recent model calls, beside its board; never shown to Claude.
 async function record($: $, c: Call): Promise<void> {
   await inTurn(async () => {
@@ -736,8 +225,7 @@ async function record($: $, c: Call): Promise<void> {
   }).catch(() => undefined)
 }
 
-// The planner and the design call run side by side: their reads and writes of the board and the
-// store take turns, so neither writes over what the other just wrote.
+// Writes to the store take turns, so one does not write over what another just wrote.
 let turns: Promise<unknown> = Promise.resolve()
 function inTurn<T>(fn: () => Promise<T>): Promise<T> {
   const run = turns.then(fn)
@@ -770,75 +258,18 @@ async function demo($: $, arg: string | undefined): Promise<string> {
             })()
   if (arg !== undefined && !['stop', 'next', 'prev'].includes(arg) && demoFind(arg) === undefined) return t().demo.unknown(demoList())
   await update($, demoAtom, () => to)
-  await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
   if (to === null) return t().demo.ended
   const s = scenarios()[to.scenario]
 
   return t().demo.at(to.scenario + 1, scenarios().length, s?.title ?? '', demoFrame(to)?.label ?? '', demoList())
 }
 
-// A press in the drawer: a Button's, or a row a desktop draws as a Client.
+// A press in the drawer: ↻ has the writer read the whole session again now, not after the gap.
 async function pressDrawer($: $, id: string): Promise<void> {
-  const at = await read($, demoAtom)
-  const frame = at === null ? undefined : demoFrame(at)
-  const plan = frame?.board.plan ?? (await read($, planAtom))
-  const pick = (await read($, drawerAtom)).pick
-  const picked = plan.nodes.find(n => n.id === pick)
-  if (id === CONFIRM && picked !== undefined) {
-    if (frame !== undefined) return $.ui.toast(t().demo.untouched)
-    await apply($, { op: 'update', updates: [{ id: picked.id, status: 'completed', note: '' }] })
-    await update($, drawerAtom, d => ({ ...d, pick: undefined }))
-    return
-  }
-  if (id === REFRESH) {
-    if (frame !== undefined) return $.ui.toast(t().demo.untouched)
-    recheck = true
-    return planSoon($)
-  }
-  // A draft, not a send: the person writes the rest and sends it themselves.
-  if (id === ASK && picked !== undefined) {
-    const r = await $.prompt.fill({ text: `[${picked.title}] `, mode: 'insert' })
-    $.ui.toast(r.isFilled ? t().filled : t().notFilled)
-    return
-  }
-  await update($, drawerAtom, (d): DrawerState =>
-    id === EXPAND_ALL || id === COLLAPSE_ALL
-      ? foldAll(plan, d, id === EXPAND_ALL)
-      : id === FOLLOW
-        ? { ...d, top: undefined }
-        : id === VIEW
-          ? { ...d, list: d.list !== true, top: undefined }
-          : id.startsWith(SHELF)
-            ? { ...d, open: { ...d.open, [id]: d.open[id] !== true } }
-            : hasChildren(plan.nodes, id)
-            ? { ...toggleFold(plan, d, id), focus: id }
-            : pickStep(d, id),
-  )
-}
-
-// Runs one op on the board, from the side planner or a press in the drawer, and redraws.
-const apply = ($: $, op: PlanOp): Promise<{ text: string } | { error: string }> => inTurn(() => applyNow($, op))
-async function applyNow($: $, op: PlanOp): Promise<{ text: string } | { error: string }> {
-  const before = await read($, planAtom)
-  const shelf = await read($, shelfAtom)
-  const ran = runOp({ plan: before, shelf }, op, await $.clock.now())
-  if ('error' in ran) return ran
-  if (ran.notice !== undefined) $.ui.toast(ran.notice)
-  await land($, before, shelf, ran.board)
-
-  return { text: ran.text }
-}
-
-// The board after an op or a design, put on screen and saved when it differs from the one before.
-async function land($: $, before: Plan, shelf: Shelved[], board: { plan: Plan; shelf: Shelved[] }): Promise<void> {
-  if (board.shelf !== shelf) await update($, shelfAtom, () => board.shelf)
-  if (board.plan === before && board.shelf === shelf) return
-  const plan = board.plan
-  await update($, planAtom, () => plan)
-  if (plan.title !== before.title) await update($, drawerAtom, (): DrawerState => ({ open: {}, focus: null }))
-  await save($, plan, board.shelf)
-  await tick($, true)
-  if (finishedAt(before) === null && finishedAt(plan) !== null) await update($, doneOpenAtom, () => false)
+  if (id !== REFRESH) return
+  if ((await read($, demoAtom)) !== null) return $.ui.toast(t().demo.untouched)
+  toastAfterWrite = true
+  writeSoon($, true)
 }
 
 // Whether a newer plan-flow is installed beside this one or out in its repository. The repository
@@ -871,48 +302,12 @@ async function resolveLanguage($: $, option: unknown): Promise<void> {
   setLanguage(pickLanguage(option, setting, locale))
 }
 
-// The side planner's queue. shortcut: module variables, lost on a reload of the mod (the board itself
-// is kept); move them to $.state if a reload mid-turn drops too much.
-const PLANNER_MODEL = 'haiku'
-let fresh: Happened[] = []
-// What earlier looks were handed, the newest MAX_LOG; ↻ (`recheck`) hands it to the next look again.
-let seen: Happened[] = []
-let recheck = false
-let request = ''
-let calls = 0
-let lastLook = 0
-let busy: Promise<void> | null = null
-let queued = false
-let again = false
-// Whether the planner's last look left the board as it was.
-let idleLook = false
-// Whether the design about to be asked mends a board left off: told what the board is read for, free to redraw.
-let mend = false
-let held = false
-// A failed look is tried once more after RETRY_MS; a look a hook asks for earns its own retry again.
-const RETRY_MS = 15_000
-let retried = false
-const LOOK_TIMEOUT_MS = 60_000
-// The design call runs beside the planner, one at a time; a fork takes no timeout, so the mod stops waiting after this.
-const DESIGN_WAIT_MS = 120_000
-let designing: Promise<void> | null = null
-// Claude, who does the work, designs the plan in a fork of the main conversation and says where each step
-// stands. It runs after a main request of the turn is out, so the fork holds the request and reads the
-// conversation from the cache.
-let design: 'none' | 'wanted' | 'done' = 'none'
-// A fork reads the whole conversation again, about what one model request of the main turn costs, so it
-// is asked only when the board was left off: see designDue. A design that gave no answer is owed.
-let owed = false
-// The plan in hand at the last answer, to tell one that came back from the shelf; whether the turn has answered.
-let hand = { key: '', startedAt: 0 }
-let atAnswer = false
-let stepped = false
-// The main turn ran a tool: its answer comes after work, so the plan may have moved.
+// The main turn ran a tool: its answer comes after work, so the board may have moved.
+// shortcut: module variables, lost on a reload of the mod (the board itself is kept); move them to
+// $.state if a reload mid-turn drops too much.
 let worked = false
-// Whether plan-flow runs in this session (`/flow on`, `/flow off`, kept per session), and whether
-// Claude designs the plan (the `design` option).
+// Whether plan-flow runs in this session (`/flow on`, `/flow off`, kept per session).
 let enabled = true
-let designOn = true
 type Switches = Record<string, { on: boolean; savedAt: number }>
 
 async function setEnabled($: $, on: boolean): Promise<void> {
@@ -923,21 +318,13 @@ async function setEnabled($: $, on: boolean): Promise<void> {
   await $.store.set('enabled', newest(all))
 }
 
-// What `/flow status` says: on or off here, the defaults, and what the kept calls used.
+// What `/flow status` says: on or off here, the default, and what the kept calls used.
 async function status($: $, startOn: boolean): Promise<string> {
   const log = ((await $.store.get('calls')) ?? {}) as Calls
-  const kept = log[await $.session.id()]?.calls ?? []
-  const sum = (kind: Call['call']) => {
-    const of = kept.filter(c => c.call === kind)
-    const u = (k: keyof Used) => of.reduce((n, c) => n + (c.usage?.[k] ?? 0), 0)
-    return { count: of.length, input: u('input') + u('cacheWrite'), cacheRead: u('cacheRead'), output: u('output') }
-  }
-  return t().status(enabled, startOn, designOn, KEPT_CALLS, sum('look'), sum('design'), sum('write'))
-}
+  const writes = (log[await $.session.id()]?.calls ?? []).filter(c => c.call === 'write')
+  const u = (k: keyof Used) => writes.reduce((n, c) => n + (c.usage?.[k] ?? 0), 0)
 
-// Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
-export const plannerIdle = async (): Promise<void> => {
-  while (busy !== null || designing !== null) await (busy ?? designing)
+  return t().status(enabled, startOn, KEPT_CALLS, { count: writes.length, input: u('input') + u('cacheWrite'), cacheRead: u('cacheRead'), output: u('output') })
 }
 
 const used = (u: ModelUsage | undefined): { usage?: Used } =>
@@ -946,175 +333,9 @@ const used = (u: ModelUsage | undefined): { usage?: Used } =>
 // Why a model call came back without an answer, as the call log keeps it.
 const whyNot = (r: { reason: string; status?: number | null; error?: string }): string => [r.reason, r.status ?? undefined, r.error].filter(x => x !== undefined).join(' ')
 
-// One look: the board and what happened since the last, to the planner, then its ops on the board.
-async function planOnce($: $): Promise<void> {
-  const rechecking = recheck
-  recheck = false
-  const take = fresh
-  fresh = []
-  calls = 0
-  const log = rechecking ? [...seen, ...take] : take
-  if (log.length === 0) return rechecking ? $.ui.toast(t().rechecked(0)) : undefined
-  const at = await $.clock.now()
-  lastLook = at
-  const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
-  const head: Happened[] = request === '' || log.some(h => h.kind === 'request') ? [] : [{ kind: 'request', text: request }]
-  const r = await $.model
-    .complete({ model: PLANNER_MODEL, effort: 'low', system: [{ text: PLANNER_SYSTEM, cache: true }], prompt: plannerPrompt(board, [...head, ...log], rechecking), maxTokens: 4000, timeoutMs: LOOK_TIMEOUT_MS })
-    .catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) }))
-  const ms = (await $.clock.now()) - at
-  if (!r.isAnswered) {
-    // Kept for the next look, so a failed call loses nothing; tried again soon, so a failure at the
-    // session's last answer does not leave the board as it was.
-    fresh = [...take, ...fresh]
-    // The retry looks again too.
-    if (rechecking) {
-      recheck = true
-      $.ui.toast(t().rechecked(null))
-    }
-    await record($, { at, call: 'look', ms, result: r.reason === 'aborted' && ms >= LOOK_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
-    if (!retried) {
-      retried = true
-      $.clock.after(RETRY_MS, () => planSoon($, true))
-    }
-    return
-  }
-  seen = [...seen, ...take].slice(-MAX_LOG)
-  $.ui.log(`planner: ${r.text}`, { to: 'debug' })
-  const ops = parseOps(r.text)
-  let applied = 0
-  for (const op of ops) if (!('error' in (await apply($, op)))) applied++
-  if (rechecking) $.ui.toast(t().rechecked(applied))
-  idleLook = applied === 0
-  await record($, { at, call: 'look', ms, result: 'answered', ops: applied, ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
-  if (designOn && design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
-  await keepRunning($)
-}
-
-// The planner often marks steps done without starting the next; open work keeps a step running, so it is drawn as running.
-async function keepRunning($: $): Promise<void> {
-  const after = await read($, planAtom)
-  if (hasOpenWork(after) && currentLeaf(after)?.status === 'pending') await apply($, { op: 'next' })
-}
-
-// Claude, in a fork of the main conversation, reshapes the plan the planner drew; the main conversation is untouched.
-async function designOnce($: $): Promise<void> {
-  const board = { plan: await read($, planAtom), shelf: await read($, shelfAtom) }
-  // A finished plan is designed too: what the last answer left with the person belongs on it.
-  if (board.plan.nodes.length === 0) return
-  const at = await $.clock.now()
-  const mending = mend
-  owed = false
-  let timer: Timer | undefined
-  const late = new Promise<'late'>(resolve => {
-    timer = $.clock.after(DESIGN_WAIT_MS, () => resolve('late'))
-  })
-  // A fork given up on may still answer later; nothing waits for it then, so its ops never land.
-  const r = await Promise.race([$.model.fork({ prompt: designPrompt(board, mending) }).catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) })), late])
-  timer?.cancel()
-  const ms = (await $.clock.now()) - at
-  // A design that gave no answer (the model was busy, as with many sessions at once) is owed: the
-  // next answer after work asks again.
-  if (r === 'late' || !r.isAnswered) owed = true
-  if (r === 'late') return record($, { at, call: 'design', ms, result: 'timed out' })
-  // Nothing to fork yet means no request was made: nothing to keep.
-  if (!r.isAnswered) return r.reason === 'nothing-to-fork' ? undefined : record($, { at, call: 'design', ms, result: 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
-  $.ui.log(`designer: ${r.text}`, { to: 'debug' })
-  // The planner kept looking meanwhile. The design lands only on the plan it was asked about: the same
-  // title and start, and every step it saw still under its id, since its ops name steps by id. The
-  // check and the ops take one turn at the board, so no look lands between them.
-  const applied = await inTurn(async () => {
-    const now = await read($, planAtom)
-    const same = now.title === board.plan.title && now.startedAt === board.plan.startedAt && board.plan.nodes.every(n => now.nodes.find(m => m.id === n.id)?.title === n.title)
-    if (!same) return null
-    const shelf = await read($, shelfAtom)
-    const ran = runDesign({ plan: now, shelf }, r.text, await $.clock.now(), mending)
-    await land($, now, shelf, ran.board)
-
-    return ran.applied
-  })
-  if (applied === null) return record($, { at, call: 'design', ms, result: 'stale', ...used(r.usage) })
-  await record($, { at, call: 'design', ms, result: 'answered', ops: applied, ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
-  await keepRunning($)
-}
-
-// One plan among the session's: its start and title.
-const planKey = (plan: Plan): string => `${plan.startedAt ?? 0} ${plan.title}`
-
-// Whether a design wanted now is asked: only at an answer, and only when the board was left off. A plan
-// that came back from the shelf returns as the planner left it, before the work done under the plan
-// that took its place, so the next answer has Claude set it right.
-async function designDue($: $): Promise<boolean> {
-  mend = false
-  if (!atAnswer) return false
-  const plan = await read($, planAtom)
-  // Another plan than the one in hand at the last answer, and older than it: it was on the shelf.
-  const back = planKey(plan) !== hand.key && (plan.startedAt ?? 0) < hand.startedAt
-
-  // An answer the planner looked at and changed nothing for leaves the board as it was before the
-  // work: Claude is asked, so no answer after work goes by with the board unchanged. Replayed over five
-  // sessions, designs asked beyond these moments cost a quarter more and left the boards' score as it was.
-  mend = back || idleLook || owed
-
-  return mend
-}
-
-// Asks for a look outside the hook that noticed something, one at a time; a look asked for while
-// one runs follows it.
-function planSoon($: $, retry = false): void {
-  if (!enabled) return
-  if (!retry) retried = false
-  if (busy !== null) {
-    again = true
-    return
-  }
-  if (queued) return
-  queued = true
-  $.clock.after(0, () => {
-    queued = false
-    busy = (async () => {
-      do {
-        again = false
-        await planOnce($).catch(() => undefined)
-        // Started, not awaited: the looks go on while it runs.
-        const due = design === 'wanted' && stepped && designing === null && (await designDue($))
-        // An answer after a little work on a plan already designed is left to the planner.
-        if (design === 'wanted' && atAnswer && !due && designing === null) design = 'done'
-        if (atAnswer) {
-          const plan = await read($, planAtom)
-          hand = { key: planKey(plan), startedAt: plan.startedAt ?? 0 }
-        }
-        if (due) {
-          design = 'done'
-          designing = designOnce($)
-            .catch(() => undefined)
-            .finally(() => {
-              designing = null
-            })
-        }
-      } while (again)
-    })().finally(() => {
-      busy = null
-    })
-  })
-}
-
-// A look asked for while Claude works: at once when the last is LOOK_GAP_MS old (or there was none),
-// else once when it is.
-async function planWhileWorking($: $): Promise<void> {
-  const wait = lastLook === 0 ? 0 : lastLook + LOOK_GAP_MS - (await $.clock.now())
-  if (wait <= 0) return planSoon($)
-  if (held) return
-  held = true
-  $.clock.after(wait, () => {
-    held = false
-    planSoon($)
-  })
-}
-
-// The request-list board's writer. Sonnet rereads the whole session and writes the board again: at an
-// answer that followed work, and once three minutes pass with nothing new after an answer. Rules add
-// what is certain in between (chapters.ts). One write at a time; a write wanted meanwhile follows it.
+// The board's writer. Sonnet rereads the whole session and writes the board again: at an answer that
+// followed work, once three minutes pass with nothing new after an answer, and when the person presses
+// ↻. Rules add what is certain in between (chapters.ts). One write at a time; a write wanted meanwhile follows it.
 const WRITER_MODEL = 'sonnet'
 const WRITE_TIMEOUT_MS = 120_000
 export const IDLE_WRITE_MS = 3 * 60_000
@@ -1122,12 +343,14 @@ export const IDLE_WRITE_MS = 3 * 60_000
 export const WRITE_GAP_MS = 30_000
 let writing: Promise<void> | null = null
 let writeAgain = false
-let writeHeld = false
+let held: Timer | null = null
 let lastWrite = Number.NEGATIVE_INFINITY
 let idleTimer: Timer | null = null
 // Everything heard counts; a write after three idle minutes is skipped when nothing came since the last.
 let heardCount = 0
 let writtenCount = -1
+// ↻ was pressed: the next write that ends says how it went.
+let toastAfterWrite = false
 
 type SavedKept = Record<string, { kept: Kept; savedAt: number }>
 async function hearRule($: $, h: Heard): Promise<void> {
@@ -1141,41 +364,60 @@ async function saveKept($: $): Promise<void> {
   await $.store.set('chapters', newest(all)).catch(() => undefined)
 }
 
-async function writeOnce($: $): Promise<void> {
+// One write; whether the board was written.
+async function writeOnce($: $): Promise<boolean> {
   const cut = (await read($, keptAtom)).seq
   const counted = heardCount
   const story = storyOf(await $.session.messages(), MAX_STORY)
-  if (story === '') return
+  if (story === '') return false
   const at = await $.clock.now()
   lastWrite = at
   const r = await $.model
     .complete({ model: WRITER_MODEL, system: [{ text: WRITER_SYSTEM, cache: true }], prompt: writerPrompt(story), maxTokens: 8000, timeoutMs: WRITE_TIMEOUT_MS })
     .catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) }))
   const ms = (await $.clock.now()) - at
-  if (!r.isAnswered) return record($, { at, call: 'write', ms, result: r.reason === 'aborted' && ms >= WRITE_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
+  if (!r.isAnswered) {
+    await record($, { at, call: 'write', ms, result: r.reason === 'aborted' && ms >= WRITE_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
+    return false
+  }
   const board = parseBoard(r.text)
-  if (board === undefined) return record($, { at, call: 'write', ms, result: 'failed', reason: 'not a board', ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
+  if (board === undefined) {
+    await record($, { at, call: 'write', ms, result: 'failed', reason: 'not a board', ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
+    return false
+  }
   writtenCount = counted
   await update($, keptAtom, k => rewritten(k, board, cut))
   await saveKept($)
   await record($, { at, call: 'write', ms, result: 'answered', ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
+  return true
 }
 
-function writeSoon($: $): void {
+// Asks for a write once the gap since the last has passed, or `now`, at once.
+function writeSoon($: $, now = false): void {
   if (!enabled) return
   if (writing !== null) {
     writeAgain = true
     return
   }
-  if (writeHeld) return
-  writeHeld = true
-  void $.clock.now().then(now => {
-    $.clock.after(Math.max(0, lastWrite + WRITE_GAP_MS - now), () => {
-      writeHeld = false
+  if (held !== null && !now) return
+  held?.cancel()
+  held = null
+  void $.clock.now().then(at => {
+    if (writing !== null || (held !== null && !now)) return
+    held?.cancel()
+    held = $.clock.after(now ? 0 : Math.max(0, lastWrite + WRITE_GAP_MS - at), () => {
+      held = null
+      if (writing !== null) {
+        writeAgain = true
+        return
+      }
       writing = (async () => {
         do {
           writeAgain = false
-          await writeOnce($).catch(() => undefined)
+          const toast = toastAfterWrite
+          toastAfterWrite = false
+          const ok = await writeOnce($).catch(() => false)
+          if (toast) $.ui.toast(t().rewrote(ok))
         } while (writeAgain)
       })().finally(() => {
         writing = null
@@ -1184,12 +426,15 @@ function writeSoon($: $): void {
   })
 }
 
-// Three minutes after an answer with nothing new from the person, the board is written again if
-// anything came since the last write; a request, a turn or typing in the prompt calls it off.
+// Three minutes after an answer with nothing new from the person: the note for their coming back
+// shows, and the board is written again if anything came since the last write. A request, a turn
+// or typing in the prompt calls it off.
 function idleWriteAfterAnswer($: $): void {
   idleTimer?.cancel()
   idleTimer = $.clock.after(IDLE_WRITE_MS, () => {
     idleTimer = null
+    if (!enabled) return
+    void update($, awayAtom, () => true)
     if (heardCount !== writtenCount) writeSoon($)
   })
 }
@@ -1198,7 +443,26 @@ function callOffIdleWrite(): void {
   idleTimer = null
 }
 
-// Settles once no board write is in flight or waiting on its gap.
+// The person is back: the note folds away.
+async function back($: $): Promise<void> {
+  callOffIdleWrite()
+  if (await read($, awayAtom)) await update($, awayAtom, () => false)
+}
+
+// The board a view draws: a demo's while one runs, else the session's.
+async function board($: $) {
+  const at = await read($, demoAtom)
+  const frame = at === null ? undefined : demoFrame(at)
+  return {
+    at,
+    frame,
+    shown: frame?.shown ?? shownOf(await read($, keptAtom)),
+    activity: frame?.activity ?? (await read($, activityAtom)),
+    now: frame?.now ?? (await $.clock.now()),
+  }
+}
+
+// Settles once no board write is in flight.
 export const writerIdle = async (): Promise<void> => {
   while (writing !== null) await writing
 }
@@ -1206,22 +470,17 @@ export const writerIdle = async (): Promise<void> => {
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const startOn = options.enabled !== false
-  designOn = options.design !== false
 
   on('session.start', async ($, e, next) => {
     await resolveLanguage($, options.language)
     await $.command.register({ name: 'flow', description: t().command, immediate: true })
-    const saved = ((await $.store.get('plans')) ?? {}) as Saved
-    const mine = saved[await $.session.id()]
     enabled = (((await $.store.get('enabled')) ?? {}) as Switches)[await $.session.id()]?.on ?? startOn
-    const plan = mine?.plan ?? emptyPlan()
-    await update($, planAtom, () => plan)
-    await update($, shelfAtom, () => mine?.shelf ?? [])
     callOffIdleWrite()
     lastWrite = Number.NEGATIVE_INFINITY
     ;[heardCount, writtenCount] = [0, -1]
     const kept = (((await $.store.get('chapters')) ?? {}) as SavedKept)[await $.session.id()]?.kept ?? emptyKept()
     await update($, keptAtom, () => kept)
+    await update($, awayAtom, () => false)
     // A resumed session with no board yet has it written from what is already there.
     if (enabled && kept.seq === 0 && (await $.session.messages().catch(() => [])).length > 0) writeSoon($)
     await update($, activityAtom, () => idleActivity())
@@ -1232,35 +491,29 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Each request the person sends: last request's marks go, and the planner hears it. Nothing is added to the request.
+  // Each request the person sends starts a chapter (a bare go-ahead continues the one before);
+  // a notice (a task finishing) is news, not a request. Nothing is added to the request.
   on('prompt.submit', async ($, e, next) => {
     if (e.command !== undefined || e.isMeta === true) return next(e)
+    heardCount++
     if (!PERSON.has(e.origin.kind)) {
-      // Its turn ends with an answer, and the planner looks then.
-      fresh = remember(fresh, { kind: 'notice', text: noticeLine(e.text) })
-      heardCount++
       const ended = backgroundDone(e.text)
       if (ended !== undefined) await hearRule($, { kind: 'backgroundDone', id: ended })
       return next(e)
     }
-    const plan = await read($, planAtom)
-    if (plan.marks !== undefined) await update($, planAtom, clearMarks)
-    request = e.text
-    design = 'none'
-    atAnswer = false
-    stepped = false
     worked = false
-    fresh = remember(fresh, { kind: 'request', text: e.text })
-    planSoon($)
-    heardCount++
-    callOffIdleWrite()
+    await back($)
     await hearRule($, { kind: 'request', text: e.text })
 
     return next(e)
   })
 
-  // Every tool call, a subagent's too: a line for the planner, marked when it failed, and for the
-  // main loop the activity line; what Claude gets back is untouched.
+  // The person typing, or a recalled entry put in the box: they are back.
+  on('prompt.edit', async ($, e, next) => (await back($), next(e)))
+  on('prompt.change', async ($, e, next) => (await back($), next(e)))
+
+  // Every tool call, a subagent's too: an open question, background work and what a command
+  // produced for the rules, and for the main loop the activity line; what Claude gets back is untouched.
   on('tool.call', async ($, e, next) => {
     const sub = e.agentId !== undefined
     const question = e.tool === 'AskUserQuestion'
@@ -1275,11 +528,6 @@ export const register: Register = (on, options) => {
       if (question && !sub) await hearRule($, { kind: 'answered', id: e.tool_use_id })
       const receipt = e.tool === 'Bash' && out.deny === undefined && out.isError !== true ? receiptOf(String(input.command ?? ''), `${out.text ?? ''}\n${typeof out.result === 'string' ? out.result : JSON.stringify(out.result ?? '')}`) : undefined
       if (receipt !== undefined) await hearRule($, { kind: 'receipt', receipt })
-      if (out.deny !== undefined || question || e.tool === 'ToolSearch') return out
-      const line = toolLine(e.tool, e as unknown as Record<string, unknown>)
-      fresh = remember(fresh, { kind: sub ? 'subagent' : 'tool', text: out.isError === true ? `${line} (failed)` : line })
-      if (out.isReadOnly !== true && GUARDED.has(e.tool)) calls++
-      if (calls >= PLAN_EVERY || (await $.clock.now()) - lastLook >= LOOK_EVERY_MS) await planWhileWorking($)
 
       return out
     } finally {
@@ -1302,26 +550,19 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
-      // A turn a notice started has no request of the person's to reset this.
-      atAnswer = false
       callOffIdleWrite()
       await act($, { type: 'turnStart' })
-      await tick($, true)
+      tick($, true)
     }
 
     return next(e)
   })
 
-  // Each model request of the main turn, read as it ends and passed on untouched: what Claude says
-  // between its calls tells where the work stands, so the planner hears it and looks.
+  // Each model request of the main turn, passed on untouched: one that called a tool means the
+  // answer comes after work.
   on('turn.step', async function* ($, e, next) {
     const r = yield* next(e)
-    if (e.agentId !== undefined) return r
-    stepped = true
-    if (r.toolUses.length > 0) worked = true
-    const said = r.toolUses.length > 0 && r.answer.trim() !== ''
-    if (said) fresh = remember(fresh, { kind: 'said', text: r.answer })
-    if (said) await planWhileWorking($)
+    if (e.agentId === undefined && r.toolUses.length > 0) worked = true
 
     return r
   })
@@ -1329,19 +570,11 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
       await act($, { type: 'turnEnd', reason: e.reason })
-      await tick($, false)
-      fresh = remember(fresh, { kind: 'answer', text: e.answer })
-      atAnswer = true
+      tick($, false)
       heardCount++
       if (worked) writeSoon($)
+      worked = false
       idleWriteAfterAnswer($)
-      // An answer of a question explained leaves the plan where it was, and costs no fork.
-      if (worked) {
-        if (designOn) design = 'wanted'
-        stepped = true
-        worked = false
-      }
-      planSoon($)
       void checkVersion($).catch(() => undefined)
     }
 
@@ -1354,7 +587,8 @@ export const register: Register = (on, options) => {
     if (word === 'status') return { text: await status($, startOn) }
     if (word === 'on' || word === 'off') {
       await setEnabled($, word === 'on')
-      if (word === 'on') planSoon($)
+      // Back on, the board catches up on what happened while it was off.
+      if (word === 'on') writeSoon($)
       else if ((await $.ui.panes()).some(p => p.id === PANE)) await $.ui.close({ id: PANE })
       $.ui.invalidate('ui.render')
       return { text: word === 'on' ? t().turnedOn : t().turnedOff }
@@ -1370,20 +604,16 @@ export const register: Register = (on, options) => {
     return { text: placed ? t().opened : t().openedLater }
   })
 
-  // The tree above the prompt.
-  // The band is one slot: what the plugins beneath draw stays, under the tree.
+  // The band above the prompt. It is one slot: what the plugins beneath draw stays, under the band.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const below = await next(e)
     if (e.surface === 'terminal') onTerminal = true
     if (e.props.hasSurvey) return below
-    const at = await read($, demoAtom)
-    const frame = at === null ? undefined : demoFrame(at)
-    const plan = frame?.board.plan ?? (await read($, planAtom))
-    if (frame === undefined && (await hidden($, plan, autoShow))) return below
+    const { at, frame, shown, activity, now } = await board($)
+    if (frame === undefined && (shown.board.chapters.length === 0 || !(await visible($, autoShow)))) return below
     if ((await read($, paneAtom)) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)) return below
     const { Box } = $.ui.resolve(e)
     const width = e.props.bodyColumns
-    const now = frame?.now ?? (await $.clock.now())
     const top: Line[] =
       at === null || frame === undefined
         ? []
@@ -1401,109 +631,56 @@ export const register: Register = (on, options) => {
             ),
             fitLine([{ text: frame.label, color: 'inactive' }], width),
           ]
-    const activity = frame?.activity ?? (await read($, activityAtom))
-    const shelf = frame?.board.shelf ?? (await read($, shelfAtom))
-    const parked = shelf.filter(s => s.state === 'parked').length
-    const finished = shelf.filter(s => s.state === 'done').map(s => s.plan.title)
     const notice = frame === undefined ? await read($, newerAtom).then(n => (n === null ? undefined : t().newer(n))) : undefined
-    const view = drawTree(plan, activity, {
-      maxRows: Math.min(e.props.maxRows, BAND_ROWS) - top.length,
-      width,
-      now,
-      open: t().bandOpen,
-      folded: frame?.folded ?? (await bandFolded($, plan)),
-      parked,
-      notice,
-      finished,
-    })
+    const folded = frame?.folded ?? (await read($, foldAtom))
+    const away = frame?.away ?? (await read($, awayAtom))
+    const rows = bandStack(shown, activity, { ...(e.surface === 'terminal' ? { width } : {}), maxRows: e.props.maxRows - top.length, folded, now, away, ...(notice === undefined ? {} : { notice }) })
     const press = (id: string) => {
       if (id === OPEN_BUTTON) void openDrawer($)
-      if (id === FOLD_BUTTON) void toggleBand($)
+      if (id === FOLD_BUTTON) void update($, foldAtom, f => !f)
       if (id === DEMO_NEXT) void demo($, 'next')
       if (id === DEMO_PREV) void demo($, 'prev')
       if (id === DEMO_STOP) void demo($, 'stop')
     }
 
     // A surface with its own type draws the band natively; a demo's bar stays as lines over it.
-    if (e.surface !== 'terminal') {
-      const folded = frame?.folded ?? (await bandFolded($, plan))
-      const budget = Math.min(e.props.maxRows, BAND_ROWS) - top.length - planHead(plan, activity, Math.min(e.props.maxRows, BAND_ROWS) - top.length, width, now, t().bandOpen, parked, folded, notice, bandGoalRows(folded), finished).length
+    if (e.surface !== 'terminal')
       return (
         <Box flexDirection="column" gap="xs">
-          {top.map(l => row($, e, l, null, press))}
-          {nativeBand($, e, plan, activity, { folded, parked, finished, ...(notice === undefined ? {} : { notice }), budget, width, now, onPress: press })}
+          {top.map(l => row($, e, l, press))}
+          {nativeBand($, e, shown, rows, { folded, now, onPress: press, ...(notice === undefined ? {} : { notice }) })}
           {below}
         </Box>
       )
-    }
 
     return (
       <Box flexDirection="column">
-        {[...top, ...view].map(l => row($, e, l, null, press))}
+        {top.map(l => row($, e, l, press))}
+        {rows.map(r => termRow($, e, r, press))}
         {below}
       </Box>
     )
   })
 
-  // The drawer.
+  // The drawer: every chapter of the session; the engine scrolls it.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box } = $.ui.resolve(e)
-    const at = await read($, demoAtom)
-    const frame = at === null ? undefined : demoFrame(at)
-    const plan = frame?.board.plan ?? (await read($, planAtom))
-    const drawer = await read($, drawerAtom)
     if (e.surface === 'terminal') onTerminal = true
-    const now = frame?.now ?? (await $.clock.now())
-    const activity = frame?.activity ?? (await read($, activityAtom))
-    const view = drawerView(plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, activity, {
-      width: e.props.bodyColumns,
-      now,
-    })
-    const shown = drawerPage(view, e.props.scroll.bodyRows, drawer.top, e.props.bodyColumns)
-    page = shown
-    // The ring goes back where it was if that row still shows, else to the box Claude is in.
-    const ids = shown.lines.flatMap(l => l.flatMap(s => (s.button === undefined ? [] : [s.button])))
-    const stage = currentLeaf(plan)?.id.split('.')[0] ?? null
-    const focus = [drawer.focus, stage, runningLeaves(plan)[0]?.id ?? null].find(id => id !== null && view.buttons.includes(id) && ids.includes(id)) ?? null
+    const { shown, activity, now } = await board($)
     const press = (id: string) => void pressDrawer($, id)
+    if (e.surface !== 'terminal') return nativeDrawer($, e, shown, drawerRows(shown, activity, { now }), now, press)
 
-    // A surface with real boxes and its own type draws the drawer natively and scrolls it itself.
-    if (e.surface !== 'terminal') {
-      page = { top: 0, max: 0, pinned: false }
-      return nativeDrawer($, e, plan, frame?.board.shelf ?? (await read($, shelfAtom)), drawer, activity, press, now, e.props.bodyColumns)
-    }
-
-    return <Box flexDirection="column">{shown.lines.map(l => row($, e, l, focus, press))}</Box>
+    return <Box flexDirection="column">{drawerRows(shown, activity, { width: e.props.bodyColumns, now }).map(r => termRow($, e, r, press))}</Box>
   })
 
   // The band's title row, a Client on the desktop app, was pressed: fold or unfold the band.
   on('ui.message', { component: 'AbovePrompt' }, async ($, e, next) => {
     const d = e.data
     if (typeof d === 'object' && d !== null && 'press' in d && d.press === FOLD_BUTTON) {
-      await toggleBand($)
+      await update($, foldAtom, f => !f)
       return {}
     }
     return next(e)
-  })
-
-  // A row the desktop draws as a Client was pressed.
-  on('ui.message', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    const d = e.data
-    if (typeof d === 'object' && d !== null && 'press' in d && typeof d.press === 'string') {
-      await pressDrawer($, d.press)
-      return {}
-    }
-    return next(e)
-  })
-
-  // The person scrolls the drawer: its body moves under the pinned head and foot, and
-  // following the running step stops until they press "진행 중으로".
-  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (!page.pinned) return next(e)
-    const top = Math.max(0, Math.min(page.max, page.top + e.by))
-    await update($, drawerAtom, d => ({ ...d, top }))
-
-    return next({ ...e, offset: 0 })
   })
 
   // The drawer closed (Esc, /flow, the person): the band comes back.
@@ -1512,16 +689,5 @@ export const register: Register = (on, options) => {
     await update($, paneAtom, () => false)
 
     return closed
-  })
-
-  // Where the ring stands, so a redraw puts it back.
-  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
-    const moved = await next(e)
-    if (!('deny' in moved && moved.deny !== undefined) && (e.plugin ?? PLUGIN) === PLUGIN && e.element !== undefined) {
-      const element = e.element
-      await update($, drawerAtom, d => ({ ...d, focus: element }))
-    }
-
-    return moved
   })
 }

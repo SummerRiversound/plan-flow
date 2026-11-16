@@ -22,6 +22,9 @@ import type { BandRow } from './tree'
 import type { StepRowProps } from './step-row'
 import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, WAIT_COLOR, bandGoalRows, bandRows, counts, drawTree, fitLine, glyphSeg, isLive, isWaiting, noteText, planHead } from './tree'
 import { pickLanguage, setLanguage, t } from './i18n'
+import type { Heard, Kept } from './chapters'
+import { backgroundDone, emptyKept, hear, isBackground, receiptOf, rewritten } from './chapters'
+import { MAX_STORY, WRITER_SYSTEM, parseBoard, storyOf, writerPrompt } from './writer'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
 
@@ -42,6 +45,7 @@ const paneAtom = atom({ plugin: 'plan-flow', key: 'pane' } as const, false)
 const foldAtom = atom({ plugin: 'plan-flow', key: 'fold' } as const, false)
 const doneOpenAtom = atom({ plugin: 'plan-flow', key: 'doneOpen' } as const, false)
 const newerAtom = atom({ plugin: 'plan-flow', key: 'newer' } as const, null as Newer | null)
+const keptAtom = atom({ plugin: 'plan-flow', key: 'chapters' } as const, emptyKept())
 
 type $ = EngineInterface
 type Ev = Parameters<$['ui']['resolve']>[0]
@@ -55,7 +59,7 @@ type Saved = Record<string, { plan: Plan; shelf?: Shelved[]; savedAt: number }>
 // One call the mod made to a model for the board, kept so a board that stopped changing can be explained.
 // Tokens a call used; on a design call a near-zero cacheRead means the fork paid for the whole conversation.
 type Used = { input: number; cacheRead: number; cacheWrite: number; output: number }
-type Call = { at: number; call: 'look' | 'design'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string; usage?: Used; text?: string }
+type Call = { at: number; call: 'look' | 'design' | 'write'; ms: number; result: 'answered' | 'failed' | 'timed out' | 'stale'; ops?: number; reason?: string; usage?: Used; text?: string }
 // The start of a model's answer kept with its call, enough to read back which ops it sent.
 const KEPT_TEXT = 600
 type Calls = Record<string, { calls: Call[]; savedAt: number }>
@@ -928,7 +932,7 @@ async function status($: $, startOn: boolean): Promise<string> {
     const u = (k: keyof Used) => of.reduce((n, c) => n + (c.usage?.[k] ?? 0), 0)
     return { count: of.length, input: u('input') + u('cacheWrite'), cacheRead: u('cacheRead'), output: u('output') }
   }
-  return t().status(enabled, startOn, designOn, KEPT_CALLS, sum('look'), sum('design'))
+  return t().status(enabled, startOn, designOn, KEPT_CALLS, sum('look'), sum('design'), sum('write'))
 }
 
 // Settles once the planner has nothing in flight (a look still waiting on its timer is not counted).
@@ -1108,6 +1112,97 @@ async function planWhileWorking($: $): Promise<void> {
   })
 }
 
+// The request-list board's writer. Sonnet rereads the whole session and writes the board again: at an
+// answer that followed work, and once three minutes pass with nothing new after an answer. Rules add
+// what is certain in between (chapters.ts). One write at a time; a write wanted meanwhile follows it.
+const WRITER_MODEL = 'sonnet'
+const WRITE_TIMEOUT_MS = 120_000
+export const IDLE_WRITE_MS = 3 * 60_000
+// Quick back-and-forth answers do not each pay for a write: writes start at least this far apart.
+export const WRITE_GAP_MS = 30_000
+let writing: Promise<void> | null = null
+let writeAgain = false
+let writeHeld = false
+let lastWrite = Number.NEGATIVE_INFINITY
+let idleTimer: Timer | null = null
+// Everything heard counts; a write after three idle minutes is skipped when nothing came since the last.
+let heardCount = 0
+let writtenCount = -1
+
+type SavedKept = Record<string, { kept: Kept; savedAt: number }>
+async function hearRule($: $, h: Heard): Promise<void> {
+  await update($, keptAtom, k => hear(k, h))
+  await saveKept($)
+}
+async function saveKept($: $): Promise<void> {
+  const sid = await $.session.id()
+  const all = ((await $.store.get('chapters')) ?? {}) as SavedKept
+  all[sid] = { kept: await read($, keptAtom), savedAt: await $.clock.now() }
+  await $.store.set('chapters', newest(all)).catch(() => undefined)
+}
+
+async function writeOnce($: $): Promise<void> {
+  const cut = (await read($, keptAtom)).seq
+  const counted = heardCount
+  const story = storyOf(await $.session.messages(), MAX_STORY)
+  if (story === '') return
+  const at = await $.clock.now()
+  lastWrite = at
+  const r = await $.model
+    .complete({ model: WRITER_MODEL, system: [{ text: WRITER_SYSTEM, cache: true }], prompt: writerPrompt(story), maxTokens: 8000, timeoutMs: WRITE_TIMEOUT_MS })
+    .catch((err: unknown) => ({ isAnswered: false as const, reason: 'threw', error: String(err).slice(0, 200) }))
+  const ms = (await $.clock.now()) - at
+  if (!r.isAnswered) return record($, { at, call: 'write', ms, result: r.reason === 'aborted' && ms >= WRITE_TIMEOUT_MS ? 'timed out' : 'failed', reason: whyNot(r), ...used('usage' in r ? r.usage : undefined) })
+  const board = parseBoard(r.text)
+  if (board === undefined) return record($, { at, call: 'write', ms, result: 'failed', reason: 'not a board', ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
+  writtenCount = counted
+  await update($, keptAtom, k => rewritten(k, board, cut))
+  await saveKept($)
+  await record($, { at, call: 'write', ms, result: 'answered', ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
+}
+
+function writeSoon($: $): void {
+  if (!enabled) return
+  if (writing !== null) {
+    writeAgain = true
+    return
+  }
+  if (writeHeld) return
+  writeHeld = true
+  void $.clock.now().then(now => {
+    $.clock.after(Math.max(0, lastWrite + WRITE_GAP_MS - now), () => {
+      writeHeld = false
+      writing = (async () => {
+        do {
+          writeAgain = false
+          await writeOnce($).catch(() => undefined)
+        } while (writeAgain)
+      })().finally(() => {
+        writing = null
+      })
+    })
+  })
+}
+
+// Three minutes after an answer with nothing new from the person, the board is written again if
+// anything came since the last write; a request, a turn or typing in the prompt calls it off.
+function idleWriteAfterAnswer($: $): void {
+  idleTimer?.cancel()
+  idleTimer = $.clock.after(IDLE_WRITE_MS, () => {
+    idleTimer = null
+    if (heardCount !== writtenCount) writeSoon($)
+  })
+}
+function callOffIdleWrite(): void {
+  idleTimer?.cancel()
+  idleTimer = null
+}
+
+// Settles once no board write is in flight or waiting on its gap.
+export const writerIdle = async (): Promise<void> => {
+  while (writing !== null) await writing
+}
+
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const startOn = options.enabled !== false
@@ -1122,6 +1217,13 @@ export const register: Register = (on, options) => {
     const plan = mine?.plan ?? emptyPlan()
     await update($, planAtom, () => plan)
     await update($, shelfAtom, () => mine?.shelf ?? [])
+    callOffIdleWrite()
+    lastWrite = Number.NEGATIVE_INFINITY
+    ;[heardCount, writtenCount] = [0, -1]
+    const kept = (((await $.store.get('chapters')) ?? {}) as SavedKept)[await $.session.id()]?.kept ?? emptyKept()
+    await update($, keptAtom, () => kept)
+    // A resumed session with no board yet has it written from what is already there.
+    if (enabled && kept.seq === 0 && (await $.session.messages().catch(() => [])).length > 0) writeSoon($)
     await update($, activityAtom, () => idleActivity())
     // A reload runs this again: forget what the older copy saw, then look afresh without holding the start.
     await update($, newerAtom, () => null)
@@ -1136,6 +1238,9 @@ export const register: Register = (on, options) => {
     if (!PERSON.has(e.origin.kind)) {
       // Its turn ends with an answer, and the planner looks then.
       fresh = remember(fresh, { kind: 'notice', text: noticeLine(e.text) })
+      heardCount++
+      const ended = backgroundDone(e.text)
+      if (ended !== undefined) await hearRule($, { kind: 'backgroundDone', id: ended })
       return next(e)
     }
     const plan = await read($, planAtom)
@@ -1147,6 +1252,9 @@ export const register: Register = (on, options) => {
     worked = false
     fresh = remember(fresh, { kind: 'request', text: e.text })
     planSoon($)
+    heardCount++
+    callOffIdleWrite()
+    await hearRule($, { kind: 'request', text: e.text })
 
     return next(e)
   })
@@ -1157,8 +1265,16 @@ export const register: Register = (on, options) => {
     const sub = e.agentId !== undefined
     const question = e.tool === 'AskUserQuestion'
     if (!sub) await act($, question ? { type: 'questionOpen' } : { type: 'toolStart', id: e.tool_use_id, tool: e.tool })
+    // The call's input fields come on the event itself.
+    const input = e as unknown as Record<string, unknown>
+    heardCount++
+    if (question && !sub) await hearRule($, { kind: 'asked', id: e.tool_use_id, question: ((input.questions as Array<{ question?: string }> | undefined) ?? []).map(q => q.question ?? '').join(' / ') })
+    if (isBackground(e.tool, input)) await hearRule($, { kind: 'background', id: e.tool_use_id })
     try {
       const out = await next(e)
+      if (question && !sub) await hearRule($, { kind: 'answered', id: e.tool_use_id })
+      const receipt = e.tool === 'Bash' && out.deny === undefined && out.isError !== true ? receiptOf(String(input.command ?? ''), `${out.text ?? ''}\n${typeof out.result === 'string' ? out.result : JSON.stringify(out.result ?? '')}`) : undefined
+      if (receipt !== undefined) await hearRule($, { kind: 'receipt', receipt })
       if (out.deny !== undefined || question || e.tool === 'ToolSearch') return out
       const line = toolLine(e.tool, e as unknown as Record<string, unknown>)
       fresh = remember(fresh, { kind: sub ? 'subagent' : 'tool', text: out.isError === true ? `${line} (failed)` : line })
@@ -1188,6 +1304,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       // A turn a notice started has no request of the person's to reset this.
       atAnswer = false
+      callOffIdleWrite()
       await act($, { type: 'turnStart' })
       await tick($, true)
     }
@@ -1215,6 +1332,9 @@ export const register: Register = (on, options) => {
       await tick($, false)
       fresh = remember(fresh, { kind: 'answer', text: e.answer })
       atAnswer = true
+      heardCount++
+      if (worked) writeSoon($)
+      idleWriteAfterAnswer($)
       // An answer of a question explained leaves the plan where it was, and costs no fork.
       if (worked) {
         if (designOn) design = 'wanted'

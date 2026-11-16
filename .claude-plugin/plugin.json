@@ -1,7 +1,7 @@
 {
   "name": "plan-flow",
   "displayName": "Plan Flow",
-  "version": "0.1.44",
+  "version": "0.2.0",
   "description": "Shows what a Claude Code session is doing: each request you sent with what came of it and what is left, above the prompt, and the whole list in a side drawer (/flow).",
   "author": {
     "name": "SummerRiversound",

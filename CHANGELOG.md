@@ -2,6 +2,24 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.2.0 — 2026-11-17
+
+The board is now the session's requests instead of a plan.
+
+### Added
+
+- Each request you send is a chapter with what came of it; under the latest one sits what is left by who moves next: your turn (including an unanswered dialog question), what Claude goes on with, and what waits on someone else. Pull requests, releases and running background work show as they happen.
+- Sonnet rereads the whole session and writes the board again at each answer that followed work and three minutes after an answer with nothing new; `/flow status` shows the tokens these writes used.
+- A note above the band when you come back after three idle minutes: how the latest request ended, what it produced and what waits on you. Typing folds it.
+- The session's subject becomes its tab title.
+- The drawer (`/flow`, button `Show all ▸`) lists every chapter with its request, result and links, and at its end every other session's state from the last day.
+- One notification when a session newly has something waiting on you.
+- `statusBlock`, an experimental option, off by default: Claude ends each answer that followed work with a short status block the board reads.
+
+### Removed
+
+- The plan board: stages, tasks and checkpoints, parallel groups, parking, the card flowchart, the progress bar, the Haiku planner, the design call and its `design` option. Boards saved by earlier versions are not shown.
+
 ## 0.1.44 — 2026-11-12
 
 ### Added

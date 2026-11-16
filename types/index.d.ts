@@ -136,6 +136,35 @@ declare module 'claude-code' {
       doneOpen: boolean
       // A newer plan-flow installed beside this one, or out in its repository; null when this one is the newest.
       newer: { kind: 'installed' | 'released'; version: string } | null
+      chapters: {
+        base: {
+          title: string
+          goal: string
+          chapters: Array<{
+            request: string
+            title: string
+            result: string
+            links: string[]
+            done: boolean
+            left: Array<{ text: string; kind: 'mine' | 'claude' | 'others' | 'optional' | 'unverified' }>
+            receipts: Array<{ what: 'opened' | 'merged' | 'ready' | 'release'; ref: string; url?: string }>
+          }>
+        }
+        cut: number
+        seq: number
+        since: Array<{
+          seq: number
+          heard:
+            | { kind: 'request'; text: string }
+            | { kind: 'receipt'; receipt: { what: 'opened' | 'merged' | 'ready' | 'release'; ref: string; url?: string } }
+            | { kind: 'asked'; id: string; question: string }
+            | { kind: 'answered'; id: string }
+            | { kind: 'background'; id: string }
+            | { kind: 'backgroundDone'; id: string }
+        }>
+        asked: Array<{ id: string; question: string }>
+        running: string[]
+      }
     }
   }
 }

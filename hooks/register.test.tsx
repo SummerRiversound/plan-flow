@@ -3,7 +3,7 @@ import { joinSvg, splitSvg } from './gui'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { setLanguage } from './i18n'
-import { plannerIdle } from './register'
+import { IDLE_WRITE_MS, WRITE_GAP_MS, plannerIdle, writerIdle } from './register'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
@@ -73,6 +73,11 @@ let stepAnswer: { answer: string; toolUses: unknown[] } = { answer: '', toolUses
 // How long the fork takes to answer, on the test's clock, and what it reports having used.
 let forkWait = 0
 let forkUsage = NO_USAGE
+// The writer's boards, one per write, the prompts it was handed, and the session it reads.
+const writerReplies: unknown[] = []
+const written: string[] = []
+let messages: unknown[] = []
+const WRITER_USAGE = { input_tokens: 40_000, output_tokens: 1_400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
 // The mod's store, as the engine keeps it.
 const stored = new Map<string, unknown>()
 
@@ -87,7 +92,16 @@ const engine = (on: On) => {
   handedContext = undefined
   replies.length = 0
   asked.length = 0
+  writerReplies.length = 0
+  written.length = 0
+  messages = []
+  on('session.messages', () => ({ value: messages }) as never)
   on('model.complete', (_, e) => {
+    if (e.model === 'sonnet') {
+      written.push(typeof e.prompt === 'string' ? e.prompt : '')
+      const board = writerReplies.shift()
+      return { value: board === undefined ? { isAnswered: false, reason: 'api-error', status: 500, error: 'api_error', usage: NO_USAGE } : { isAnswered: true, text: JSON.stringify(board), usage: WRITER_USAGE } } as never
+    }
     asked.push(e.prompt)
     const next = replies.shift()
     return { value: next === undefined ? { isAnswered: false, reason: 'api-error', status: 500, error: 'api_error', usage: NO_USAGE } : { isAnswered: true, text: JSON.stringify(next), usage: NO_USAGE } } as never
@@ -1074,4 +1088,101 @@ test('on the desktop app expected work follows the last card on a dotted line, f
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await band.find({ type: 'Text', text: /◌ 리뷰 반영/ })).toBeDefined()
   await band.unmount()
+})
+
+// The request-list board.
+const BOARD = { title: '결제 웹훅 재시도', goal: '결제 실패 알림이 한 번만 가게', chapters: [{ request: '재시도 정리해줘', title: '재시도 큐 교체', result: '큐를 바꿨다', links: [], done: false, left: [{ text: '스테이징 확인', kind: 'mine' }] }] }
+const SESSION = [
+  { role: 'user', text: '재시도 정리해줘', toolUses: [] },
+  { role: 'assistant', text: '큐부터 볼게요.', toolUses: [{ tool_use_id: 'b1', tool: 'Bash', input: { command: 'rg retry', description: '재시도 코드 찾기' } }] },
+  { role: 'assistant', text: '큐를 바꿨어요. 스테이징에서 확인해 주세요.', toolUses: [] },
+]
+type KeptLike = { base: { title: string; chapters: Array<{ title: string; receipts: unknown[] }> }; since: Array<{ heard: { kind: string } }>; asked: Array<{ question: string }>; running: string[] }
+const keptOf = (): KeptLike | undefined => (stored.get('chapters') as Record<string, { kept: KeptLike }> | undefined)?.s1?.kept
+const ask = ($: Engine, text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+const settle = async () => {
+  await theClock?.advance(WRITE_GAP_MS)
+  await writerIdle()
+}
+
+test('at an answer that followed work, Sonnet rereads the whole session and writes the board, and the call is kept with its tokens', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  messages = SESSION
+  writerReplies.push(BOARD)
+  await ask($, '재시도 정리해줘')
+  await step($, '큐부터 볼게요.')
+  await $.turn.complete(TURN as never)
+  await settle()
+  expect(written.length).toBe(1)
+  expect(written[0]).toContain('- The person asked: 재시도 정리해줘')
+  expect(written[0]).toContain('- Claude ran: 재시도 코드 찾기')
+  expect(keptOf()?.base.title).toBe('결제 웹훅 재시도')
+  const calls = (stored.get('calls') as Record<string, { calls: Array<{ call: string; result: string; usage?: { input: number; output: number } }> }>).s1?.calls ?? []
+  expect(calls.filter(c => c.call === 'write').map(c => [c.result, c.usage?.input, c.usage?.output])).toEqual([['answered', 40_000, 1_400]])
+  expect(await $.command.run({ ...FLOW, args: 'status' })).toMatchObject({ text: expect.stringContaining('Sonnet 판 쓰기 1번: 입력 40,000') })
+})
+
+test('an answer with no work behind it is written only after three minutes with nothing new; a request before then calls it off', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  messages = SESSION
+  writerReplies.push(BOARD, BOARD)
+  await ask($, '이거 무슨 뜻이야?')
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(IDLE_WRITE_MS - 1_000)
+  await ask($, '그럼 다른 건?')
+  await theClock?.advance(IDLE_WRITE_MS)
+  await writerIdle()
+  expect(written.length).toBe(0)
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(IDLE_WRITE_MS + WRITE_GAP_MS)
+  await writerIdle()
+  expect(written.length).toBe(1)
+})
+
+test('quick answers after work do not each pay for a write: writes start at least thirty seconds apart', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  messages = SESSION
+  writerReplies.push(BOARD, BOARD, BOARD)
+  for (let i = 0; i < 3; i++) {
+    await ask($, `고쳐줘 ${i}`)
+    await step($, '')
+    await $.turn.complete(TURN as never)
+    await theClock?.advance(1_000)
+  }
+  await writerIdle()
+  expect(written.length).toBe(1)
+  await settle()
+  expect(written.length).toBe(2)
+})
+
+test('between writes the rules keep a chapter per request, a PR, an open question and background work', KO, async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) => ({ result: { stdout: String((e as { command?: string }).command).startsWith('gh pr create') ? 'https://github.com/o/r/pull/142\n' : '' } }) as never)
+  engine(on)
+  await start($)
+  await ask($, '재시도 큐 바꿔줘')
+  await ask($, 'ㄱㄱ')
+  await $.tool.call({ tool: 'Bash', command: 'gh pr create --title x' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test', run_in_background: true })
+  const k = keptOf()
+  expect(k?.since.map(s => s.heard.kind)).toEqual(['request', 'request', 'receipt', 'background'])
+  expect(k?.running.length).toBe(1)
+  await $.prompt.submit({ text: `<task-notification><tool-use-id>${'x'}</tool-use-id></task-notification>`, wait: false, origin: { kind: 'task-notification' } } as never)
+  expect(keptOf()?.since.at(-1)?.heard.kind).toBe('backgroundDone')
+})
+
+test('a writer answer that is not a board leaves the board as it was and is kept as failed', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  messages = SESSION
+  writerReplies.push('sorry')
+  await ask($, '재시도 정리해줘')
+  await step($, '')
+  await $.turn.complete(TURN as never)
+  await settle()
+  expect(keptOf()?.base.title).toBe('')
+  const calls = (stored.get('calls') as Record<string, { calls: Array<{ call: string; result: string; reason?: string }> }>).s1?.calls ?? []
+  expect(calls.filter(c => c.call === 'write').map(c => [c.result, c.reason])).toEqual([['failed', 'not a board']])
 })

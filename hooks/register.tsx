@@ -16,6 +16,7 @@ import type { Heard, Kept } from './chapters'
 import { backgroundDone, emptyKept, hear, isBackground, receiptOf, rewritten, shown as shownOf } from './chapters'
 import { MAX_STORY, WRITER_SYSTEM, parseBoard, storyOf, writerPrompt } from './writer'
 import { PERSON } from './lines'
+import { STATUS_PROMPT, parseStatus } from './status'
 import type { Newer, ReleaseCheck } from './version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
 
@@ -380,12 +381,12 @@ async function setEnabled($: $, on: boolean): Promise<void> {
 }
 
 // What `/flow status` says: on or off here, the default, and what the kept calls used.
-async function status($: $, startOn: boolean): Promise<string> {
+async function status($: $, startOn: boolean, block: boolean): Promise<string> {
   const log = ((await $.store.get('calls')) ?? {}) as Calls
   const writes = (log[await $.session.id()]?.calls ?? []).filter(c => c.call === 'write')
   const u = (k: keyof Used) => writes.reduce((n, c) => n + (c.usage?.[k] ?? 0), 0)
 
-  return t().status(enabled, startOn, KEPT_CALLS, { count: writes.length, input: u('input') + u('cacheWrite'), cacheRead: u('cacheRead'), output: u('output') })
+  return t().status(enabled, startOn, block, KEPT_CALLS, { count: writes.length, input: u('input') + u('cacheWrite'), cacheRead: u('cacheRead'), output: u('output') })
 }
 
 const used = (u: ModelUsage | undefined): { usage?: Used } =>
@@ -544,6 +545,15 @@ async function titled<R extends { sessionTitle?: string }>($: $, r: R): Promise<
 export const register: Register = (on, options) => {
   const autoShow = options.autoShow !== false
   const startOn = options.enabled !== false
+  // An experiment, off unless the person turns it on: Claude ends answers after work with a status block.
+  const statusBlock = options.statusBlock === true
+
+  // Only with the experiment on, and plan-flow on in the session, does anything reach what Claude reads.
+  on('prompt.compose', async ($, e, next) => {
+    const r = await next(e)
+    if (!statusBlock || !enabled) return r
+    return { sections: [...r.sections, { id: 'plan-flow:status', text: STATUS_PROMPT, scope: 'session' as const }] }
+  })
 
   on('session.start', async ($, e, next) => {
     await resolveLanguage($, options.language)
@@ -661,6 +671,11 @@ export const register: Register = (on, options) => {
       await act($, { type: 'turnEnd', reason: e.reason })
       tick($, false)
       heardCount++
+      const block = statusBlock && enabled ? parseStatus(e.answer) : undefined
+      if (block !== undefined) {
+        await hearRule($, { kind: 'status', ...block })
+        await notifyMine($)
+      }
       if (worked) writeSoon($)
       worked = false
       idleWriteAfterAnswer($)
@@ -673,7 +688,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'flow' }, async ($, e) => {
     const [word, arg] = e.args.trim().split(/\s+/)
     if (word === 'demo') return { text: await demo($, arg) }
-    if (word === 'status') return { text: await status($, startOn) }
+    if (word === 'status') return { text: await status($, startOn, statusBlock) }
     if (word === 'on' || word === 'off') {
       await setEnabled($, word === 'on')
       // Back on, the board catches up on what happened while it was off.

@@ -59,6 +59,7 @@ declare module 'claude-code' {
             | { kind: 'answered'; id: string }
             | { kind: 'background'; id: string }
             | { kind: 'backgroundDone'; id: string }
+            | { kind: 'status'; result: string; left: Array<{ text: string; kind: 'mine' | 'claude' | 'others' | 'optional' | 'unverified' }> }
         }>
         asked: Array<{ id: string; question: string }>
         running: string[]

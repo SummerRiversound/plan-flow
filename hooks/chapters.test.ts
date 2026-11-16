@@ -59,6 +59,15 @@ describe('the board the rules keep between rewrites', () => {
     expect(shown(k).asked).toEqual(['어느 쪽으로 갈까요?'])
     expect(shown(hear(k, { kind: 'answered', id: 'q' })).asked).toEqual([])
   })
+  test("a status block from Claude's answer sets the latest chapter's result and what is left, until the next rewrite", () => {
+    const k = heardAll(emptyKept(), { kind: 'request', text: '재시도 큐 교체' }, { kind: 'status', result: '큐를 바꿨다', left: [{ text: '스테이징 확인', kind: 'mine' }] })
+    expect(shown(k).board.chapters.map(c => [c.result, c.left])).toEqual([['큐를 바꿨다', [{ text: '스테이징 확인', kind: 'mine' }]]])
+    expect(shown(rewritten(k, board(['재시도 큐 교체']), k.seq)).board.chapters[0]?.left).toEqual([])
+  })
+  test('a status block with no done line keeps the result there was', () => {
+    const k = heardAll(emptyKept(), { kind: 'request', text: '재시도 큐 교체' }, { kind: 'status', result: '큐를 바꿨다', left: [] }, { kind: 'status', result: '', left: [{ text: '머지', kind: 'claude' }] })
+    expect(shown(k).board.chapters[0]?.result).toBe('큐를 바꿨다')
+  })
   test('background work runs until its notice', () => {
     const k = heardAll(emptyKept(), { kind: 'background', id: 'a' }, { kind: 'background', id: 'b' }, { kind: 'backgroundDone', id: 'a' })
     expect(shown(k).running).toBe(1)

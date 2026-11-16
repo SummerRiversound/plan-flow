@@ -29,11 +29,11 @@ const en = {
   label: { request: 'Asked', result: 'Result' },
   receipt: { opened: 'opened', ready: 'ready for review', merged: 'merged', release: (tag: string) => `release ${tag}` },
   away: { head: 'While you were away', foot: 'Type to go back to the board' },
-  pane: 'Requests',
-  command: "Open or close the list of this session's requests; on, off or status for this session",
-  closed: 'Closed the list of requests',
-  opened: 'Opened the list of requests',
-  openedLater: 'Opened the list of requests; it shows once the window is wide enough',
+  pane: 'Session chapters',
+  command: 'Open or close the session chapters; on, off or status for this session',
+  closed: 'Closed the session chapters',
+  opened: 'Opened the session chapters',
+  openedLater: 'Opened the session chapters; they show once the window is wide enough',
   turnedOn: 'Turned plan-flow on in this session',
   turnedOff: 'Turned plan-flow off in this session: no board and no model calls until /flow on',
   isOff: 'plan-flow is off in this session; /flow on turns it on',
@@ -43,7 +43,7 @@ const en = {
       `In the last ${kept} calls:`,
       `  Sonnet board ${write.count} ${write.count === 1 ? 'call' : 'calls'}: input ${n(write.input)} · cache read ${n(write.cacheRead)} · output ${n(write.output)} tokens`,
     ].join('\n'),
-  bandOpen: 'Requests ▸',
+  bandOpen: 'Show all ▸',
   newer: (n: Newer) => (n.kind === 'installed' ? `↑ ${n.version} installed · /reload-plugins` : `↑ ${n.version} is out · update in /plugin`),
   demo: {
     unknown: (list: string) => `No such demo. You can pick:\n${list}`,
@@ -65,6 +65,8 @@ const en = {
     artifact: 'Artifact',
   },
   empty: 'No requests yet. Each request you send becomes a chapter here, with what came of it.',
+  sessions: 'All sessions',
+  ago: (ms: number) => (ms < 60_000 ? 'just now' : ms < 3_600_000 ? `${Math.floor(ms / 60_000)}m ago` : `${Math.floor(ms / 3_600_000)}h ago`),
 }
 
 export type Strings = typeof en
@@ -86,11 +88,11 @@ const ko: Strings = {
   label: { request: '요청', result: '결과' },
   receipt: { opened: '열림', ready: '리뷰 준비', merged: '머지됨', release: tag => `릴리스 ${tag}` },
   away: { head: '자리 비운 동안', foot: '입력하면 평소 판으로 돌아가요' },
-  pane: '요청 목차',
-  command: '이 세션의 요청 목차를 열거나 닫아요. on, off, status로 이 세션의 plan-flow를 켜고 끄고 살펴봐요',
-  closed: '요청 목차를 닫았어요',
-  opened: '요청 목차를 열었어요',
-  openedLater: '요청 목차를 열었어요. 화면이 넓어지면 보여요',
+  pane: '세션 목차',
+  command: '세션 목차를 열거나 닫아요. on, off, status로 이 세션의 plan-flow를 켜고 끄고 살펴봐요',
+  closed: '세션 목차를 닫았어요',
+  opened: '세션 목차를 열었어요',
+  openedLater: '세션 목차를 열었어요. 화면이 넓어지면 보여요',
   turnedOn: '이 세션에서 plan-flow를 켰어요',
   turnedOff: '이 세션에서 plan-flow를 껐어요. /flow on 전까지 판도 모델 호출도 없어요',
   isOff: '이 세션에서는 plan-flow가 꺼져 있어요. /flow on으로 켤 수 있어요',
@@ -100,7 +102,7 @@ const ko: Strings = {
       `최근 호출 ${kept}번 안에서:`,
       `  Sonnet 판 쓰기 ${write.count}번: 입력 ${n(write.input)} · 캐시 읽기 ${n(write.cacheRead)} · 출력 ${n(write.output)} 토큰`,
     ].join('\n'),
-  bandOpen: '목차 보기 ▸',
+  bandOpen: '전체 보기 ▸',
   newer: n => (n.kind === 'installed' ? `↑ ${n.version} 설치됨 · /reload-plugins` : `↑ ${n.version} 나옴 · /plugin에서 업데이트`),
   demo: {
     unknown: list => `그런 시연이 없어요. 고를 수 있는 것:\n${list}`,
@@ -121,6 +123,8 @@ const ko: Strings = {
     artifact: '아티팩트',
   },
   empty: '아직 요청이 없어요. 요청을 보내면 그 요청과 결과가 여기에 한 장씩 쌓여요.',
+  sessions: '모든 세션',
+  ago: ms => (ms < 60_000 ? '방금' : ms < 3_600_000 ? `${Math.floor(ms / 60_000)}분 전` : `${Math.floor(ms / 3_600_000)}시간 전`),
 }
 
 const TABLES: Record<Language, Strings> = { en, ko }

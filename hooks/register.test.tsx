@@ -485,3 +485,24 @@ test('a writer answer that is not a board leaves the board as it was and is kept
   const calls = (stored.get('calls') as Record<string, { calls: Array<{ call: string; result: string; reason?: string }> }>).s1?.calls ?? []
   expect(calls.filter(c => c.call === 'write').map(c => [c.result, c.reason])).toEqual([['failed', 'not a board']])
 })
+
+test('the tab carries the session subject: the board title goes out as the session title when a request is sent or the session starts, and only when it changed', KO, async ($, on) => {
+  engine(on)
+  on('classic.UserPromptSubmit', () => ({}))
+  on('classic.SessionStart', () => ({}))
+  await start($)
+  expect((await $.classic.UserPromptSubmit({ prompt: '재시도 정리해줘' } as never)).sessionTitle).toBeUndefined()
+  await worked($, '재시도 정리해줘', BOARD)
+  expect((await $.classic.UserPromptSubmit({ prompt: '리뷰 반영해줘' } as never)).sessionTitle).toBe('결제 웹훅 재시도')
+  expect((await $.classic.UserPromptSubmit({ prompt: 'ㄱㄱ' } as never)).sessionTitle).toBeUndefined()
+  expect((await $.classic.SessionStart({ source: 'resume' } as never)).sessionTitle).toBe('결제 웹훅 재시도')
+})
+
+test('with plan-flow off in a session, the tab title is left alone', KO, async ($, on) => {
+  engine(on)
+  on('classic.UserPromptSubmit', () => ({}))
+  await start($)
+  await worked($, '재시도 정리해줘', BOARD)
+  await $.command.run({ ...FLOW, args: 'off' })
+  expect((await $.classic.UserPromptSubmit({ prompt: '리뷰 반영해줘' } as never)).sessionTitle).toBeUndefined()
+})

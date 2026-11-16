@@ -17,21 +17,14 @@ Then send Claude a request. Its chapter shows above the prompt at once, and afte
 
 ## What you see
 
-```text
-Payment webhook retries ▴                                         Show all ▸
-A failed payment notifies the customer only once
-2 ✓ Replace the retry queue  → Queue replaced, 48 tests pass
-3 ◐ Apply review comments  → Three comments applied, CI passes
-  Your turn
-  ◐ Retry three times or five?
-  ◐ Try one payment on staging
-  Claude goes on with
-  ○ Merge once it is checked
-```
+![The band above the prompt: the session subject and goal, the latest chapters with their results, and what waits on you](docs/images/en/band.png)
 
 - **The band above the prompt.** The session's subject and one dim line on what it is for, then the latest three chapters: `✓` done, `○` not done, `◐` when the latest waits on you, each with its result after `→`. Under the latest chapter go the pull requests opened or merged and the releases made in it, with their links, then what Claude is doing right now while it works (the chapter's mark turns meanwhile), and `N background tasks running` while agents, workflows or shells it started still run. Last comes what is left: `Your turn` in blue-violet (a question Claude asked in a dialog and has no answer to yet, a check only you can make), `Claude goes on with`, and `Waiting on others` (a reviewer, CI). It keeps to 10 rows, dropping older chapters first. Press the title (`▴`) to fold it to the title and that line, and again (`▾`) to open it. `Show all ▸` on the right opens the drawer.
 - **A note when you come back.** Three minutes after Claude answers with nothing new from you, a short note sits above the band: how the latest request ended, what it produced, and what waits on you. It goes away as soon as you type or send a request.
 - **The session chapters in the drawer.** `/flow` opens them beside the conversation: every chapter of the session, oldest first, each with your request, its result and its links, which open on click. What waits on you is gathered at the top, and the latest chapter also lists what is optional and what Claude said it did not check. `↻` in its head has the board written again at once from the whole session.
+
+![The session chapters in the drawer: every request with its result and links, what waits on you at the top](docs/images/en/drawer.png)
+
 - **All sessions.** At the end of the drawer, every other session you ran in the last day, one row each: `◐` in blue-violet when it waits on you, `●` while it works, a green `✓` when it is done, then its subject and how long ago that changed (`3m ago`). Those waiting on you come first, then those at work, then the rest, newest first.
 - **A notification when something waits on you.** When a session's board newly has something for you (a question in a dialog, a check only you can make), plan-flow raises one notification with the session's subject and that item, never twice for the same item. The desktop app holds it a minute and drops it if you come back to the session first; a terminal shows it at once through your notification setting. Sending a request in that session takes it back.
 - **On the desktop app and in the editor** the band and the drawer show the same rows in the app's own type, with links as links.

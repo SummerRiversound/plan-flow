@@ -156,7 +156,7 @@ test('the band shows the written board: subject, goal, the chapters with what ca
   await worked($, '재시도 정리해줘', BOARD)
   await band.redraw()
   const all = await texts(band)
-  for (const want of ['결제 웹훅 재시도', '결제 실패 알림이 한 번만 가게', '중복 알림 원인 찾기', '→ 재시도가 두 번 등록됨', '재시도 큐 교체', '↗ PR #142', '내 차례', '스테이징 확인']) expect(all).toContain(want)
+  for (const want of ['결제 웹훅 재시도', '결제 실패 알림이 한 번만 가게', '중복 알림 원인 찾기', '재시도 큐 교체', '→ 큐를 바꿨다', '↗ PR #142', '내 차례', '스테이징 확인']) expect(all).toContain(want)
   expect((await band.findAll({ type: 'Link' })).map(l => l.props.href)).toContain(PR)
   // A survey holds the band: it steps aside.
   await band.redraw({ ...BAND.props, hasSurvey: true })
@@ -254,6 +254,26 @@ test('on the desktop app the band is set in the app type: the title row folds it
   await band.redraw()
   expect(await band.find({ type: 'Text', text: /재시도 큐 교체/ })).toBeUndefined()
   await band.unmount()
+})
+
+test('on the desktop app the badge is a filled tag, the current title sweeps as a picture while Claude works, and your turn sits beside a line in the permission colour', KO, async ($, on) => {
+  engine(on)
+  await start($)
+  await flow($, 'demo')
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ type: 'Text', text: '일하는 중' })).toBeDefined()
+  expect((await band.findAll({ type: 'Svg' })).map(x => x.props.alt)).toContain('리뷰 코멘트 반영')
+  await flow($, 'demo next')
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: '◐ 내 차례 2' })).toBeDefined()
+  expect((await band.findAll({ type: 'Svg' })).map(x => x.props.alt)).not.toContain('리뷰 코멘트 반영')
+  // The badge, and the line beside the heading and each of the two things waiting.
+  expect((await band.findAll({ type: 'Box' })).filter(b => b.props.backgroundColor === 'permission')).toHaveLength(4)
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await pane.findAll({ type: 'Box' })).filter(b => b.props.backgroundColor === '#8080801a')).toHaveLength(1)
+  expect(await pane.find({ type: 'Text', text: '다른 사람' })).toBeDefined()
+  await pane.unmount()
 })
 
 test('the drawer lists every chapter with its request, result and links, your turn at the top', KO, async ($, on) => {

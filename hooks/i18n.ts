@@ -23,8 +23,13 @@ const en = {
     error: 'Error',
     errorWith: (detail: string) => `Error: ${detail}`,
   },
-  // What is left, by who moves next.
-  left: { mine: 'Your turn', claude: 'Claude goes on with', others: 'Waiting on others', optional: 'Optional', unverified: 'Claude did not check' },
+  // The band's state badge before the title.
+  badge: { mine: (n: number) => `◐ Your turn ${n}`, working: 'Working', done: 'Done' },
+  // Whose each thing left is, as the drawer tags it; `mine` heads the band's your-turn rows too.
+  tag: { mine: 'Your turn', claude: 'Claude', others: 'Others', optional: 'Optional', unverified: 'Not checked' },
+  // What Claude and others do next, folded into one line on the band: the first, then how many more.
+  folded: { claude: 'Claude goes on with', others: 'Waiting on others' },
+  more: (n: number) => ` and ${n} more`,
   mineLine: (n: number) => `◐ Your turn ${n}: `,
   label: { request: 'Asked', result: 'Result' },
   receipt: { opened: 'opened', ready: 'ready for review', merged: 'merged', release: (tag: string) => `release ${tag}` },
@@ -84,7 +89,10 @@ const ko: Strings = {
     error: '오류',
     errorWith: detail => `오류: ${detail}`,
   },
-  left: { mine: '내 차례', claude: 'Claude가 이어서 할 일', others: '다른 사람을 기다림', optional: '선택 사항', unverified: 'Claude가 확인하지 못한 것' },
+  badge: { mine: n => `◐ 내 차례 ${n}`, working: '일하는 중', done: '끝' },
+  tag: { mine: '내 차례', claude: 'Claude', others: '다른 사람', optional: '선택', unverified: '확인 못 함' },
+  folded: { claude: 'Claude가 이어서', others: '다른 사람 기다림' },
+  more: n => ` 외 ${n}`,
   mineLine: n => `◐ 내 차례 ${n}: `,
   label: { request: '요청', result: '결과' },
   receipt: { opened: '열림', ready: '리뷰 준비', merged: '머지됨', release: tag => `릴리스 ${tag}` },

@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.2.1 — 2026-11-17
+
+### Changed
+
+- The band starts with a state badge: `◐ Your turn N` on the permission colour, `Working` with the turning mark, or a green `✓ Done`.
+- A progress rail of one node per chapter replaces the earlier chapters' rows on the band; the current chapter's title has a moving highlight while Claude works.
+- Your items sit under a bar in the permission colour; what Claude goes on with and what waits on others fold to one dim line each.
+- The drawer draws the chapters as a vertical timeline: the current chapter tinted, what is left branching off it with a tag naming whose it is.
+
 ## 0.2.0 — 2026-11-17
 
 The board is now the session's requests instead of a plan.

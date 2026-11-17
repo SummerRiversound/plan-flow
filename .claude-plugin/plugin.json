@@ -1,8 +1,8 @@
 {
   "name": "plan-flow",
   "displayName": "Plan Flow",
-  "version": "0.2.1",
-  "description": "Shows what a Claude Code session is doing: each request you sent with what came of it and what is left, above the prompt, and the whole list in a side drawer (/flow).",
+  "version": "0.2.2",
+  "description": "Draws Claude's current plan inside Claude Code: a live tree above the prompt and a card flowchart in a side drawer (/flow).",
   "author": {
     "name": "SummerRiversound",
     "url": "https://github.com/SummerRiversound"
@@ -14,7 +14,7 @@
   "privacyPolicyUrl": "https://github.com/SummerRiversound/plan-flow#what-it-reads-and-keeps",
   "keywords": [
     "plan",
-    "requests",
+    "flowchart",
     "progress",
     "todo",
     "pane",
@@ -35,8 +35,8 @@
     },
     "autoShow": {
       "type": "boolean",
-      "title": "Show the board on its own",
-      "description": "Show the board above the prompt as soon as the first request is sent; off shows it only after /flow",
+      "title": "Show the plan on its own",
+      "description": "Show the plan tree above the prompt as soon as a plan starts; off shows it only after /flow",
       "default": true
     },
     "enabled": {
@@ -45,11 +45,11 @@
       "description": "Run plan-flow in each new session; off, a session starts with no board and no model calls until /flow on",
       "default": true
     },
-    "statusBlock": {
+    "design": {
       "type": "boolean",
-      "title": "Ask Claude for a status block",
-      "description": "Experimental: ask Claude, through one section of its system prompt, to end each answer that followed work with a short status block that the board reads; off adds nothing to what Claude reads",
-      "default": false
+      "title": "Claude designs the plan",
+      "description": "After each answer that followed work, ask Claude, in a fork of the conversation, to reshape the plan; off, only Haiku keeps the board",
+      "default": true
     }
   }
 }

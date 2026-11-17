@@ -1,9 +1,9 @@
 // Drawn lines to HTML, coloured as the terminal draws them; the preview and review pages share it.
-import type { Line } from '../hooks/view'
+import type { Line } from '../hooks/tree'
 import { cells } from '../hooks/width'
 
 // Theme keys to DESIGN.md colours; a hex is drawn as it is.
-const COLOR: Record<string, string> = { success: '#5cc072', error: '#ff6b80', permission: '#b1b9f9', inactive: '#9a968f', text: '#e8e6e3', inverseText: '#0f0e0d', subtle: '#2c2926' }
+const COLOR: Record<string, string> = { success: '#5cc072', error: '#ff6b80', warning: '#e5b567', inactive: '#9a968f', text: '#e8e6e3' }
 
 export const esc = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -18,9 +18,9 @@ export const linesHtml = (lines: readonly Line[]): string =>
         .map(seg => {
           const style = [
             `color:${seg.color?.startsWith('#') === true ? seg.color : (COLOR[seg.color ?? 'text'] ?? COLOR.text)}`,
-            seg.bg === undefined ? '' : `background:${COLOR[seg.bg] ?? seg.bg}`,
             seg.bold === true ? 'font-weight:700' : '',
             seg.dim === true ? 'opacity:.6' : '',
+            seg.strike === true ? 'text-decoration:line-through' : '',
             seg.button !== undefined ? 'text-decoration:underline dotted' : '',
           ]
             .filter(x => x !== '')

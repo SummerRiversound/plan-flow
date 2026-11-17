@@ -5,10 +5,12 @@ import type { ActivityEvent } from './activity'
 import { idleActivity, step } from './activity'
 import type { DemoAt } from './scenarios'
 import { DEMO_NEXT, DEMO_PREV, DEMO_STOP, scenarios, demoFind, demoFrame, demoList, demoStep } from './scenarios'
-import { spinSvg } from './gui'
+import { spinSvg, sweepSvg } from './gui'
 import type { StepRowProps } from './step-row'
-import type { Line, Row, Shown } from './view'
-import { BOXED, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, PRIMARY, REFRESH, bandStack, drawerRows, fitLine, mineOf, titleOf } from './view'
+import type { Line, Row, Seg, Shown } from './view'
+import { BOXED, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, PRIMARY, REFRESH, badgeOf, bandStack, drawerRows, fitLine, mineOf, titleOf } from './view'
+import { cells } from './width'
+import type { Activity } from '../types'
 import type { Lines } from './sessions'
 import { othersOf, sessionRows, stateOf } from './sessions'
 import { pickLanguage, setLanguage, t } from './i18n'
@@ -49,6 +51,9 @@ type Ev = Parameters<$['ui']['resolve']>[0]
 // and the dark theme, where no theme key gives a faint edge or a pointer highlight.
 const HOVER = '#8080801a'
 const EDGE = '#80808033'
+// The timeline's line and the your-turn bar beside their rows.
+// shortcut: one unit of the app's box width, not seen on the desktop app yet; make it thinner if it reads heavy there.
+const LINE_WIDTH = 1
 // One call the mod made to a model for the board, kept so a board that stopped changing can be explained.
 type Used = { input: number; cacheRead: number; cacheWrite: number; output: number }
 type Call = { at: number; call: 'write'; ms: number; result: 'answered' | 'failed' | 'timed out'; reason?: string; usage?: Used; text?: string }
@@ -63,7 +68,7 @@ const row = ($: $, e: Ev, line: Line, onPress: (id: string) => void) => {
   const { Box, Text, Button, Link } = $.ui.resolve(e)
   const segs = (ss: Line) =>
     ss.map(s => (
-      <Text mono color={s.color} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined}>
+      <Text mono color={s.color} backgroundColor={s.bg} bold={s.bold === true ? true : undefined} dimColor={s.dim === true ? true : undefined}>
         {s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>}
       </Text>
     ))
@@ -91,15 +96,32 @@ const row = ($: $, e: Ev, line: Line, onPress: (id: string) => void) => {
 }
 const termRow = ($: $, e: Ev, r: Row, onPress: (id: string) => void) => row($, e, r.indent === 0 ? r.line : [{ text: ' '.repeat(r.indent) }, ...r.line], onPress)
 
+// A small filled label in the app's type: a drawer tag, the band's badge.
+const tagBox = ($: $, e: Ev, key: string, text: string, fill: string | undefined, color: string | undefined, before?: RenderChildren) => {
+  const { Box, Text } = $.ui.resolve(e)
+  // A fill, not a border: the app pads a bordered box itself, which would make the tag taller than the row.
+  return (
+    <Box key={key} flexDirection="row" alignItems="center" gap="xs" backgroundColor={fill ?? EDGE} paddingX="xs" flexShrink={0}>
+      {before ?? null}
+      <Text size="caption" weight={fill === undefined ? undefined : 'semibold'} color={color}>
+        {text}
+      </Text>
+    </Box>
+  )
+}
+
 // The same rows set in the app's own type (the desktop app, the editor): the goal and everything
-// under a chapter in footnote size, links as small underlined names, the running chapter's
-// turning mark a picture; `oneGoalRow` cuts the goal to a row, as a folded band shows it. A title row is drawn by its view, the terminal's rule and blank rows
-// become space between chapters, and the note's rows a framed box.
+// under a chapter in footnote size, links as small underlined names, tags as small filled labels,
+// the turning mark and the swept title pictures that move by themselves; `oneGoalRow` cuts the goal
+// to a row, as a folded band shows it. A title row is drawn by its view, the terminal's rule and
+// blank rows become space between chapters, and the note's rows a framed box. Rows with an edge
+// (the drawer's timeline, the band's your-turn bar) sit beside a line drawn as a thin filled box,
+// one run of them with no space between, so the line runs on; the current chapter gets a faint fill.
 const nativeRows = ($: $, e: Ev, rows: readonly Row[], now: number, oneGoalRow = false): RenderChildren[] => {
   const el = $.ui.resolve(e)
   const { Box, Text, Link } = el
   const Svg = 'Svg' in el ? el.Svg : null
-  const piece = (s: Line[number], i: number) => {
+  const piece = (s: Seg, i: number) => {
     const words = s.href === undefined ? s.text : <Link href={s.href}>{s.text}</Link>
     return (
       <Text key={String(i)} color={s.color} weight={s.bold === true ? 'semibold' : undefined} dimColor={s.dim === true ? true : undefined}>
@@ -107,28 +129,85 @@ const nativeRows = ($: $, e: Ev, rows: readonly Row[], now: number, oneGoalRow =
       </Text>
     )
   }
-  const one = (r: Row, i: number, gap: boolean): RenderChildren => {
-    const size = r.kind === 'chapter' ? undefined : r.kind === 'links' ? 'caption' : 'footnote'
-    const live = r.line.find(s => s.live === true)
+  const spin = (key: string) => (Svg === null ? null : <Svg key={key} source={spinSvg(now)} alt={t().running} width={14} height={14} />)
+  // A row's pieces in order: plain ones run together in one Text, pictures and tags between them.
+  const pieces = (r: Row, line: Line): RenderChildren[] => {
+    const size = r.kind === 'chapter' || r.kind === 'rail' ? undefined : r.kind === 'links' ? 'caption' : 'footnote'
+    const out: RenderChildren[] = []
+    let run: Seg[] = []
+    const flush = () => {
+      if (run.length > 0)
+        out.push(
+          <Text key={`t${out.length}`} size={size} color={r.kind === 'goal' ? 'inactive' : undefined} wrap={r.kind === 'goal' && oneGoalRow ? 'truncate-end' : undefined}>
+            {run.map(piece)}
+          </Text>,
+        )
+      run = []
+    }
+    for (let i = 0; i < line.length; i++) {
+      const s = line[i] as Seg
+      if (s.live === 'mark' && Svg !== null) {
+        flush()
+        out.push(spin(`m${i}`))
+      } else if (s.live === 'title' && Svg !== null) {
+        let words = s.text
+        while (line[i + 1]?.live === 'title') words += line[++i]?.text ?? ''
+        flush()
+        const pic = sweepSvg(words, cells(words), now)
+        out.push(<Svg key={`s${i}`} source={pic.source} alt={words} width={pic.width} height={pic.height} />)
+      } else if (s.tag === true) {
+        flush()
+        out.push(tagBox($, e, `g${i}`, s.text.trim(), s.bg, s.bg === undefined ? 'inactive' : s.color))
+      } else run.push(s)
+    }
+    flush()
+    return out
+  }
+  // The line beside a row with an edge: a chapter's mark at its dot, else a thin filled box down the row.
+  const edgeOf = (s: Seg | undefined, key: string): RenderChildren => {
+    const mark = s?.live === 'mark' || /^[●◐○]$/.test(s?.text ?? '')
     return (
-      <Box key={`${r.kind}-${i}`} flexDirection="row" alignItems="center" gap="xs" paddingLeft={r.indent} marginTop={gap ? 'sm' : undefined}>
-        {live !== undefined && Svg !== null ? <Svg source={spinSvg(now)} alt={t().running} width={14} height={14} /> : null}
-        <Text size={size} color={r.kind === 'goal' ? 'inactive' : undefined} wrap={r.kind === 'goal' && oneGoalRow ? 'truncate-end' : undefined}>
-          {r.line.filter(s => !(s.live === true && Svg !== null)).map(piece)}
-        </Text>
+      <Box key={key} width={2} flexShrink={0} flexDirection="column" alignItems="center">
+        {mark ? (s?.live === 'mark' ? spin('spin') : <Text color={s?.color}>{s?.text}</Text>) : (s?.text.trim() ?? '') === '' ? null : <Box width={LINE_WIDTH} flexGrow={1} backgroundColor={s?.color === 'inactive' ? EDGE : s?.color} />}
+      </Box>
+    )
+  }
+  const one = (r: Row, i: number, gap: boolean): RenderChildren => {
+    // Past the edge, the spaces that set the text off it on a terminal.
+    const rest = r.edge === true ? r.line.slice(1) : r.line
+    const start = r.edge === true ? rest.findIndex(s => s.text.trim() !== '' || s.tag === true) : 0
+    const line = start < 0 ? [] : rest.slice(start)
+    const body = (
+      <Box key={`${r.kind}-${i}`} flexDirection="row" alignItems="center" gap="xs" flexGrow={1} paddingLeft={r.edge === true ? undefined : r.indent} paddingY={r.edge === true && line.length === 0 ? 'xs' : undefined} marginTop={gap ? 'sm' : undefined} backgroundColor={r.tint === true ? HOVER : undefined}>
+        {pieces(r, line)}
+      </Box>
+    )
+    if (r.edge !== true) return body
+    return (
+      <Box key={`edge-${i}`} flexDirection="row" gap="xs">
+        {edgeOf(r.line[0], `e${i}`)}
+        {body}
       </Box>
     )
   }
   const out: RenderChildren[] = []
   const note: Row[] = []
+  let run: RenderChildren[] = []
+  const endRun = () => {
+    if (run.length > 0) out.push(<Box key={`run-${out.length}`} flexDirection="column">{run}</Box>)
+    run = []
+  }
   let gap = false
   rows.forEach((r, i) => {
     if (r.kind === 'note') return void note.push(r)
     if (r.kind === 'title') return
+    if (r.edge === true) return void run.push(one(r, i, false))
+    endRun()
     if (r.kind === 'rule' || r.kind === 'blank') return void (gap = true)
     out.push(one(r, i, gap && (r.kind === 'chapter' || r.kind === 'heading')))
     gap = false
   })
+  endRun()
   if (note.length > 0)
     out.unshift(
       <Box key="note" flexDirection="column" borderStyle="round" borderColor={EDGE} paddingX="sm" paddingY="xs" gap="xs">
@@ -141,16 +220,26 @@ const nativeRows = ($: $, e: Ev, rows: readonly Row[], now: number, oneGoalRow =
 
 // The band above the prompt on a surface with its own type: the title the fold button (a Client
 // on the desktop app, so the whole row counts), the drawer's primary button at the right, then the rows.
-const nativeBand = ($: $, e: Ev, s: Shown, rows: readonly Row[], o: { folded: boolean; notice?: string; now: number; onPress: (id: string) => void }) => {
+const nativeBand = ($: $, e: Ev, s: Shown, rows: readonly Row[], o: { activity: Activity; folded: boolean; notice?: string; now: number; onPress: (id: string) => void }) => {
   const el = $.ui.resolve(e)
   const { Box, Text, Button } = el
   const title = titleOf(s.board)
   const note = rows.filter(r => r.kind === 'note')
+  // The badge as a small filled tag: the permission colour for your turn, green when done, faint with the turning circle while working.
+  const b: Seg | undefined = badgeOf(s, o.activity, o.now)
+  const Svg = 'Svg' in el ? el.Svg : null
+  const badge =
+    b === undefined
+      ? null
+      : b.live === 'mark'
+        ? tagBox($, e, 'badge', t().badge.working, undefined, 'text', Svg === null ? undefined : <Svg source={spinSvg(o.now)} alt={t().running} width={12} height={12} />)
+        : tagBox($, e, 'badge', b.text.trim(), b.bg ?? b.color, 'inverseText')
 
   return (
     <Box flexDirection="column" gap="xs" paddingX="xs">
       {nativeRows($, e, note, o.now)}
       <Box flexDirection="row" alignItems="center" gap="xs">
+        {badge}
         {e.surface === 'desktop' && 'Client' in el ? (
           <el.Client key="band-title" module="./step-row.tsx" flexGrow={1} props={{ id: FOLD_BUTTON, title, after: o.folded ? '▾' : '▴', hover: HOVER } satisfies StepRowProps} />
         ) : (
@@ -752,7 +841,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" gap="xs">
           {top.map(l => row($, e, l, press))}
-          {nativeBand($, e, shown, rows, { folded, now, onPress: press, ...(notice === undefined ? {} : { notice }) })}
+          {nativeBand($, e, shown, rows, { activity, folded, now, onPress: press, ...(notice === undefined ? {} : { notice }) })}
           {below}
         </Box>
       )

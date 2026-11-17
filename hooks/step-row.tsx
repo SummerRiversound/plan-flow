@@ -1,15 +1,26 @@
-// The band's title row on the desktop app, drawn as a Client so a press anywhere on the row
-// folds the band, not only on its words. A click or Enter posts `{ press: id }`; the hooks
-// module does the rest.
+// One pressable row of the desktop drawer, drawn as a Client so a press anywhere on the row
+// counts, not only on its title: the step's mark and title, the 동시에 pill, and its count at
+// the right edge. A click or Enter posts `{ press: id }`; the hooks module does the rest.
 import type { ClientModule } from 'claude-code'
 
 export type StepRowProps = {
   id: string
+  // The list's tree guides (`│  ├─ `), drawn monospaced at the row's start so they line up row to row.
+  guide: string | null
+  // The status mark before the title; null where a turning picture stands beside the row.
+  mark: { text: string; color: string } | null
   title: string
-  // Muted text right after the title: the fold arrow.
+  strong: boolean
+  muted: boolean
+  strike: boolean
+  redo: boolean
+  pill: string | null
+  // Muted text right after the title, such as the band's fold arrow.
   after: string | null
+  right: { text: string; color: string } | null
   // The row's fill under the pointer.
   hover: string
+  edge: string
 }
 
 const StepRow: ClientModule<StepRowProps, { over: boolean }> = (p, surface) => {
@@ -24,11 +35,33 @@ const StepRow: ClientModule<StepRowProps, { over: boolean }> = (p, surface) => {
 
   return (
     <Box flexDirection="row" alignItems="center" gap="xs" backgroundColor={surface.state?.over === true ? p.hover : undefined}>
-      <Text weight="semibold">
+      {p.guide === null ? null : (
+        <Text mono color="inactive">
+          {p.guide}
+        </Text>
+      )}
+      <Text weight={p.strong ? 'semibold' : undefined} color={p.muted ? 'inactive' : undefined} strikethrough={p.strike ? true : undefined}>
+        {p.mark === null ? null : <Text color={p.mark.color}>{p.mark.text} </Text>}
         {p.title}
+        {p.redo ? ' ↺' : ''}
         {p.after === null ? null : <Text color="inactive"> {p.after}</Text>}
       </Text>
+      {p.pill === null ? null : (
+        // A tint, not a border: the app pads a bordered box itself, which would make the pill taller than the row.
+        <Box backgroundColor={p.edge} paddingX="xs" flexShrink={0}>
+          <Text size="caption" color="inactive">
+            {p.pill}
+          </Text>
+        </Box>
+      )}
       <Box flexGrow={1} />
+      {p.right === null ? null : (
+        <Box flexShrink={0}>
+          <Text size="footnote" tabular color={p.right.color}>
+            {p.right.text}
+          </Text>
+        </Box>
+      )}
     </Box>
   )
 }

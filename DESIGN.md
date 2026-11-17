@@ -1,14 +1,13 @@
 ---
 version: alpha
 name: plan-flow terminal
-description: A session's requests drawn inside Claude Code's terminal, each with what came of it and what is left, in plain text with three colours that mean something — green for done, red for an error, blue-violet for what waits on you.
+description: A plan drawn as a card flowchart inside Claude Code's terminal, in plain text with three colours that mean something — green for done, red for blocked, blue-violet while Claude waits on you.
 colors:
   success: "#5cc072"
   error: "#ff6b80"
   waiting: "#b1b9f9"
   text: "#e8e6e3"
   muted: "#9a968f"
-  tint: "#3a3834"
   surface: "#0f0e0d"
 typography:
   body:
@@ -23,54 +22,30 @@ typography:
     lineHeight: 1
 spacing:
   cell: 1
-  indent: 2
-  band-rows: 10
+  box-padding: 1
+  branch-gap: 5
   pane-columns: 53
+omitted:
+  - section: rounded
+    reason: "Corners are box-drawing characters (╭╮╰╯), not a radius."
 components:
-  chapter-row:
+  stage-box:
     textColor: "{colors.text}"
     typography: "{typography.body}"
-  chapter-row-latest:
+  stage-box-running:
     textColor: "{colors.text}"
     typography: "{typography.title}"
-  chapter-row-done:
+  row-waiting:
     textColor: "{colors.muted}"
     typography: "{typography.body}"
-  mark-done:
+  row-blocked:
+    textColor: "{colors.error}"
+    typography: "{typography.body}"
+  row-done:
     textColor: "{colors.success}"
     typography: "{typography.body}"
   row-your-turn:
     textColor: "{colors.waiting}"
-    typography: "{typography.title}"
-  badge-your-turn:
-    backgroundColor: "{colors.waiting}"
-    textColor: "{colors.surface}"
-    typography: "{typography.title}"
-  badge-done:
-    textColor: "{colors.success}"
-    typography: "{typography.body}"
-  rail-done:
-    textColor: "{colors.success}"
-    typography: "{typography.body}"
-  your-turn-bar:
-    textColor: "{colors.waiting}"
-    typography: "{typography.body}"
-  tag-your-turn:
-    backgroundColor: "{colors.waiting}"
-    textColor: "{colors.surface}"
-    typography: "{typography.title}"
-  tag-other:
-    textColor: "{colors.muted}"
-    typography: "{typography.body}"
-  chapter-current-drawer:
-    backgroundColor: "{colors.tint}"
-    textColor: "{colors.text}"
-    typography: "{typography.title}"
-  row-error:
-    textColor: "{colors.error}"
-    typography: "{typography.body}"
-  result:
-    textColor: "{colors.muted}"
     typography: "{typography.body}"
 ---
 
@@ -78,54 +53,55 @@ components:
 
 ## Overview
 
-The board is the session's requests: one chapter per request the person sent (a bare go-ahead stays in the chapter before), each with what came of it, and under the latest what is left by who moves next. It is drawn in two places: a band above the prompt that says at a glance whose turn it is and where the session stands, and a timeline of every chapter in the `/flow` side drawer. It should read like a table of contents: calm, dense, factual. A chapter's mark is its state: green `●` done, `○` not done, `◐` the latest waits on the person, a turning mark while Claude works on it. The target drawing is in `docs/design-reference/terminal/`.
+A plan is drawn in two places: a live tree above the prompt, and a card flowchart in the `/flow` side drawer. It should read like a CI run graph: calm and dense. A row's mark shape is its status: `✓` done, `●` running, `○` waiting, `■` blocked, `–` skipped, `◐` waiting for the person to check. The target drawings are in `docs/design-reference/terminal/`.
 
 ## Colors
 
-Three colours, each with one meaning; everything else is plain text or muted. All are Claude Code theme keys, so light and dark themes follow the user's setting; the hex values are the dark-theme reference.
+Three colours, each with one meaning; everything else is plain text or muted. More colours made the board noisy. All are Claude Code theme keys, so light and dark themes follow the user's setting; the hex values are the dark-theme reference.
 
-- **Success (#5cc072, `success`):** the `●` of a done chapter on the band's rail and the drawer's timeline, the rail's joins and the timeline's line under done chapters, the band's `✓ 끝` badge, the `✓` of a done session in `모든 세션`, and in the note for a person coming back the `✓` of a chapter that finished.
-- **Error (#ff6b80, `error`):** the dot of the activity line when the turn ended in an error.
-- **Waiting (#b1b9f9, `permission`):** what waits on the person: the band's `◐ 내 차례 N` badge and the drawer's `내 차례` tags as a fill behind dark bold text (`inverseText`), the `▌` bar down the band's your-turn rows with its bold `내 차례` heading and `◐` marks, the `◐` of the latest chapter on the rail and the timeline while something waits on them, the drawer's `◐ 내 차례 N:` line, the `◐` of another session waiting on the person in `모든 세션`, and the activity line while a question or a permission dialog is open (`● 답변 기다리는 중`). The colour Claude Code gives its own permission prompts, so it reads as your turn.
-- **Text (#e8e6e3, `text`):** chapter titles, items, links and receipts, the `○` of a chapter not done; bold for the subject, the current chapter and the `일하는 중` badge.
-- **Muted (#9a968f, `inactive`):** `→ results`, the goal, the rail's joins after the last done chapter and its older short names, the band's folded `Claude가 이어서:` and `다른 사람 기다림:` lines, the timeline's line under a chapter not done, the drawer's tags other than `내 차례`, its labels (`요청`, `결과`), the note's frame, the letters of a swept title outside its bright band.
-- **Tint (#3a3834, `subtle`):** a faint fill behind the drawer's current chapter row on a terminal.
+- **Success (#5cc072, `success`):** done marks and the filled part of the progress bar.
+- **Error (#ff6b80, `error`):** a blocked step and its note.
+- **Waiting (#b1b9f9, `permission`):** Claude waits on you (a question, a permission, or a turn that ended with work open and no background work still running; while that runs the line reads `백그라운드 작업 N개 진행 중` in plain text): the `● 답변 기다리는 중` line and the running step's mark and its `답변 기다림`. The colour Claude Code gives its own permission prompts, so it reads as your turn.
+- **Text (#e8e6e3, `text`):** step names, the running mark and the running box's border; bold for buttons, the running step and the plan title.
+- **Muted (#9a968f, `inactive`):** waiting and skipped steps, borders, connectors, counts.
 
 ## Typography
 
-The terminal's own monospace font; only weight varies. Every label comes in English and Korean; the Korean ones are quoted here. Bold marks the subject, the current chapter, the badges and the `내 차례` heading and tag. Hangul takes two cells, everything else one.
+The terminal's own monospace font; only weight varies. Every label comes in English and Korean; the Korean ones are quoted here. Bold marks the running item and the plan title. Hangul takes two cells, everything else one.
 
 ## Layout
 
-All sizes are terminal cells. The band takes at most 10 rows and the rows the engine gives it; past that the least needed rows go first: the rest of the goal, then what others and Claude do, then the links, then the rail; the badge and subject, the current chapter, what Claude is doing and what waits on the person stay longest. Receipts, links, the activity line and the folded lines sit 2 cells in. The drawer is 53 columns when docked at 45% of a 120-column terminal; its timeline's line is the first column, a chapter's title starts 3 cells in and what sits beside the line 5 cells in; its text wraps to its width, a chapter's request and result under their own start beside a label column as wide as the longest label.
+All sizes are terminal cells. The tree above the prompt fits the rows the engine gives it, folding completed subtrees first. The drawer is 53 columns when docked at 45% of a 120-column terminal; boxes are centred on one axis. Every box on the axis has one width, open or folded: the drawer less 8 cells, or wider if the longest stage title needs it. Side-by-side branches share that width evenly, at least 5 cells apart, so their outer edges line up with the boxes above and below; when a title would not fit, fewer go to a row.
 
 ## Elevation & Depth
 
-None. Hierarchy comes from indentation, weight, the badge's fill and the current chapter's tint, not shadows or boxes.
+None. Hierarchy comes from nesting boxes, not shadows.
 
 ## Components
 
-- **Badge:** before the band's title, one piece that says the session's state when the person switches tabs: ` ◐ 내 차례 N ` bold in dark text on the permission colour while anything waits on the person (open dialog questions and what the last answer left to them), `⠋ 일하는 중` bold with the turning mark while Claude works, `✓ 끝` in green when the latest chapter is done and nothing waits, and no badge otherwise (background work keeps its own line). It stays when the band folds.
-- **Band title:** after the badge, the session's subject in bold (the writer's title, else the first request's words), a muted `▴` (open) or `▾` (folded); pressing the title or its arrow folds or unfolds the band, there is no fold button. `[ 전체 보기 ▸ ]` sits at the right edge as the band's main action: a primary button, in the accent colour in the terminal and the app's own primary button on the desktop; a newer version's notice sits before it and gives way first, then the title gives way. The band sits above every other plugin's band above the prompt.
-- **Goal:** one sentence on what the session is for, muted, up to three rows while the band is open, one when it folds; the drawer shows all of it.
-- **Rail:** on its own row under the goal, one node per chapter joined by five `━`: done chapters green `●` with green joins, the latest `◐` in the permission colour while something waits on the person, the turning mark while Claude works, plain `○` otherwise; joins after the last done chapter muted. Three cells on, the chapters' short names `1 원인 · 2 큐 교체 · 3 리뷰 반영`, muted and the current one bold; a short name is the title cut to fit, the oldest names going first, none cut below 10 cells. With more than eight chapters the rail keeps the latest eight after a muted `…`; on a narrow band the joins shorten down to one `━`. A session of one chapter has no rail.
-- **Current chapter:** under the rail, the latest chapter's number and title in bold, then `  → result` muted, cut with `…` where the row ends. Older chapters are not listed on the band; the rail stands for them.
-- **Turning mark and sweep:** while Claude works the latest chapter's mark turns (`⠋⠙⠹…`, a frame each 100 ms) on the rail, in the badge and on the timeline, and a bright band three letters wide sweeps its title (muted letters, the band in text colour), on the band and in the drawer; between turns the title stands still in bold. On the desktop app and the editor the mark is a small turning circle and the swept title a picture of it, both moving by themselves.
-- **Receipts and links:** under the current chapter in the band (one row, ending in muted `+N` for what does not fit), under every chapter in the drawer (as many rows as they need): `↗ PR #142 머지됨  ↗ 릴리스 v1.4.2  ↗ 이슈 #139`, each a link where it has a target. A PR shows once, as the last thing done to it in the session (`열림`, `리뷰 준비`, `머지됨`).
-- **Activity line:** under the current chapter while Claude works or waits in a dialog, `● ` then what it is doing (`Bash 실행 중`), the dot in text colour, the permission colour while a question or permission is open, red after an error. Background work still running reads `백그라운드 작업 N개 진행 중` in plain text, while Claude works and after its turn ended.
-- **Your turn on the band:** a `▌` in the permission colour down every row of the group: the bold `내 차례` heading in the permission colour, then each thing waiting as `◐ text` (open dialog questions first, then what the answer left to the person).
-- **What Claude and others do next on the band:** one muted row each, 2 cells in: `Claude가 이어서: <first>` and `다른 사람 기다림: <first>`, with ` 외 N` when there are more.
-- **Note for a person coming back:** three minutes after an answer with no input, a note sits above the band: `╭ 자리 비운 동안` in bold, then down a muted `│` how the latest chapter ended (green `✓` when done, muted `·` otherwise), its receipts and links, and every `◐` item that waits on the person, closed by a muted `╰ 입력하면 평소 판으로 돌아가요`. It goes away when the person types or sends a request, and does not show when it would leave the band fewer than three rows. On the desktop app it is a box with a faint rounded edge and no frame characters.
-- **Drawer:** the head holds the subject in bold with `[ ↻ ]` flush right (the writer reads the whole session again at once, and a toast says whether the board was written), the whole goal, a bold `◐ 내 차례 N: a · b` line in the permission colour when something waits on the person, and the activity line. Then the timeline: every chapter, oldest first, a dot (its mark, as on the rail) on one `│` line down the left, the line green under a done chapter and muted under one not done. Two cells after the dot, the chapter's number and title (done ones muted, the latest bold); four cells after the line, `요청` and `결과` with their text and its receipts and links; a row of bare `│` between chapters. The latest chapter's title row is tinted to the edge, and what is left branches off the line under it, `├─` and `└─` for the last: a tag saying whose it is, ` 내 차례 ` bold in dark text on the permission colour, ` Claude `, ` 다른 사람 `, ` 선택 ` and ` 확인 못 함 ` muted, padded to one column, then the item. Under the latest chapter the line runs on only to its branches. The engine scrolls the drawer; nothing in it follows or pins. The drawer's title is `세션 목차`.
-- **모든 세션:** at the drawer's end, after a muted `┄` rule and a bold `모든 세션` heading, one row per other session whose line changed in the last day: its mark (`◐` in the permission colour when it waits on the person, `●` in text colour while it works, green `✓` when done, muted `○` otherwise), its subject, and muted how long ago the line changed (`방금`, `3분 전`, `2시간 전`); the subject is cut before the time is. Sessions waiting on the person first, then working, then the rest, newest first within each. Rows do nothing on press. With no other session the section is not drawn. The drawer is drawn again every 30 seconds while open, so the other sessions' rows keep up.
-- **Notification:** not drawn by the mod: when the board newly has an item waiting on the person, one native notification headed by the session's subject with the first new item as its text.
-- **Band and drawer on the desktop app and the editor:** the same rows set in the app's own type, not monospaced lines: the subject semibold (heading size in the drawer), the goal and everything under a chapter in footnote size, links and receipts as small underlined names, `↻` and `전체 보기 ▸` as native buttons. The badge and the drawer's tags are small filled labels in caption size: the permission colour or green behind dark semibold text, the faint grey behind the others and behind `일하는 중` with its turning circle. The rail is its characters in the app's type. The timeline's line and the your-turn bar are a thin filled box down the left of their rows, with no space between the rows so the line runs on; the dots stay characters. The current chapter's row gets the faint grey fill. On the desktop app the band's title row is pressable end to end and lights under the pointer; the editor keeps the title as a plain button. Space stands for the terminal's rule.
+- **Stage box:** rounded box, status mark and name on the left, `1/4` flush right; no step shows how long it took. Folded shows `▸`, unfolded `▾` with its tasks inside.
+- **Running stage box:** border and mark in text colour, name bold; the other boxes' borders are muted.
+- **Step rows by status:** a finished step's title steps back dim (its `✓` stays green), a step still to come reads in plain text colour, the running step is bold with its motion; the eye goes from "now" to "next", not to what is behind. In the band and the drawer alike.
+- **Progress bar:** up to 24 cells of one heavy line, each half cell a stretch of leaves in plan order: `━` in green where done, `╸` or `╺` for a half cell (text colour for a step waiting on a check), the same `━` dim and muted for the rest. One line weight along the whole bar.
+- **Change marks:** a step the latest request reopened ends in a bold `↺`; a step it added carries no mark.
+- **Parallel group:** a closed muted box inside a stage box, `╭ 동시에 ─╮` on top and `╰─╯` under it, holding the tasks that run at the same time; every row inside, a long note included, wraps within its borders.
+- **Link row:** under a step whose row shows (a leaf, or an open box), one row of short names in text colour, each a hyperlink: `↗ PR #42  ↗ 아티팩트  ↗ LoginPage.tsx`, ending in muted `+N` for links that do not fit. The drawer only; the band above the prompt stays as it is.
+- **Check line:** under the progress bar (band) or the head (drawer), bold `◐ 확인할 것 N:` then each step waiting for the person's check with its note, joined by ` · `; absent when there are none, and folded away with the band.
+- **Connectors:** `┬`/`┴` on box edges, `▼` into the next box, `╭─┴─╮` for a split and `╰─┬─╯` for a join.
+- **Tree above the prompt:** title, the plan's goal muted in up to three rows while the band is open and one when it folds (cut with `…`), the plans this session finished in one muted row, newest first (`앞서 끝냄  ✓ 버그 수정  ✓ …`, the `✓` green, cut with `…`, kept when the band folds, absent until a plan has finished), a progress line with `done/total · %` and no elapsed time, then one row per node: mark, title, `∥ parallel` on a parallel parent, `done/total` flush right on parents, `◂` only on the step up next while nothing runs.
+- **Band title and buttons:** the band's title ends in a muted `▴` (open) or `▾` (folded), and pressing the title or its arrow folds or unfolds the band; there is no fold button. `[ 흐름도 보기 ▸ ]` sits at the right edge of the title line as the band's main action: a primary button, in the accent colour in the terminal and the app's own primary button on the desktop; the title gives way to it. The band sits above every other plugin's band above the prompt.
+- **Running step:** while Claude works, its mark turns (`⠋⠙⠹…`, a frame each 100 ms) and a bright band three letters wide sweeps its bold title (muted letters, the band in text colour); waiting on the person or between turns it stands still as a bold `●`. In the band and the drawer alike. On the desktop app and the editor the title stays text in the app's type and only a small turning circle beside it is a picture, which turns by itself instead of redraws that would make it blink.
+- **Drawer head and foot:** the drawer's top stays put while its body scrolls: the band's head (title, the whole goal wrapped in muted rows, progress bar, check line, what Claude is doing), then buttons drawn as buttons — `[ 모두 펼치기 ]`, `[ 모두 접기 ]` from the left, `[ ↻ ]` and `[ 목록 보기 ]` flush right where the rule ends, a native button on the desktop app — each kept only while it fits, then a muted `┄` rule. `↻` has the planner look again and a toast says how many places it fixed. In the list the head keeps `[ ↻ ]` and `[ 흐름도 보기 ]`, flush right in the same place so the switch never moves; a drawer too narrow for the flowchart shows the list with `[ ↻ ]` alone. When the body runs past the pane, it gets half a window of blank rows above and below, so following keeps the running step in the middle even near either end; a finished plan follows to its last row, at the bottom, and a muted rule and a foot pin under it: `진행 중인 단계를 따라가는 중 · 휠로 둘러보면 멈춰요` while the window follows the running step, or `따라가기 멈춤` and a `[ 진행 중으로 ]` button once the person scrolls. A body that fits has no foot. At most four buttons in the head; "back to the running step" lives only in the foot. No hotkeys: the buttons are pressed by click or Enter under the focus.
+- **Finished and parked plans in the drawer:** the plans this session finished open the body, above the flowchart, under a bold `이 세션에서 끝낸 계획`, newest first: one muted row each, `▸ ✓ title` with `done/total` flush right, the `✓` green; pressing a row opens its steps under it, read only. Each is other work the session did, so no line joins them to the plan in hand. The plans set aside to come back to close the body under a bold `보관한 계획` in the same rows, without the `✓`. A cancelled plan is not listed.
+- **Band and drawer on the desktop app and the editor:** drawn in the app's own type, not monospaced lines: no `├─` guides, no character progress bar. The head: the plan's title (semibold in the band, heading size in the drawer), the goal under it in footnote size, muted (one row in a folded band, all of it in an open band and in the drawer), a slim rounded progress bar picture with one slot per step in plan order (done green, waiting for a check in text colour, the rest a muted track) and `done/total · %` beside it in tabular digits, then the check line and what Claude is doing in footnote size. In the band the title is the fold button with its muted arrow right after the title words and `흐름도 보기 ▸` is the app's primary button at the right; the band's rows are the terminal's own rows (the same window and folding), each step indented by its level, parents with `done/total` flush right. In the drawer the head ends in native buttons, `모두 펼치기` and `모두 접기` from the left, `↻` and `목록 보기` at the right. Then the plans this session finished, as the terminal lists them (below), then the flowchart as real boxes: each stage a card with a faint rounded edge, stronger on the running stage, its title row across the top and its open steps below, one hairline before each. No fill inside a card: the app pads a bordered box itself, so a fill there floats short of the edges. Edge, hairline and the row a pointer rests on use one neutral grey at low opacity, so the same value reads on the light and the dark theme. On the desktop app each row is pressable end to end (a click or Enter anywhere on it folds a box or picks a step) and lights under the pointer; the editor, which has no such region, keeps the title as a plain button. A row is the step's mark and title (semibold while it runs, muted once done), then flush right its `done/total ▾` or `진행 중` in footnote size and its links as small underlined names; under it the detail and note in footnote size, muted, the picked step's `확인 완료` and `논의` as primary buttons at the right, apart from the text above, and its open steps indented with no hairlines; a task that runs with its siblings stays at their level with a small `동시에` tag beside its title, a faint tint with no border so it stays the height of the row. Counts never wrap: the title gives way. Cards side by side keep their own height, so opening one leaves no empty box beside it. Stages are joined by thin lines drawn as pictures that scale to the drawer's width: straight down between two cards, splitting to the middle of each card for stages side by side and joining again under them, and only between cards: no line hangs above the first card or under the last. The app scrolls the drawer itself: no pinned foot and no following, the step Claude is on takes the focus. `목록 보기` keeps the tree's `├─` guides, monospaced at the start of each row so they line up, with the rest of the row (mark, title, `동시에` pill, count at the right) in the app's type, each row pressable end to end and a picked step's detail, note and primary buttons under it, the guides running on beside the buttons so the lines never break; a drawer too narrow for the flowchart, by the terminal's own measure, shows that list with no switch. The band's title row folds the band wherever it is pressed.
+- **Closing note:** once every step is done and Claude has sent its summary, one more box ends the drawer's axis, joined by `▼` at the stages' width: green `✓` and bold `완료 정리`, a muted `┄` rule, then the parts as two columns: bold labels (`목적`, `결과`, `링크`) in one column as wide as the longest, each text wrapped under its own start in text colour, a blank row between parts; the `링크` row holds every link the steps produced. The list ends with the same rows after a blank line. The band above the prompt stays as it is. A step that opens again takes the note away.
+- **Step buttons:** pressing a step's row in the drawer (the flowchart or the list) picks it: its whole detail and note show under its row, never cut short, and one row of buttons opens under them: `[ 확인 완료 ]` while the step waits for the person's check, then `[ 논의 ]`; pressing the row again closes it. A box's row still folds. 확인 완료 marks the step done and clears its note, and Claude hears of it with the next request; 논의 puts `[step title] ` in the prompt box as a draft, never sending it. The brackets are text, so box walls hold.
 
 ## Do's and Don'ts
 
-- Do keep colour to green for done, red for an error and the permission colour for what waits on the person; the current chapter stands out by weight and, in the drawer, a faint tint, not colour.
-- Do put the mark first on every chapter row and the result last.
-- Do animate only while Claude works, and only the latest chapter: its mark and the sweep over its title.
-- Don't use literal colors in code; use theme keys. The exceptions are on the desktop app and the editor: the turning circle and the swept title, pictures that cannot read theme keys and follow the viewer's light or dark scheme, and the note's edge, the title row's pointer highlight, the current chapter's fill and the plain tags' fill, one neutral grey at low opacity that holds on either theme.
-- Don't show elapsed times, percentages or counts of steps; the rail shows where the session stands with no number beyond the chapters' own.
-- Don't let the band grow past the rows it is given; drop the least needed rows, with no hint row.
+- Do keep colour to green for done and red for blocked; the running step stands out by weight, not colour.
+- Do put the status mark first and the count or `진행 중` last on every row.
+- Do animate only while something runs, and only the running item.
+- Don't use literal colors in code; use theme keys. The exceptions are on the desktop app and the editor: the pictures (the turning circle, the progress bar, the lines between cards, the hairlines), which cannot read theme keys and follow the viewer's light or dark scheme, and the cards' edge, hairlines and pointer highlight, one neutral grey at low opacity that holds on either theme.
+- Don't draw icon tiles or subagent strips.
+- Don't let the tree above the prompt grow past the rows it is given; fold completed subtrees, then show a window around the current step, with no hint row.

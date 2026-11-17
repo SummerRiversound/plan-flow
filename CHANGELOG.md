@@ -2,6 +2,13 @@
 
 All notable changes to this mod. Versions follow `version` in `.claude-plugin/plugin.json`; installed copies update when it changes.
 
+## 0.2.2 — 2026-11-17
+
+### Changed
+
+- The plan board is back as it was in 0.1.44: the plan tree above the prompt and the card flowchart in the drawer, kept by Haiku with Claude designing the plan.
+- The request-list board of 0.2.0 and 0.2.1 is removed, with its state badge, progress rail, timeline drawer, all-sessions list, notifications, tab title and status-block option.
+
 ## 0.2.1 — 2026-11-17
 
 ### Changed

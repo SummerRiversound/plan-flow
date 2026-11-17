@@ -2,7 +2,9 @@
 
 **English** | [한국어](README.ko.md)
 
-A [Claude Code](https://claude.com/claude-code) mod that shows what a session is doing, right inside Claude Code. Each request you send becomes a chapter with what came of it, and under the latest one sits what is left, by who moves next: you, Claude, or someone else. Glance at a tab and you know what the session is for, where it stands and whether it waits on you.
+A [Claude Code](https://claude.com/claude-code) mod that shows the plan of the work Claude is doing, right inside Claude Code. A small model of the mod's own watches the session from the side and lays the work out as stages, tasks and checkpoints, and you watch it move: a live tree above the prompt while it works, and a flowchart in a side drawer when you want the whole picture.
+
+![The plan tree above the prompt: stages, the tasks under them, and the running step with what it does](docs/images/en/band.png)
 
 ## Quick start
 
@@ -13,27 +15,30 @@ At the prompt of a Claude Code session:
 /plugin install plan-flow@plan-flow
 ```
 
-Then send Claude a request. Its chapter shows above the prompt at once, and after Claude answers, the board is written again from the whole session. Type `/flow` to open the session chapters: every request, and every other session's state.
+Then ask Claude for any task that takes more than a couple of steps. A plan appears above the prompt within a few seconds and follows the work as it goes. Type `/flow` to open the flowchart.
 
 ## What you see
 
-![The band above the prompt: the session subject and goal, the latest chapters with their results, and what waits on you](docs/images/en/band.png)
+- **The tree above the prompt.** The plan's title, one dim line on what the work is for, and a progress bar, then the stages with their tasks. The running step is bold and shows one sentence on what it does and why. When Claude waits on you (a question, a permission, or a turn that ended with work left and no background agents, workflows or shells still running; while they run the line says so in plain text), a blue-violet `● Waiting for your answer` shows under the progress bar and the running step takes the same colour. Finished stages fold to one line, and the tree keeps to 10 rows around the current step, so it never pushes your conversation away. Press the title (`▴`) to shrink it to the title, that line and the progress bar, and again (`▾`) to open it. `Flowchart ▸` on the right opens the drawer. When the plan is done, the tree folds to its title, that line and the full progress bar and stays until the next plan starts; press the title to open it.
+- **The flowchart in the drawer.** `/flow` opens it beside the conversation. Each stage is a box; steps that run at the same time sit side by side and join again below. Boxes unfold one level at a time, and the drawer follows the running step until you scroll. In a narrow drawer, or with `List view`, the same plan shows as an indented list. On the desktop app and in the editor, the tree and the drawer are set in the app's own type: each stage is a rounded card joined by lines, the progress bar is a real bar, the drawer scrolls by itself, and the step Claude is on takes the focus.
+- **Links to what each step produced.** A step can carry its pull request, issue, commit, artifact or file, shown in the drawer as short names that open on click.
+- **Steps only you can confirm.** Some steps need you: trying something on a phone, signing in, a judgement call. They wait for your check without holding the progress back, and they are listed together under the progress bar. Press one in the drawer to mark it `Checked`, or press `Discuss` to start a message about it in the prompt box.
+- **A closing note.** When every step is done, the drawer ends with what the plan was for and how that was reached.
 
-- **The band above the prompt.** A badge in front says the session's state at a glance: `◐ Your turn N` on blue-violet when something waits on you, a turning mark and `Working` while Claude works, a green `✓ Done` when the latest chapter is done and nothing waits. Then the session's subject and one dim line on what it is for. The next row is the progress rail: one dot per chapter joined by `━`, a green `●` for each one done, `◐` for the current one when it waits on you, a turning mark while Claude works on it, with the chapters' short names beside it, the current one in bold; with many chapters it keeps the latest eight after `…`. Under it comes the current chapter with its result after `→`, and while Claude works a bright band sweeps its title. Then the pull requests opened or merged and the releases made in it, with their links, what Claude is doing right now while it works, and `N background tasks running` while agents, workflows or shells it started still run. What waits on you (a question Claude asked in a dialog and has no answer to yet, a check only you can make) sits under `Your turn` behind a blue-violet bar down the left; what Claude goes on with and what waits on others (a reviewer, CI) fold into one dim line each (`Claude goes on with: Merge once it is checked and 1 more`). It keeps to 10 rows, dropping the least needed rows first. Press the title (`▴`) to fold it to the badge, the title and that line, and again (`▾`) to open it. `Show all ▸` on the right opens the drawer.
-- **A note when you come back.** Three minutes after Claude answers with nothing new from you, a short note sits above the band: how the latest request ended, what it produced, and what waits on you. It goes away as soon as you type or send a request.
-- **The session chapters in the drawer.** `/flow` opens them beside the conversation: every chapter of the session, oldest first, as dots on one line down the left (green under the chapters done), each with your request, its result and its links beside the line; links open on click. What waits on you is gathered at the top. The current chapter's row is tinted, and what is left branches off it, each with a small tag saying whose it is: `Your turn` on blue-violet, then dim `Claude`, `Others`, `Optional` and `Not checked`. `↻` in its head has the board written again at once from the whole session.
+![The flowchart in the drawer: stage boxes, two branches running side by side, links under the steps that produced them](docs/images/en/drawer.png)
 
-![The session chapters in the drawer: every request with its result and links, what waits on you at the top](docs/images/en/drawer.png)
+## How the plan follows your session
 
-- **All sessions.** At the end of the drawer, every other session you ran in the last day, one row each: `◐` in blue-violet when it waits on you, `●` while it works, a green `✓` when it is done, then its subject and how long ago that changed (`3m ago`). Those waiting on you come first, then those at work, then the rest, newest first.
-- **A notification when something waits on you.** When a session's board newly has something for you (a question in a dialog, a check only you can make), plan-flow raises one notification with the session's subject and that item, never twice for the same item. The desktop app holds it a minute and drops it if you come back to the session first; a terminal shows it at once through your notification setting. Sending a request in that session takes it back.
-- **On the desktop app and in the editor** the band and the drawer show the same rows in the app's own type: the badge and the tags as small filled labels, the drawer's line and the your-turn bar as thin lines, links as links.
+The board follows the work of the whole session, not each message:
 
-## How the board follows your session
+- More work on the same task joins the current plan, under the stage it continues; a new stage is added only for a new part of the work.
+- A detour (say, a quick bug fix in the middle) puts the current plan on a shelf, and it comes back when the detour is done. The shelf sits at the bottom of the drawer; press a parked plan to see its steps.
+- Starting over cancels the current plan.
+- A step that has to be redone opens again and is marked `↺` until it is done.
+- Work Claude goes on with without asking is a step, the review, merge or release that follows the request included. Work after the plan that waits on your go-ahead or on someone else (say, a merge you decide on, or review comments still to come) hangs dim and dotted after the last stage, two at most. It does not count towards progress, becomes a step when it starts, and stays after the plan finishes.
+- A new task after a finished plan starts a new plan. The finished one stays listed at the top of the drawer and named on one line above the prompt, so a glance shows everything the session did; when the work goes back to it, it comes back as the plan in hand.
 
-A new request starts a new chapter, named by your words until the board is written again; a bare go-ahead (`ok`, `go on`) stays in the chapter before. Between writes, rules add what is certain the moment it happens: a new chapter, a pull request opened, marked ready or merged, a release, a question Claude asks in a dialog, background work starting and finishing.
-
-After an answer that followed work, a model of the mod's own (Sonnet) reads the whole session again and writes the board anew: the subject, the goal, each chapter's title and result, and what is left. The working conversation never sees the board: nothing is added to what it reads (unless you turn on `statusBlock`), so the mod does not change how it works.
+The mod's planner decides which of these fits, from your messages, the calls Claude makes and what Claude says. After an answer that followed enough work, a copy of the conversation asks Claude to design the plan: the goal as the end you are after, the stages the whole way there, and where each step stands now. The working conversation never sees the board: nothing is added to what it reads, so the mod does not change how it works.
 
 ## Options
 
@@ -41,30 +46,32 @@ Set them on the install screen, or later in `/config`.
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `language` | `auto` | The language of the band, the drawer and the notices: `en` or `ko`. `auto` follows Claude Code's own language setting, then the system locale, then English. |
-| `autoShow` | on | Shows the band as soon as you send the first request. Off, it shows only after you type `/flow`. |
+| `language` | `auto` | The language of the tree, the drawer and the notices: `en` or `ko`. `auto` follows Claude Code's own language setting, then the system locale, then English. |
+| `autoShow` | on | Shows the tree as soon as a plan starts. Off, it shows only after you type `/flow`. |
 | `enabled` | on | Runs plan-flow in each new session. Off, a session starts with no board and no model calls until you type `/flow on`. |
-| `statusBlock` | off | An experiment. On, Claude is asked, through one section of its system prompt, to end each answer that followed work with a short `<status>` block: what the answer achieved, what waits on you, what it goes on with, what waits on others and what it did not check. The board reads the block at once into the latest chapter until the board is next written; the block stays visible in the answer. Off, nothing is added to what Claude reads. |
+| `design` | on | After an answer that followed work and left the board unchanged, Claude reshapes the plan in a fork of the conversation and says which steps are done. Off, only Haiku keeps the board, which costs less and follows the work less closely. |
 
-`/flow off` turns plan-flow off in the current session only: the band and the drawer go away and no model is called. `/flow on` turns it back on and writes the board again from the whole session. The choice survives `/reload-plugins`. `/flow status` says whether it is on here, whether `statusBlock` is on, and how many tokens its recent board writes used.
+`/flow off` turns plan-flow off in the current session only: the tree and the drawer go away and no model is called. `/flow on` turns it back on and catches up on what happened meanwhile. The choice survives `/reload-plugins`. `/flow status` says whether it is on here and how many tokens its recent calls used.
 
 ## Try it without a task
 
-`/flow demo` walks through sample boards: a session at work, the same session after an answer and when you come back to it, a finished session, and one waiting on background work. `/flow demo next` moves on and `/flow demo stop` ends it. Your own board is not touched.
+`/flow demo` walks through sample boards: a plan with parallel branches, a long plan, added and reopened steps, a detour, blocked and skipped steps, a finished plan. `/flow demo next` moves on and `/flow demo stop` ends it. Your own board is not touched.
 
 ## What it reads and keeps
 
-The mod writes no files and works only through Claude Code's own hooks. It adds no tool, and nothing to what Claude reads unless you turn on `statusBlock`.
+The mod writes no files and works only through Claude Code's own hooks. It adds no tool, and nothing to what Claude reads.
 
-- **Keeps** the board of your 100 most recent sessions in Claude Code's storage for this mod, so a session that resumes finds its board again. A board holds the subject, goal, chapter titles, requests (cut to 200 characters until the board is written again), results, links and what is left, as the model wrote them, plus the dialog questions still open and the background work still running. Beside it, for the 20 most recent sessions, go the mod's last 50 board writes for that session (when, how long it took, how it ended, how many tokens it used), so a board that stopped changing can be explained. For the drawer's list of all sessions, each of your 20 most recent sessions also keeps one line: its subject, whether it waits on you, works or is done, how many things wait on you, and when that changed; `/flow off` removes the session's line.
-- **Asks Sonnet to write the board**: after an answer that followed work, three minutes after an answer when something happened since the last write, when you press `↻` in the drawer, and when a resumed session has no board yet; writes start at least 30 seconds apart, except for `↻`. It sends the session as short lines: your messages, what Claude says, one line per tool call, a subagent's included (what the call says it is for, the file it touches or the pattern it searches, marked when it failed; never file contents or command output), the questions Claude asks in a dialog with your answers, and one line per notice Claude gets (a background task finishing), the newest 200,000 characters. These calls go through Claude Code's own model access, outside the session's cost total.
-- **Watches tool calls** to show what Claude is doing (for example `Running Edit`), and reads the output of `gh pr create`, `gh pr merge`, `gh pr ready` and `gh release create` for the pull request and release they made. It never changes or refuses a call.
+- **Keeps** the board of your 100 most recent sessions in Claude Code's storage for this mod, so a session that resumes finds its plan again. A board holds the step titles, details, notes and links Claude wrote. Beside it, for the 20 most recent sessions, go the mod's last 50 model calls for that session (when, which call, how long it took, how it ended, how many tokens it used), so a board that stopped changing can be explained.
+- **Asks a small model (Haiku, thinking at low effort) to keep the board**: when you send a message, after every 6 calls that change something, once a minute while Claude only reads, when Claude says something between its calls, when Claude answers, and when you press `↻` in the drawer's head, which hands it what happened lately again to check the board against; while Claude works, looks are at least 20 seconds apart. A look that fails is tried once more 15 seconds later. It sends the board, your message, one line per tool call, a subagent's included (what the call says it is for, the file it touches or the pattern it searches, marked when it failed; never file contents or command output), one line per notice Claude gets (a background task finishing), the start of what Claude says between its calls and the start of Claude's answer. These calls go through Claude Code's own model access, outside the session's cost total, and take a few thousand tokens each, most of them cached.
+- **Asks a copy of the conversation to design the plan**: only when the board was left off: after an answer that followed work, when the small model looked at it and changed nothing, and at the next answer once a plan comes back after a detour. A copy that gave no answer is asked again at the next answer after work. An answer with no tool call behind it, such as a question explained, asks nothing. The copy is the session's own conversation with the board and one question after it, run with no tools; its answer reshapes the board, sets which steps are done, and goes nowhere else. It runs beside the small model's looks, never holding them up; the mod stops waiting for it after two minutes, and drops an answer that comes after the plan was replaced. It reads the conversation from the session's cache, so one costs about as much as one of Claude's own requests.
+- **Watches tool calls** to show what Claude is doing (for example `Running Edit`) and for the lines above. It never changes or refuses a call.
 - **Reads** Claude Code's `language` setting and the `LC_ALL`, `LC_MESSAGES` and `LANG` environment variables, only when `language` is `auto`.
 - **Checks for a newer version**: it lists the folder its installed copy sits in, and once a day reads `.claude-plugin/plugin.json` from this repository on raw.githubusercontent.com. When a newer copy is installed or released, the band's title line says so. Setting `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` skips the network read.
+- **Fills your prompt box** only when you press `Discuss` on a step; nothing is sent until you send it.
 
 ## Requirements
 
-Claude Code 2.1.318 or later, with mods (function-hook plugins). Mods are in early access, and their API may change between releases. The band and the drawer are drawn for the terminal; the desktop app and the editor extensions get the same views.
+Claude Code 2.1.318 or later, with mods (function-hook plugins). Mods are in early access, and their API may change between releases. The tree and the drawer are drawn for the terminal; the desktop app and the editor extensions get the same views.
 
 ## Update and uninstall
 
@@ -86,7 +93,7 @@ claude --plugin-dir .
 
 `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes the first time it loads the mod from this folder, so run `claude --plugin-dir .` once before type-checking with `tsc -p .`. The look is described in [DESIGN.md](DESIGN.md), and releases follow [RELEASING.md](RELEASING.md).
 
-To see how the board served a real session, `bun scripts/review.ts` lists the sessions with a saved board, and `bun scripts/review.ts <session>` has Opus score the board the person last saw, against the bar its user set while using it and the decisions in `.claude/CLAUDE.md`, beside what the board's writes cost. The page also lists the session's recorded board writes. The page and the scores land in `.scratch/review/`; models are called through `claude -p` on your own sign-in. `bun scripts/review-all.ts` scores every saved session five at a time and gathers the scores into `.scratch/review/index.html`; `--limit N` takes only the newest N.
+To see how the board served a real session, `bun scripts/review.ts` lists the sessions with a saved board, and `bun scripts/review.ts <session>` has Opus score the board the person last saw, against the bar its user set while using it and the decisions in `.claude/CLAUDE.md`. Add `--replay` to run the side planner again over the session's transcript, subagents' calls included, and score that board too, which shows what a change to the planner's rules does to the same session. The page also lists the session's recorded model calls. The page and the scores land in `.scratch/review/`; models are called through `claude -p` on your own sign-in. `bun scripts/review-all.ts` scores every saved session five at a time and gathers the scores into `.scratch/review/index.html`; `--limit N` takes only the newest N and `--replay` is passed through.
 
 ## Support
 

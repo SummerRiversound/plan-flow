@@ -528,3 +528,26 @@ export const closing = (r: PlanResult, summary?: { goal: unknown; result: unknow
 
   return { plan: { ...r.plan, summary: note } }
 }
+
+// A node's units: its children, with a parallel group standing for its own children.
+export const unitsOf = (plan: Plan, id: string | null): PlanNode[] =>
+  childrenOf(plan.nodes, id).flatMap(n => (n.parallel === true ? unitsOf(plan, n.id) : [n]))
+
+// A box's count: its units finished out of all of them, as `1/3`.
+export const unitCount = (plan: Plan, id: string | null): string => {
+  const u = unitsOf(plan, id)
+
+  return `${u.filter(n => isFinished(n.status)).length}/${u.length}`
+}
+
+// The boxes drawn open until the person folds them: the nodes above the leaf Claude is on and
+// above the steps waiting for the person to check; finished stages stay folded.
+export const defaultOpen = (plan: Plan): Set<string> => {
+  const leaf = currentLeaf(plan)
+  const ids = [...(leaf === null ? [] : [leaf.id]), ...checksOf(plan).map(n => n.id)]
+
+  return new Set(ids.flatMap(id => {
+    const parts = id.split('.')
+    return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('.'))
+  }))
+}

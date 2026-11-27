@@ -11,7 +11,9 @@ const FILE = join(DIR, 'boards.json')
 // The newest boards kept; an agent past this many starts from an empty board.
 const KEPT = 50
 
-type Saved = Record<string, { board: Board; savedAt: number }>
+// `workspaceId` lets a workspace's sidebar row find its agents' boards; null when Paseo gave none.
+export type SavedBoard = { board: Board; savedAt: number; workspaceId?: string | null }
+type Saved = Record<string, SavedBoard>
 
 const readAll = async (): Promise<Saved> => {
   try {
@@ -26,9 +28,22 @@ export const loadBoard = async (agentId: string): Promise<{ board: Board; savedA
   return saved === undefined ? { board: emptyBoard(), savedAt: null } : saved
 }
 
+// Every saved board by agent id.
+export const loadBoards = (): Promise<Readonly<Saved>> => readAll()
+
+// Saves run one after another: two agents ending their turns at once would otherwise both read
+// the file, and the second write would drop the first one's board.
+let writing: Promise<unknown> = Promise.resolve()
+
+export const saveBoard = (agentId: string, board: Board, now: number, workspaceId: string | null): Promise<void> => {
+  const next = writing.then(() => write(agentId, { board, savedAt: now, workspaceId }))
+  writing = next.catch(() => undefined)
+  return next
+}
+
 // Written to a temporary file and renamed over the old one, so a crash mid-write never leaves half a file.
-export const saveBoard = async (agentId: string, board: Board, now: number): Promise<void> => {
-  const all = { ...(await readAll()), [agentId]: { board, savedAt: now } }
+const write = async (agentId: string, entry: SavedBoard): Promise<void> => {
+  const all = { ...(await readAll()), [agentId]: entry }
   const newest = Object.fromEntries(Object.entries(all).sort(([, a], [, b]) => b.savedAt - a.savedAt).slice(0, KEPT))
   await mkdir(DIR, { recursive: true })
   const tmp = `${FILE}.${process.pid}.tmp`

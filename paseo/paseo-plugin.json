@@ -2,6 +2,9 @@
   "id": "plan-flow",
   "name": "Plan Flow",
   "description": "A live plan board for each agent: stages, checkpoints, the step the agent is on, and what waits for you.",
+  "media": [
+    "assets/panel.png"
+  ],
   "requirements": {
     "paseo": ">=0.17.5"
   }

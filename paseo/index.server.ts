@@ -2,12 +2,16 @@ import type { PluginServerContext } from '@getpaseo/plugin/server'
 import { claudeAsk } from './server/ask'
 import { look } from './server/look'
 import { loadBoard, loadBoards, saveBoard } from './server/store'
+import { PASEO_ENV } from './shared/host'
 import { boardRpc, boardsRpc } from './shared/rpc'
 import { summaryOf } from './shared/view'
 
 export default function contribute(server: PluginServerContext) {
   // One look at a time per agent: a turn that ends while the last look runs waits its turn.
   const queue = new Map<string, Promise<void>>()
+
+  // Claude sessions this plugin plans for carry the mark, so the plan-flow mod in them rests.
+  server.addHook('agent.open.before', async ({ request }) => (request.provider === 'claude' ? { ...request, env: { ...request.env, [PASEO_ENV]: '1' } } : request))
 
   server.addHook('agent.turn.after', async (event, { paseo }) => {
     if (event.outcome.kind === 'canceled' || event.agent.background) return

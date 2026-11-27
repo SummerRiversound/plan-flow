@@ -920,6 +920,8 @@ let worked = false
 // Claude designs the plan (the `design` option).
 let enabled = true
 let designOn = true
+// The plan-flow Paseo plugin opened this session and keeps its plan: the mod stays off, whatever /flow says.
+let yielding = false
 type Switches = Record<string, { on: boolean; savedAt: number }>
 
 async function setEnabled($: $, on: boolean): Promise<void> {
@@ -1117,7 +1119,9 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'flow', description: t().command, immediate: true })
     const saved = ((await $.store.get('plans')) ?? {}) as Saved
     const mine = saved[await $.session.id()]
-    enabled = (((await $.store.get('enabled')) ?? {}) as Switches)[await $.session.id()]?.on ?? startOn
+    // The name is PASEO_ENV in paseo/shared/host.ts, spelled out since $.env.get takes a literal.
+    yielding = (await $.env.get('PLAN_FLOW_PASEO').catch(() => undefined)) === '1'
+    enabled = !yielding && ((((await $.store.get('enabled')) ?? {}) as Switches)[await $.session.id()]?.on ?? startOn)
     const plan = mine?.plan ?? emptyPlan()
     await update($, planAtom, () => plan)
     await update($, shelfAtom, () => mine?.shelf ?? [])
@@ -1231,6 +1235,7 @@ export const register: Register = (on, options) => {
     const [word, arg] = e.args.trim().split(/\s+/)
     if (word === 'demo') return { text: await demo($, arg) }
     if (word === 'status') return { text: await status($, startOn) }
+    if (yielding) return { text: t().inPaseo }
     if (word === 'on' || word === 'off') {
       await setEnabled($, word === 'on')
       if (word === 'on') planSoon($)

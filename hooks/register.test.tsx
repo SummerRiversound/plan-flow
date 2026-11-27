@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { setLanguage } from '../paseo/shared/i18n'
 import { plannerIdle } from './register'
+import { PASEO_ENV } from '../paseo/shared/host'
 
 // The expectations below are written in Korean.
 setLanguage('ko')
@@ -671,6 +672,28 @@ test('/flow off hides the board and calls no model in this session, a reload kee
   await band.unmount()
   // The drawer /flow off closed opens again.
   expect(await flow($, '')).toBe('흐름도를 열었어요')
+})
+
+test('in a Paseo session the plan-flow Paseo plugin opened, the mod rests: no model call, no saved plan, and /flow points at the plugin', KO, async ($, on) => {
+  engine(on)
+  // The plugin's own name for the mark: the mod reads it spelled out, so a rename on one side fails here.
+  on('env.get', (_, e) => ({ value: e.name === PASEO_ENV ? '1' : undefined }))
+  await start($)
+  await $.prompt.submit({ text: '로그인 만들어줘', wait: false, origin: { kind: 'composer' } })
+  await step($, '화면부터 봐요')
+  await plan($, PLAN)
+  await theClock?.advance(120_000)
+  await plannerIdle()
+  expect(asked.length).toBe(0)
+  expect(forked.length).toBe(0)
+  expect((stored.get('plans') as Record<string, unknown> | undefined)?.s1).toBeUndefined()
+  // /flow on cannot start a second planner beside the plugin's.
+  expect(await flow($, 'on')).toMatch(/Paseo/)
+  expect(await flow($, '')).toMatch(/Paseo/)
+  await $.turn.complete(TURN as never)
+  await theClock?.advance(1)
+  await plannerIdle()
+  expect(asked.length).toBe(0)
 })
 
 test('with enabled off, a new session starts off until /flow on', { options: { enabled: false, language: 'ko' } }, async ($, on) => {

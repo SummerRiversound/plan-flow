@@ -50,6 +50,7 @@ const en = {
   turnedOn: 'Turned plan-flow on in this session',
   turnedOff: 'Turned plan-flow off in this session: no board and no model calls until /flow on',
   isOff: 'plan-flow is off in this session; /flow on turns it on',
+  inPaseo: 'In this Paseo session the plan-flow Paseo plugin keeps the plan: open Plan Flow in the side panel',
   status: (on: boolean, startOn: boolean, design: boolean, kept: number, look: Usage, fork: Usage) =>
     [
       `plan-flow is ${on ? 'on' : 'off'} in this session (new sessions start ${startOn ? 'on' : 'off'}) · Claude design: ${design ? 'on' : 'off'}`,
@@ -142,6 +143,7 @@ const ko: Strings = {
   turnedOn: '이 세션에서 plan-flow를 켰어요',
   turnedOff: '이 세션에서 plan-flow를 껐어요. /flow on 전까지 계획판도 모델 호출도 없어요',
   isOff: '이 세션에서는 plan-flow가 꺼져 있어요. /flow on으로 켤 수 있어요',
+  inPaseo: '이 Paseo 세션의 계획은 plan-flow Paseo 플러그인이 맡고 있어요. 사이드 패널에서 Plan Flow를 열어 보세요',
   status: (on, startOn, design, kept, look, fork) =>
     [
       `plan-flow가 이 세션에서 ${on ? '켜져' : '꺼져'} 있어요 (새 세션은 ${startOn ? '켜진' : '꺼진'} 채로 시작) · Claude 설계: ${design ? '켜짐' : '꺼짐'}`,

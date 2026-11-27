@@ -1,7 +1,6 @@
 {
   "name": "paseo-plan-flow",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A live plan board for each Paseo agent: stages, checkpoints, the step the agent is on, and what waits for you.",
   "repository": {
     "type": "git",

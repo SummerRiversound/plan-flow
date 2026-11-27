@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { emptyBoard } from '../shared/board'
 import type { Board } from '../shared/types'
+import type { DesignState } from './turn'
 
 // Where Paseo plugins keep their own files on the daemon host.
 const DIR = join(homedir(), '.paseo', 'plugin-data', 'plan-flow')
@@ -12,7 +13,8 @@ const FILE = join(DIR, 'boards.json')
 const KEPT = 50
 
 // `workspaceId` lets a workspace's sidebar row find its agents' boards; null when Paseo gave none.
-export type SavedBoard = { board: Board; savedAt: number; workspaceId?: string | null }
+// `design`: where the agent's designs stand, and the plugin's model calls for it.
+export type SavedBoard = { board: Board; savedAt: number; workspaceId?: string | null; design?: DesignState }
 type Saved = Record<string, SavedBoard>
 
 const readAll = async (): Promise<Saved> => {
@@ -23,7 +25,7 @@ const readAll = async (): Promise<Saved> => {
   }
 }
 
-export const loadBoard = async (agentId: string): Promise<{ board: Board; savedAt: number | null }> => {
+export const loadBoard = async (agentId: string): Promise<{ board: Board; savedAt: number | null; design?: DesignState }> => {
   const saved = (await readAll())[agentId]
   return saved === undefined ? { board: emptyBoard(), savedAt: null } : saved
 }
@@ -35,8 +37,8 @@ export const loadBoards = (): Promise<Readonly<Saved>> => readAll()
 // the file, and the second write would drop the first one's board.
 let writing: Promise<unknown> = Promise.resolve()
 
-export const saveBoard = (agentId: string, board: Board, now: number, workspaceId: string | null): Promise<void> => {
-  const next = writing.then(() => write(agentId, { board, savedAt: now, workspaceId }))
+export const saveBoard = (agentId: string, board: Board, now: number, workspaceId: string | null, design?: DesignState): Promise<void> => {
+  const next = writing.then(() => write(agentId, { board, savedAt: now, workspaceId, ...(design === undefined ? {} : { design }) }))
   writing = next.catch(() => undefined)
   return next
 }

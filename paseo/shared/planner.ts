@@ -182,6 +182,9 @@ const designBody = (board: Board, mend: boolean): string[] => [
     'Answer with only a JSON array of op objects, and [] when the board already fits. No prose, no code fence.',
   ]
 
+// The system prompt of a replayed design: no person's setup, only the job.
+export const REPLAY_SYSTEM = 'You design the plan board for a coding session from its log. You answer with JSON ops only.'
+
 // A design asked of a model outside the session: it reads the session's log, each call with the start
 // of what it returned, in place of the conversation a fork holds.
 export const replayDesignPrompt = (board: Board, log: readonly Happened[]): string =>

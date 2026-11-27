@@ -1,6 +1,6 @@
 # plan-flow
 
-A Claude Code mod that draws the current plan inside Claude Code: a live plan tree above the prompt, and a card flowchart in a side drawer where each box expands to its tasks and checkpoints.
+A Claude Code mod that draws the current plan inside Claude Code: a live plan tree above the prompt, and a card flowchart in a side drawer where each box expands to its tasks and checkpoints. Under `paseo/` the same planner core also runs as a standalone Paseo plugin.
 
 ## Decisions
 
@@ -79,3 +79,4 @@ A Claude Code mod that draws the current plan inside Claude Code: a live plan tr
 - 2026-11-12 — The drawer's head has a `↻` just left of the view switch, as review-inbox has: a press has Haiku look again at once over what happened lately, though nothing is new, and a toast says how many places it fixed ("review-inbox 처럼 plan flow 에도 우측상단에 갱신버튼 하나 놔주면어때", picked "Haiku 재확인" over a Claude redesign, which would spend 3 to 5% of the session per press).
 - 2026-11-12 — A long goal can be read whole: the band shows it in up to three rows while open and one when folded, and the drawer's head shows all of it ("써머리가 길어질때 잘리는데 그걸 열어서 볼방법이 없는것도문제인것같아"). This replaces the band's one row and the drawer's three of 2026-11-05.
 - 2026-11-17 — The plan board comes back whole, as it was in 0.1.44: the plan tree above the prompt, the card flowchart in the drawer, Haiku keeping the board and Claude designing the plan. The request-list board that replaced it in 0.2.0 and 0.2.1 (one chapter per request written by Sonnet, the head badge and progress rail, the timeline drawer, every session's state, notifications, the tab title, the status block) is gone, after the person used it ("에이 이거 별로다 흐름도로 되돌리자", picked "판 전체를 0.1.44로").
+- 2026-11-27 — plan-flow also ships as a standalone Paseo plugin on the Paseo registry, which needs no mod, and the mod stays ("어차피 단독으로 할거라면 파세오에 맞게 최적화가 좋으면서 시각화도 아주잘되고 한눈에 이해되고 업계최상의 ui 표준을 따르는 좋은 디자인과 설계도 가능하지않을까"). The planner core lives in `paseo/shared/` and the mod imports it by relative path, so both run the same rules; in a Paseo session the plugin plans and the mod steps aside.

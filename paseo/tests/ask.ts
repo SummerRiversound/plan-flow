@@ -23,6 +23,8 @@ test('the planner runs with none of the person\'s setup, no tools, the small mod
   for (const flag of ['--print', '--safe-mode', '--strict-mcp-config', '--no-session-persistence']) assert.ok(args.includes(flag), flag)
   const value = (flag: string) => args[args.indexOf(flag) + 1]
   assert.equal(value('--tools'), '')
+  // No settings file either: safe mode still applies the person's `language`, so an English session got a Korean plan.
+  assert.equal(value('--setting-sources'), '')
   assert.equal(value('--model'), 'claude-haiku-5-5')
   assert.equal(value('--effort'), 'low')
   assert.equal(value('--output-format'), 'json')

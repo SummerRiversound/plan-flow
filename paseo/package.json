@@ -2,6 +2,13 @@
   "name": "paseo-plan-flow",
   "private": true,
   "version": "0.0.0",
+  "description": "A live plan board for each Paseo agent: stages, checkpoints, the step the agent is on, and what waits for you.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SummerRiversound/plan-flow.git",
+    "directory": "paseo"
+  },
+  "license": "MIT",
   "type": "module",
   "files": [
     "paseo-plugin.json",
@@ -9,7 +16,9 @@
     "index.server.ts",
     "client/",
     "server/",
-    "shared/"
+    "shared/",
+    "OVERVIEW.md",
+    "assets/"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p .",

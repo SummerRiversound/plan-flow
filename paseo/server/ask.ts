@@ -13,13 +13,15 @@ const DESIGN_TIMEOUT_MS = 120_000
 // The printed JSON is the answer and a few counters; more than this is not a planner answer.
 const MAX_OUTPUT = 4 * 1024 * 1024
 
-// A one-shot Claude Code print with none of the person's setup (CLAUDE.md, skills, plugins and hooks,
-// MCP servers), no tools, and no saved session: the model reads the prompt and answers.
+// A one-shot Claude Code print with none of the person's setup (CLAUDE.md, settings, skills, plugins
+// and hooks, MCP servers), no tools, and no saved session: the model reads the prompt and answers.
 // A full Paseo agent per look measured about 175K input tokens and 7-15 s; this measured about 4.3K.
 // The prompt itself goes on stdin.
 export const plannerArgs = (system: string, model = PLANNER_MODEL): string[] => [
   '--print',
   '--safe-mode',
+  // Safe mode still applies the settings' `language`, which would set the plan's language.
+  '--setting-sources', '',
   '--strict-mcp-config',
   '--no-session-persistence',
   '--tools', '',

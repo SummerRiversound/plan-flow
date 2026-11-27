@@ -1,13 +1,14 @@
 import type { PluginTheme } from '@getpaseo/plugin'
 import { type PluginAgentPanelProps, useAgent, useTabState, useTranslation } from '@getpaseo/plugin/client'
 import { ExternalLink, Icon, Loading } from '@getpaseo/plugin/client/ui'
-import { Fragment, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 import { z } from 'zod'
 import type { Plan } from '../shared/types'
 import { type AgentState, type Folds, type Now, type ViewAxis, type ViewItem, type ViewStep, axisOf, headOf, nowOf } from '../shared/view'
 import { useBoard } from './boards'
 import { MARK_SIZE, StatusMark } from './mark'
+import { Appear, Collapse, Fill, Turn, useReducedMotion } from './motion'
 import { messages } from './messages'
 
 // The plan as a card flowchart, picked from three mockups on 2026-11-27: stages as cards on one
@@ -23,7 +24,8 @@ const SIDE_BY_SIDE = 3
 const PRESS_SLOP = { top: 6, bottom: 6, left: 4, right: 4 }
 
 type Styles = ReturnType<typeof stylesOf>
-type Ctx = { theme: PluginTheme; s: Styles; t: T; live: boolean; compact: boolean; toggle: (id: string, open: boolean) => void }
+// `still`: draw without motion, on the panel's first frame and when the person asked for reduced motion.
+type Ctx = { theme: PluginTheme; s: Styles; t: T; live: boolean; compact: boolean; still: boolean; toggle: (id: string, open: boolean) => void }
 
 const stylesOf = (theme: PluginTheme, compact: boolean) => {
   const c = theme.colors
@@ -86,14 +88,18 @@ function StepRow({ step, ctx }: { step: ViewStep; ctx: Ctx }) {
   const right = step.count !== null ? (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
       <Text style={s.small}>{step.count}</Text>
-      <Icon name={step.open ? 'ChevronDown' : 'ChevronRight'} size={14} color={theme.colors.foregroundMuted} />
+      <Turn open={step.open} still={ctx.still}>
+        <Icon name="ChevronRight" size={14} color={theme.colors.foregroundMuted} />
+      </Turn>
     </View>
   ) : running ? (
     <Text style={[s.small, { color: ctx.live ? theme.colors.foreground : theme.colors.statusWarning }]}>{ctx.live ? t('running') : t('waiting')}</Text>
   ) : null
   const body = (
     <View style={s.row}>
-      <StatusMark status={step.status} live={ctx.live} theme={theme} />
+      <Appear key={step.status} still={ctx.still}>
+        <StatusMark status={step.status} live={ctx.live} theme={theme} />
+      </Appear>
       <View style={{ flex: 1 }}>
         <Text style={running ? s.strong : done ? s.dim : s.text}>{step.title}</Text>
         {step.detail !== undefined ? <Text style={s.small}>{step.detail}</Text> : null}
@@ -124,20 +130,22 @@ function Items({ items, ctx }: { items: readonly ViewItem[]; ctx: Ctx }) {
     <>
       {items.map((i, k) =>
         i.kind === 'step' ? (
-          <View key={i.step.id}>
+          <Appear key={i.step.id} still={ctx.still}>
             <StepRow step={i.step} ctx={ctx} />
             <Links links={i.step.links} ctx={ctx} />
-            {i.step.children.length > 0 ? (
+            <Collapse open={i.step.children.length > 0} still={ctx.still}>
               <View style={ctx.s.indent}>
                 <Items items={i.step.children} ctx={ctx} />
               </View>
-            ) : null}
-          </View>
+            </Collapse>
+          </Appear>
         ) : (
-          <View key={`together-${k}`} style={ctx.s.together}>
-            <Text style={ctx.s.small}>{ctx.t('together')}</Text>
-            <Items items={i.items} ctx={ctx} />
-          </View>
+          <Appear key={`together-${k}`} still={ctx.still}>
+            <View style={ctx.s.together}>
+              <Text style={ctx.s.small}>{ctx.t('together')}</Text>
+              <Items items={i.items} ctx={ctx} />
+            </View>
+          </Appear>
         ),
       )}
     </>
@@ -149,11 +157,11 @@ function StageCard({ stage, ctx }: { stage: ViewStep; ctx: Ctx }) {
     <View style={[ctx.s.card, stage.status === 'in_progress' ? ctx.s.runningCard : null]}>
       <StepRow step={stage} ctx={ctx} />
       <Links links={stage.links} ctx={ctx} />
-      {stage.children.length > 0 ? (
+      <Collapse open={stage.children.length > 0} still={ctx.still}>
         <View style={ctx.s.inner}>
           <Items items={stage.children} ctx={ctx} />
         </View>
-      ) : null}
+      </Collapse>
     </View>
   )
 }
@@ -194,7 +202,7 @@ function Axis({ axis, ctx }: { axis: readonly ViewAxis[]; ctx: Ctx }) {
   return (
     <>
       {axis.map((a, k) => (
-        <Fragment key={a.kind === 'stage' ? a.stage.id : a.kind === 'split' ? `split-${a.stages[0]?.id ?? k}` : `${a.kind}-${k}`}>
+        <Appear key={a.kind === 'stage' ? a.stage.id : a.kind === 'split' ? `split-${a.stages[0]?.id ?? k}` : `${a.kind}-${k}`} still={ctx.still}>
           {k > 0 ? <View style={s.stem} /> : null}
           {a.kind === 'stage' ? <StageCard stage={a.stage} ctx={ctx} /> : null}
           {a.kind === 'split' ? <Split stages={a.stages} ctx={ctx} /> : null}
@@ -216,7 +224,7 @@ function Axis({ axis, ctx }: { axis: readonly ViewAxis[]; ctx: Ctx }) {
               <Text style={s.tag}>{t('expected')}</Text>
             </View>
           ) : null}
-        </Fragment>
+        </Appear>
       ))}
     </>
   )
@@ -257,7 +265,7 @@ function Head({ plan, now, ctx }: { plan: Plan; now: Now; ctx: Ctx }) {
       {h.goal !== undefined ? <Text style={s.goal}>{h.goal}</Text> : null}
       <View style={s.line} accessible accessibilityRole="progressbar" accessibilityLabel={t('progressLabel', { done: h.done, total: h.total })} accessibilityValue={{ min: 0, max: h.total, now: h.done }}>
         <View style={s.track}>
-          <View style={[s.fill, { width: `${h.pct}%` }]} />
+          <Fill pct={h.pct} still={ctx.still} style={s.fill} />
         </View>
         <Text style={s.small}>{t('progress', { done: h.done, total: h.total, pct: h.pct })}</Text>
       </View>
@@ -277,12 +285,22 @@ export function PlanPanel({ theme, layout, params, tab }: PluginAgentPanelProps)
   const s = useMemo(() => stylesOf(theme, layout.compact), [theme, layout.compact])
   const plan = q.data?.plan ?? null
   const now = plan === null ? null : nowOf(plan, agent)
+  const reduced = useReducedMotion()
+  // The first frame with a plan appears whole; what changes after it moves.
+  const [settled, setSettled] = useState(false)
+  const hasPlan = plan !== null
+  useEffect(() => {
+    if (!hasPlan || settled) return
+    const id = setTimeout(() => setSettled(true), 0)
+    return () => clearTimeout(id)
+  }, [hasPlan, settled])
   const ctx: Ctx = {
     theme,
     s,
     t,
     live: now?.kind === 'running',
     compact: layout.compact,
+    still: reduced || !settled,
     toggle: (id, open) => setFolds({ ...folds, [id]: !open }),
   }
 

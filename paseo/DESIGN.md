@@ -107,6 +107,10 @@ One column in the Explorer. A thin stem joins the stages; stages that run togeth
 
 None. Hierarchy comes from cards, nesting and weight, not shadows.
 
+## Motion
+
+Short and decelerating, as current desktop apps move their lists: a box unfolds and folds by its height and opacity in 220 ms, and grows the same way as steps arrive; a new step or a changed mark fades in while rising 4 points in 220 ms; the chevron turns a quarter in 140 ms; the progress bar slides to its new share in 220 ms. All on one decelerating curve (cubic-bezier 0.2, 0, 0, 1). The panel's first frame is drawn whole, and reduced motion draws every change at once.
+
 ## Components
 
 - **Head:** title, goal in muted text, a progress bar with `3/13 · 23%`, and one line on what is happening now taken from the agent's own state: running (turning mark and the step), your turn, waiting for a permission, stopped on an error, or done. A warning-coloured line counts the steps waiting for the person's check.
@@ -122,7 +126,8 @@ None. Hierarchy comes from cards, nesting and weight, not shadows.
 ## Do's and Don'ts
 
 - Do use Paseo theme keys and Paseo's own parts (Icon, ExternalLink, WorkspaceRowBadge, Loading); never a literal colour.
-- Do animate only the running step, and only while the agent runs.
+- Do move only what changed: a box that opens, closes or grows, a step that arrives, a mark that changes, the progress bar; the turning mark only while the agent runs.
+- Don't move the panel's first frame, and don't move anything when the person asked for reduced motion.
 - Do show nothing, a loading state or an error rather than a count that may be wrong.
 - Don't add sections for questions, stuck work or activity, or time estimates; the panel shows the plan only.
 - Don't draw a left-to-right canvas; the panel is narrow.

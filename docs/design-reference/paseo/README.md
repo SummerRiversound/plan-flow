@@ -11,3 +11,4 @@ The Paseo plugin's plan panel, picked on 2026-11-27 from three mockups (card flo
 5. The head says what is happening now from the agent's own state, not from the plan alone.
 6. Above the composer, one pill `step · 3/13`; on the workspace row, one `3/13` badge. Both vanish when there is no open plan or the read failed.
 7. No sections for questions, stuck work or activity, no time estimates and no left-to-right canvas: the panel is narrow and shows the plan only.
+8. What changed moves, briefly: boxes unfold, fold and grow by height and opacity, new steps and changed marks fade in rising a little, the chevron turns, the progress bar slides. The first frame and reduced motion draw at once. Values are in `paseo/DESIGN.md` under Motion.

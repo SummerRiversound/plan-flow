@@ -2,8 +2,8 @@
 // is unfolded: every subtree off it stays folded. If that still does not fit, rows
 // give way by priority (the current path, then the stages) and a last line counts
 // what is hidden.
-import type { Plan, PlanNode } from './plan'
-import { currentLeaf, hasChildren, runningLeaves } from './plan'
+import type { Plan, PlanNode } from '../paseo/shared/plan'
+import { currentLeaf, hasChildren, runningLeaves } from '../paseo/shared/plan'
 
 export type FitRow<L> = { line: L; node: PlanNode }
 

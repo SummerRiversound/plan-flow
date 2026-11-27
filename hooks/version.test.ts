@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { manifestUrl, newerVersion, runningVersion, staleRelease } from './version'
+import { manifestUrl, newerVersion, runningVersion, staleRelease } from '../paseo/shared/version'
 
 test('a newer version installed beside the running one asks for a reload', () => {
   expect(newerVersion('0.1.3', ['0.1.3', '0.1.4'])).toEqual({ kind: 'installed', version: '0.1.4' })

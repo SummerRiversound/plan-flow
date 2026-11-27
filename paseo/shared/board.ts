@@ -1,7 +1,7 @@
 // The session's board: the plan in hand and a shelf of plans set aside. A detour parks
 // the plan in hand and it comes back when the detour ends; starting over cancels it.
 // Pure: each op answers `{ board, notice? }` or `{ error }`, `notice` a line for the person.
-import type { Board, Shelved } from '../types'
+import type { Board, Shelved } from './types'
 import type { Plan, PlanInput, PlanResult } from './plan'
 import { clearMarks, emptyPlan, finishedAt, hasOpenWork, progress, setPlan, withGoal } from './plan'
 import { clean } from './sanitize'

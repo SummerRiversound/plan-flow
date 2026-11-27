@@ -1,0 +1,7 @@
+{
+  "id": "plan-flow",
+  "name": "Plan Flow",
+  "requirements": {
+    "paseo": ">=0.17.5"
+  }
+}

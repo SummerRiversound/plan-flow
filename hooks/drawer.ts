@@ -3,14 +3,15 @@
 // An open box lists its tasks, a `╭ 동시에` block for tasks that run together, and the
 // checkpoints of every open task. Pure: register.tsx turns the lines into elements and
 // each piece marked `button` into a Button that folds or unfolds that node.
-import type { DrawerState, Shelved } from '../types'
-import type { Plan, PlanNode } from './plan'
-import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, isFinished, progress } from './plan'
+import type { DrawerState } from '../types'
+import type { Shelved } from '../paseo/shared/types'
+import type { Plan, PlanNode } from '../paseo/shared/plan'
+import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, isFinished, progress } from '../paseo/shared/plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
 import { OPEN_BUTTON, bandRows, fitLine, isLive, isWaiting, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
-import { t } from './i18n'
+import { t } from '../paseo/shared/i18n'
 
 export type { DrawerState }
 

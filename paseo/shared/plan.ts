@@ -5,7 +5,7 @@
 // Levels: stage, task, checkpoint. A `parallel` node is a group, not a level of its
 // own: its children sit at the group's level and run at the same time, and the
 // step after the group waits for all of them.
-import type { Plan, PlanNode, PlanStatus, Summary } from '../types'
+import type { Plan, PlanNode, PlanStatus, Summary } from './types'
 import { clean } from './sanitize'
 
 export type { Plan, PlanNode, PlanStatus }

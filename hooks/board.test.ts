@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import type { Board, BoardResult } from './board'
-import { cancelBoard, emptyBoard, MAX_SHELF, resumeBoard, setBoard, settle } from './board'
-import { nextStep, updateNodes } from './plan'
-import { setLanguage } from './i18n'
+import type { Board, BoardResult } from '../paseo/shared/board'
+import { cancelBoard, emptyBoard, MAX_SHELF, resumeBoard, setBoard, settle } from '../paseo/shared/board'
+import { nextStep, updateNodes } from '../paseo/shared/plan'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')

@@ -1,10 +1,10 @@
 import { expect, test } from 'claude-code/testing'
-import { emptyPlan } from './plan'
-import type { Plan } from './plan'
-import type { Board } from './board'
-import { DETOUR_HINT, FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, missingDetail, routineHint, describeBoard, describePlan, parseOp, runOp, TOOL_DESCRIPTION } from './plan-tool'
-import { PLANNER_SYSTEM } from './planner'
-import { setLanguage } from './i18n'
+import { emptyPlan } from '../paseo/shared/plan'
+import type { Plan } from '../paseo/shared/plan'
+import type { Board } from '../paseo/shared/board'
+import { DETOUR_HINT, FINISHED_ADD_HINT, FLAT_HINT, GOAL_DRIFT_HINT, NO_GOAL, missingDetail, routineHint, describeBoard, describePlan, parseOp, runOp, TOOL_DESCRIPTION } from '../paseo/shared/plan-tool'
+import { PLANNER_SYSTEM } from '../paseo/shared/planner'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')

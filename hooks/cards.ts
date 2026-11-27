@@ -3,13 +3,13 @@
 // holding its tasks and checkpoints. Pure: register.tsx turns it into elements. The
 // terminal keeps the character flowchart in drawer.ts.
 import type { DrawerState } from '../types'
-import type { Plan, PlanNode, PlanStatus } from './plan'
-import { checksOf, childrenOf, hasChildren, hasOpenWork, isFinished, leavesOf, progress, runningLeaves } from './plan'
+import type { Plan, PlanNode, PlanStatus } from '../paseo/shared/plan'
+import { checksOf, childrenOf, hasChildren, hasOpenWork, isFinished, leavesOf, progress, runningLeaves } from '../paseo/shared/plan'
 import type { Activity } from './activity'
 import type { Seg } from './tree'
 import { WAIT_COLOR, activityWords, glyphColor, glyphSeg, isWaiting, noteText } from './tree'
 import { ASK, CONFIRM, isOpen, stepRight } from './drawer'
-import { t } from './i18n'
+import { t } from '../paseo/shared/i18n'
 
 export type CardStep = {
   id: string

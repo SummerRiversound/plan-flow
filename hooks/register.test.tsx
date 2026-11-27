@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { joinSvg, splitSvg } from './gui'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
-import { setLanguage } from './i18n'
+import { setLanguage } from '../paseo/shared/i18n'
 import { plannerIdle } from './register'
 
 // The expectations below are written in Korean.

@@ -2,7 +2,7 @@
 // preview page first, then: bun scripts/snapshots.ts > hooks/snapshots.data.ts
 declare const console: { log: (text: string) => void }
 import { shots, shotText } from '../hooks/snapshot'
-import { setLanguage } from '../hooks/i18n'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')

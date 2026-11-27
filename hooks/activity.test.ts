@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Activity, ActivityEvent } from './activity'
 import { activityLabel, idleActivity, step } from './activity'
-import { setLanguage } from './i18n'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')

@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { emptyPlan } from './plan'
-import { describeBoard, EXPECTED_RULE, runOp } from './plan-tool'
-import { DESIGN_BAR, designPrompt, MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from './planner'
-import type { Happened } from './planner'
+import { emptyPlan } from '../paseo/shared/plan'
+import { describeBoard, EXPECTED_RULE, runOp } from '../paseo/shared/plan-tool'
+import { DESIGN_BAR, designPrompt, MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from '../paseo/shared/planner'
+import type { Happened } from '../paseo/shared/planner'
 
 test('a tool call is one line: what it says it is for, else the file it touches, never a whole command or file', () => {
   expect(toolLine('Bash', { command: 'npm test -- --watch=false', description: 'Run the tests' })).toBe('Run the tests')

@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { shots, shotText } from './snapshot'
 import { SNAPSHOTS } from './snapshots.data'
 import { cells } from './width'
-import { setLanguage } from './i18n'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The snapshots are drawn in Korean.
 setLanguage('ko')

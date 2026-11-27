@@ -1,7 +1,7 @@
 // A session's transcript read back as what the side planner hears: requests, notices, tool calls
 // (failed ones marked), what Claude says between calls and its answers, each with its time.
-import type { Happened } from '../hooks/planner'
-import { GUARDED, noticeLine, toolLine } from '../hooks/planner'
+import type { Happened } from '../paseo/shared/planner'
+import { GUARDED, noticeLine, toolLine } from '../paseo/shared/planner'
 
 export type Heard = Happened & { at: number; guarded?: boolean }
 

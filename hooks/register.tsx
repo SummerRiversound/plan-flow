@@ -1,6 +1,6 @@
 // Wiring only: hook events in, the pure modules beside this file decide, state out.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, ModelUsage, Register, RenderChildren, Space, Timer } from 'claude-code'
+import type { EngineInterface, ModelUsage, PluginState, Register, RenderChildren, Space, Timer } from 'claude-code'
 import type { Activity, DrawerState } from '../types'
 import type { Shelved } from '../paseo/shared/types'
 import type { ActivityEvent } from './activity'
@@ -13,6 +13,8 @@ import type { Plan, PlanNode } from '../paseo/shared/plan'
 import { clearMarks, currentLeaf, emptyPlan, finishedAt, hasChildren, hasOpenWork, isFinished, progress, runningLeaves } from '../paseo/shared/plan'
 import type { PlanOp } from '../paseo/shared/plan-tool'
 import { runOp } from '../paseo/shared/plan-tool'
+import type { Hand } from '../paseo/shared/schedule'
+import { asksDesign, isSamePlan, leftOff, planKey, startsNext } from '../paseo/shared/schedule'
 import type { Happened } from '../paseo/shared/planner'
 import { designPrompt, GUARDED, LOOK_EVERY_MS, LOOK_GAP_MS, MAX_LOG, noticeLine, PERSON, PLAN_EVERY, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from '../paseo/shared/planner'
 import type { DemoAt } from './scenarios'
@@ -25,6 +27,14 @@ import { BAND_ROWS, FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, WAIT_COLOR, bandGoalRows
 import { pickLanguage, setLanguage, t } from '../paseo/shared/i18n'
 import type { Newer, ReleaseCheck } from '../paseo/shared/version'
 import { manifestUrl, newerVersion, runningVersion, staleRelease } from '../paseo/shared/version'
+
+// types/index.d.ts spells the plan's shapes out (`claude plugin validate` refuses an alias in the state
+// contract), so they exist twice. Exact equality, optional fields included: a field added, dropped or
+// retyped on one side only fails the type check validate runs on this file.
+type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false
+type Holds<T extends true> = T
+type State = PluginState['plan-flow']
+export type ContractMatches = [Holds<Equals<State['plan'], Plan>>, Holds<Equals<State['shelf'], Shelved[]>>, Holds<Equals<State['activity'], Activity>>, Holds<Equals<State['drawer'], DrawerState>>]
 
 const PLUGIN = 'plan-flow'
 const PANE = 'plan-flow'
@@ -901,7 +911,7 @@ let design: 'none' | 'wanted' | 'done' = 'none'
 // is asked only when the board was left off: see designDue. A design that gave no answer is owed.
 let owed = false
 // The plan in hand at the last answer, to tell one that came back from the shelf; whether the turn has answered.
-let hand = { key: '', startedAt: 0 }
+let hand: Hand = { key: '', startedAt: 0 }
 let atAnswer = false
 let stepped = false
 // The main turn ran a tool: its answer comes after work, so the plan may have moved.
@@ -984,14 +994,12 @@ async function planOnce($: $): Promise<void> {
   if (rechecking) $.ui.toast(t().rechecked(applied))
   idleLook = applied === 0
   await record($, { at, call: 'look', ms, result: 'answered', ops: applied, ...used(r.usage), text: r.text.slice(0, KEPT_TEXT) })
-  if (designOn && design === 'none' && ops.some(op => op.op === 'set' || (op.op === 'update' && op.goal !== undefined))) design = 'wanted'
+  if (designOn && design === 'none' && asksDesign(ops)) design = 'wanted'
   await keepRunning($)
 }
 
-// The planner often marks steps done without starting the next; open work keeps a step running, so it is drawn as running.
 async function keepRunning($: $): Promise<void> {
-  const after = await read($, planAtom)
-  if (hasOpenWork(after) && currentLeaf(after)?.status === 'pending') await apply($, { op: 'next' })
+  if (startsNext(await read($, planAtom))) await apply($, { op: 'next' })
 }
 
 // Claude, in a fork of the main conversation, reshapes the plan the planner drew; the main conversation is untouched.
@@ -1022,8 +1030,7 @@ async function designOnce($: $): Promise<void> {
   // check and the ops take one turn at the board, so no look lands between them.
   const applied = await inTurn(async () => {
     const now = await read($, planAtom)
-    const same = now.title === board.plan.title && now.startedAt === board.plan.startedAt && board.plan.nodes.every(n => now.nodes.find(m => m.id === n.id)?.title === n.title)
-    if (!same) return null
+    if (!isSamePlan(board.plan, now)) return null
     const shelf = await read($, shelfAtom)
     const ran = runDesign({ plan: now, shelf }, r.text, await $.clock.now(), mending)
     await land($, now, shelf, ran.board)
@@ -1035,23 +1042,14 @@ async function designOnce($: $): Promise<void> {
   await keepRunning($)
 }
 
-// One plan among the session's: its start and title.
-const planKey = (plan: Plan): string => `${plan.startedAt ?? 0} ${plan.title}`
-
 // Whether a design wanted now is asked: only at an answer, and only when the board was left off. A plan
 // that came back from the shelf returns as the planner left it, before the work done under the plan
 // that took its place, so the next answer has Claude set it right.
 async function designDue($: $): Promise<boolean> {
   mend = false
   if (!atAnswer) return false
-  const plan = await read($, planAtom)
-  // Another plan than the one in hand at the last answer, and older than it: it was on the shelf.
-  const back = planKey(plan) !== hand.key && (plan.startedAt ?? 0) < hand.startedAt
-
-  // An answer the planner looked at and changed nothing for leaves the board as it was before the
-  // work: Claude is asked, so no answer after work goes by with the board unchanged. Replayed over five
-  // sessions, designs asked beyond these moments cost a quarter more and left the boards' score as it was.
-  mend = back || idleLook || owed
+  // Replayed over five sessions, designs asked beyond these moments cost a quarter more and left the boards' score as it was.
+  mend = leftOff(await read($, planAtom), hand, idleLook, owed)
 
   return mend
 }

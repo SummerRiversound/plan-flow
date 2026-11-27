@@ -1,7 +1,7 @@
 import type { AgentTimelineItem } from '@getpaseo/protocol/agent-types'
-import { currentLeaf, hasOpenWork } from '../shared/plan'
 import { runOp } from '../shared/plan-tool'
 import { type Happened, PLANNER_SYSTEM, parseOps, plannerPrompt, remember } from '../shared/planner'
+import { startsNext } from '../shared/schedule'
 import type { Board } from '../shared/types'
 import { happenedFrom } from './timeline'
 
@@ -23,8 +23,7 @@ export const look = async (board: Board, turn: readonly AgentTimelineItem[], ask
     next = r.board
     applied++
   }
-  // The planner often marks steps done without starting the next; open work keeps a step running, as in the mod.
-  if (hasOpenWork(next.plan) && currentLeaf(next.plan)?.status === 'pending') {
+  if (startsNext(next.plan)) {
     const r = runOp(next, { op: 'next' }, now)
     if (!('error' in r)) next = r.board
   }

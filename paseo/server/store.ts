@@ -6,8 +6,9 @@ import { emptyBoard } from '../shared/board'
 import type { Board } from '../shared/types'
 import type { DesignState } from './turn'
 
-// Where Paseo plugins keep their own files on the daemon host.
-const DIR = join(homedir(), '.paseo', 'plugin-data', 'plan-flow')
+// Where Paseo plugins keep their own files: under the home of the daemon that runs the plugin, which
+// passes it as PASEO_HOME (`paseo --home` runs a second daemon on the same machine).
+const DIR = join(process.env.PASEO_HOME ?? join(homedir(), '.paseo'), 'plugin-data', 'plan-flow')
 const FILE = join(DIR, 'boards.json')
 // The newest boards kept; an agent past this many starts from an empty board.
 const KEPT = 50

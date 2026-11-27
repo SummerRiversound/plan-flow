@@ -27,7 +27,7 @@ A question, a chat or a one-step job leaves the board as it is.
 - After each turn, the plugin sends the text of that turn to Anthropic through Claude Code under your Claude account: your request, the agent's answer, the commands and files it used, and the start of what some tools returned. A reshaping call sends a short log of the whole session in the same way.
 - These calls run with no tools, none of your Claude Code settings, skills or MCP servers, and no saved session.
 - They are billed to your Claude account. The small model's call costs a fraction of a cent. The larger model's calls stop for an agent once they reach $2.
-- Boards are saved on the daemon machine in `~/.paseo/plugin-data/plan-flow/`.
+- Boards are saved on the daemon machine, in `plugin-data/plan-flow/` inside the daemon's Paseo home (`~/.paseo` by default).
 
 ## Limitations
 

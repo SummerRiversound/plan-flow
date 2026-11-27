@@ -3,10 +3,10 @@
 import type { Activity } from '../types'
 import { activityLabel } from './activity'
 import { fitRows, foldedParents } from './fit'
-import type { Plan, PlanNode, PlanStatus } from './plan'
-import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from './plan'
+import type { Plan, PlanNode, PlanStatus } from '../paseo/shared/plan'
+import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, leavesOf, leavesUnder, isFinished, progress, runningLeaves } from '../paseo/shared/plan'
 import { cells, fit, padRight, wrap } from './width'
-import { t } from './i18n'
+import { t } from '../paseo/shared/i18n'
 
 // `color` is a theme key or a hex; `button` is the node a press on the piece folds; `href` makes the piece a link;
 // `live` marks the running step's turning mark and swept title, which a surface that draws pictures animates itself.

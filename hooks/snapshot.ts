@@ -5,7 +5,7 @@ import { drawerView } from './drawer'
 import { scenarios } from './scenarios'
 import type { Line } from './tree'
 import { BAND_ROWS, drawTree, lineText } from './tree'
-import { t } from './i18n'
+import { t } from '../paseo/shared/i18n'
 
 export type Shot = { key: string; scenario: string; label: string; view: 'band' | 'drawer'; width: number; rows?: number; lines: Line[] }
 

@@ -1,7 +1,7 @@
 // A session's transcript read back as what the side planner hears: requests, notices, tool calls
 // (failed ones marked), what Claude says between calls and its answers, each with its time.
-import type { Happened } from '../hooks/planner'
-import { GUARDED, noticeLine, toolLine } from '../hooks/planner'
+import type { Happened } from '../paseo/shared/planner'
+import { GUARDED, noticeLine, toolLine } from '../paseo/shared/planner'
 
 export type Heard = Happened & { at: number; guarded?: boolean }
 
@@ -51,9 +51,31 @@ const subagentCalls = (jsonl: string): Heard[] => {
   )
 }
 
-export const heard = (jsonl: string, subagents: readonly string[] = []): Heard[] => {
+// What a call gave back, as the Paseo plugin's replayed design reads it from the timeline: a command's
+// last words, a subagent's or a connected tool's first; a file read, written or searched gives nothing.
+const QUIET_RESULTS: ReadonlySet<string> = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Grep', 'Glob', 'WebSearch'])
+const MAX_RESULT = 160
+const resultsIn = (entries: readonly Entry[]): Map<string, string> => {
+  const out = new Map<string, string>()
+  for (const e of entries) {
+    const content = e.message?.content
+    if (!Array.isArray(content)) continue
+    for (const b of content as Array<Block & { content?: unknown }>) {
+      if (b.type !== 'tool_result' || b.tool_use_id === undefined) continue
+      const c = b.content
+      const text = typeof c === 'string' ? c : Array.isArray(c) ? (c as Block[]).filter(x => x.type === 'text').map(x => x.text ?? '').join(' ') : ''
+      out.set(b.tool_use_id, text.replace(/\s+/g, ' ').trim())
+    }
+  }
+  return out
+}
+const resultLine = (tool: string, text: string): string => (QUIET_RESULTS.has(tool) ? '' : tool === 'Bash' ? text.slice(-MAX_RESULT) : text.slice(0, MAX_RESULT))
+
+// `results`: each call carries the start of what it gave back, as the plugin's replayed design reads it.
+export const heard = (jsonl: string, subagents: readonly string[] = [], results = false): Heard[] => {
   const entries = parse(jsonl).filter(e => e.isMeta !== true && e.isSidechain !== true)
   const failed = failedIn(entries)
+  const gave = results ? resultsIn(entries) : new Map<string, string>()
   const calling = new Set<string>()
   for (const e of entries) {
     const content = e.message?.content
@@ -77,7 +99,9 @@ export const heard = (jsonl: string, subagents: readonly string[] = []): Heard[]
     for (const b of content) {
       if (b.type === 'tool_use' && b.name !== undefined && !UNHEARD.has(b.name)) {
         const line = toolLine(b.name, b.input ?? {})
-        out.push({ kind: 'tool', text: failed.has(b.id ?? '') ? `${line} (failed)` : line, at, guarded: GUARDED.has(b.name) })
+        const marked = failed.has(b.id ?? '') ? `${line} (failed)` : line
+        const got = resultLine(b.name, gave.get(b.id ?? '') ?? '')
+        out.push({ kind: 'tool', text: got === '' ? marked : `${marked} → ${got}`, at, guarded: GUARDED.has(b.name) })
       }
       // Text in a reply that also calls a tool is said along the way; a reply of text alone is the answer.
       if (b.type === 'text' && (b.text ?? '').trim() !== '') out.push({ kind: calling.has(e.message?.id ?? '') ? 'said' : 'answer', text: b.text ?? '', at })

@@ -5,7 +5,7 @@
 import type { Board } from './board'
 import type { PlanOp } from './plan-tool'
 import { emptyPlan, STATUSES } from './plan'
-import type { PlanStatus } from './plan'
+import type { NodeUpdate, PlanStatus } from './plan'
 import { DESIGN_TITLE_RULE, PLAN_RULES, TITLE_RULE, TOOL_DESCRIPTION, describeBoard, parseOp, runOp } from './plan-tool'
 
 // One line of what happened, oldest first.
@@ -23,6 +23,13 @@ export const LOOK_GAP_MS = 20_000
 
 export const MAX_LOG = 80
 const MAX_PROMPT_LOG = 6000
+// A replayed design reads the session up to this many characters, about 35K tokens of Korean: the
+// newest part in full, the older part as requests and answers cut to a few lines.
+const MAX_REPLAY_LOG = 50_000
+const MAX_REPLAY_RECENT = 30_000
+const MAX_REPLAY_OLDER = 300
+// A call in a replayed log carries the start of what it returned.
+const MAX_REPLAY_LINE = 320
 const MAX_LINE = 160
 // A command with no description says nothing of its purpose, and its words (a prompt sent to another
 // session, a message's text) read like a request; a short cut keeps what it runs, not what it carries.
@@ -76,10 +83,37 @@ export const PERSON: ReadonlySet<string> = new Set(['composer', 'bridge', 'sdk',
 export const noticeLine = (text: string): string => /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1] ?? text
 
 export const remember = (log: readonly Happened[], h: Happened): Happened[] => {
-  const text = cut(h.text, h.kind === 'request' || h.kind === 'answer' ? MAX_ANSWER : MAX_LINE)
-  if (text === '') return [...log]
-  return [...log, { kind: h.kind, text }].slice(-MAX_LOG)
+  const short = shorten(h)
+  if (short.text === '') return [...log]
+  return [...log, short].slice(-MAX_LOG)
 }
+
+// A line of the log cut to its kind's length: a request or an answer longer than a call.
+const shorten = (h: Happened, line = MAX_LINE): Happened => ({ kind: h.kind, text: cut(h.text, h.kind === 'request' || h.kind === 'answer' ? MAX_ANSWER : line) })
+
+const LABEL = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
+
+const row = (h: Happened): string => `- ${LABEL[h.kind]}: ${h.text}`
+
+// Where the newest lines that fit in `max` characters begin; empty lines take no room.
+const fitFrom = (log: readonly Happened[], max: number): number => {
+  let size = 0
+  for (let i = log.length - 1; i >= 0; i--) {
+    const h = log[i] as Happened
+    if (h.text === '') continue
+    if (size + row(h).length > max) return i + 1
+    size += row(h).length + 1
+  }
+
+  return 0
+}
+
+// The newest lines of the log that fit in `max` characters, oldest first; empty lines left out.
+const logLines = (log: readonly Happened[], max: number): string[] =>
+  log
+    .slice(fitFrom(log, max))
+    .filter(h => h.text !== '')
+    .map(row)
 
 // The field names the board reads, spelled out: without them a model writes "steps" for "nodes".
 const OP_SHAPES = [
@@ -109,16 +143,7 @@ export const PLANNER_SYSTEM = [
 // What the planner reads: the board as it stands, then the newest of what happened.
 // `again`: the person pressed ↻, so the log is what happened lately, seen before, to check the board against.
 export const plannerPrompt = (board: Board, log: readonly Happened[], again = false): string => {
-  const label = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
-  const lines: string[] = []
-  let size = 0
-  for (let i = log.length - 1; i >= 0; i--) {
-    const h = log[i] as Happened
-    const row = `- ${label[h.kind]}: ${h.text}`
-    if (size + row.length > MAX_PROMPT_LOG) break
-    lines.unshift(row)
-    size += row.length + 1
-  }
+  const lines = logLines(log, MAX_PROMPT_LOG)
   const now = board.plan.nodes.length === 0 && board.shelf.length === 0 ? 'The board is empty.' : describeBoard(board)
 
   const heading = again
@@ -141,16 +166,49 @@ export const DESIGN_BAR =
 export const designPrompt = (board: Board, mend = true): string =>
   [
     'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
+    ...designBody(board, mend),
+  ].join('\n\n')
+
+// What a design reads after it is told where the work stands: the board, then how to reshape it.
+const designBody = (board: Board, mend: boolean): string[] => [
     `A smaller model drew this board from the calls it saw:\n${describeBoard(board)}`,
     'Design the plan of this work as you, who are doing it, see it. The goal is the end the person is after: what will be true or exist for them once the work is done, never the steps or what was done so far. The stages run the whole way to that end, the ones not started yet included, so the person sees what is left; the work after them that waits on the person or someone else goes in "expected" with op "update".',
     OP_SHAPES,
     PLAN_RULES.replace(TITLE_RULE, DESIGN_TITLE_RULE),
     'Reshape the board with op "update" (the goal, the title, a step\'s title, detail or status), "add", "remove" and "move" by the ids it shows. You know what you did: a step you finished is "completed", one the work went past without doing is "skipped" with a note on why (or removed when it was never part of the work), and one you are still on stays as it is. A check that has not run yet (a nightly job, a test the person runs, a reply still to come) is never "completed", and neither is anything you told the person you did not verify. Go through every step the board shows and give each the status that is true now.',
-    'Work of this plan that the board does not show goes on it with op "add" under the stage it belongs to; in an op "add" from you, and only there, a STEP may carry "status" (and "note"), so work already done is added as "completed". What your last answer left with the person (a choice to make, something to look at or approve) is not finished: a step only they can confirm is "needs_check" with a note naming what to look at, and work that waits on their go-ahead goes in "expected". When your statuses finish the last step, give "summary" with that op "update".',
+    'Work of this plan that the board does not show goes on it with op "add" under the stage it belongs to; in an op "add" from you, and only there, a STEP may carry "status" (and "note"), so work already done is added as "completed". What your last answer left with the person (a choice to make, something to look at or approve) is not finished: a step only they can confirm is "needs_check" with a note naming what to look at, and work that waits on their go-ahead goes in "expected". Only what an answer hands to the person in so many words waits on them: a check you did yourself is "completed", and when your last answer says nothing is left for the person, no step is "needs_check". When your statuses finish the last step, give "summary" with that op "update".',
     'Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as "merged" with its link. Write in the language the person writes in.',
     ...(mend ? [DESIGN_BAR] : []),
     'Answer with only a JSON array of op objects, and [] when the board already fits. No prose, no code fence.',
+  ]
+
+// The system prompt of a replayed design: no person's setup, only the job.
+export const REPLAY_SYSTEM = 'You design the plan board for a coding session from its log. You answer with JSON ops only.'
+
+// A design asked of a model outside the session: it reads the session's log, each call with the start
+// of what it returned, in place of the conversation a fork holds.
+export const replayDesignPrompt = (board: Board, log: readonly Happened[]): string =>
+  [
+    'This message comes from plan-flow, the plan board drawn beside a coding session between a person and Claude. You are not in that session: below is its log, oldest first (what the person asked, what Claude was told, ran and got back, said and answered). Read it as the record of the work and design the plan the way Claude, who did the work, would. Nothing you write reaches the person or the session.',
+    `The session so far:\n${replayLines(log).join('\n') || '- nothing'}`,
+    REPLAY_RULES,
+    ...designBody(board, true),
   ].join('\n\n')
+
+// The newest of the log in full, and before it, while room is left, only what the person asked and
+// Claude answered: an answer says where the work stood, so a step finished days ago stays known.
+const replayLines = (log: readonly Happened[]): string[] => {
+  const short = log.map(h => shorten(h, MAX_REPLAY_LINE))
+  const from = fitFrom(short, MAX_REPLAY_RECENT)
+  const older = log.slice(0, from).filter(h => h.kind === 'request' || h.kind === 'answer')
+  const before = logLines(older.map(h => ({ kind: h.kind, text: cut(h.text, MAX_REPLAY_OLDER) })), MAX_REPLAY_LOG - MAX_REPLAY_RECENT)
+
+  return [...before, ...logLines(short.slice(from), MAX_REPLAY_RECENT)]
+}
+
+// What the log shows less plainly than a conversation does, said outright.
+const REPLAY_RULES =
+  'Work that runs at the same time (several sessions or agents each on their own part) goes under one stage with "parallel": true, since only the steps of one parallel group run at once. A step whose work is done and handed to someone else to review or approve (a pull request ready for review) is "completed"; the review and the merge are expected. A choice the log leaves with the person is a step to check ("needs_check") with a note naming the choice. The log starts partway through a long session, so a step the board shows finished ("completed" or "skipped") stays finished unless the log shows its work opened again.'
 
 // Step ids in reading order: "2.10" after "2.9", a step before the steps under it.
 const byPath = (a: string, b: string): number => {
@@ -193,6 +251,19 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
   const text = folded(answer)
   const statuses = addedStatuses(text)
   let applied = 0
+  // Each status lands on its own, so one the board refuses (two stages running at once) costs only itself.
+  const mark = (updates: readonly NodeUpdate[]): NodeUpdate[] =>
+    updates.filter(u => {
+      const r = runOp(board, { op: 'update', updates: [u] }, now)
+      if ('error' in r) return true
+      board = r.board
+      return false
+    })
+  // Refused while the old plan still ran: tried again once every op has run, on the steps still there.
+  const refused: NodeUpdate[] = []
+  // The status the design gave each step by op "update", the last one when it gave several: a later op
+  // (removing a stage's steps, so the stage stands alone) can undo it, so it is set again at the end.
+  const told = new Map<string, NodeUpdate>()
   parseOps(text).forEach((op, i) => {
     // A "set" from the design redraws the plan in hand in place: the same work, so nothing goes to
     // the shelf and the plan keeps the time it started.
@@ -202,13 +273,13 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
     const old = board.plan.nodes
     const ran = runOp(redraw ? { plan: emptyPlan(), shelf: board.shelf } : board, op, now)
     if ('error' in ran) return
+    if (op.op === 'update') for (const u of op.updates) if (u.status !== undefined) told.set(u.id, { id: u.id, status: u.status, ...(u.note === undefined ? {} : { note: u.note }) })
     board = redraw && board.plan.nodes.length > 0 ? { ...ran.board, plan: { ...ran.board.plan, startedAt: board.plan.startedAt } } : ran.board
     applied++
     const given = statuses[i] ?? []
     const added = op.op === 'add' || op.op === 'set' ? board.plan.nodes.map(n => n.id).filter(id => !before.has(id)).sort(byPath) : []
     const updates = added.flatMap((id, k) => (given[k] === undefined ? [] : [{ id, ...given[k] }]))
-    const marked = updates.length === 0 ? undefined : runOp(board, { op: 'update', updates }, now)
-    if (marked !== undefined && !('error' in marked)) board = marked.board
+    refused.push(...mark(updates))
     if (!redraw) return
     // A step drawn again under the same title keeps what the old one carried: its links, and a check
     // already confirmed (a step the redraw leaves waiting for a check that the board had as done).
@@ -222,6 +293,7 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
     const carried = kept.length === 0 ? undefined : runOp(board, { op: 'update', updates: kept }, now)
     if (carried !== undefined && !('error' in carried)) board = carried.board
   })
+  mark([...refused, ...told.values()].filter(u => board.plan.nodes.some(n => n.id === u.id && n.status !== u.status)))
 
   return { board, applied }
 }

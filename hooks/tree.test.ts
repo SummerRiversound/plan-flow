@@ -1,11 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 import type { Activity } from '../types'
 import { idleActivity } from './activity'
-import type { Plan, PlanInput, PlanResult } from './plan'
-import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from './plan'
+import type { Plan, PlanInput, PlanResult } from '../paseo/shared/plan'
+import { addNodes, emptyPlan, nextStep, setPlan, updateNodes } from '../paseo/shared/plan'
 import { FOLD_BUTTON, FRAME_MS, OPEN_BUTTON, bandRows, drawTree, lineText } from './tree'
 import { cells } from './width'
-import { setLanguage, t } from './i18n'
+import { setLanguage, t } from '../paseo/shared/i18n'
 import { BOXED } from './drawer'
 
 // The expectations below are written in Korean.

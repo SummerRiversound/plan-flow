@@ -1,12 +1,12 @@
 import { expect, test } from 'claude-code/testing'
 import type { DrawerState } from '../types'
 import { ASK, CONFIRM, COLLAPSE_ALL, EXPAND_ALL, FOLLOW, REFRESH, VIEW, drawFlow, drawerPage, drawerView, foldAll, isOpen, linkLabel, linkRow, pickStep, shelfLines, toggleFold } from './drawer'
-import type { Plan, PlanInput, PlanResult } from './plan'
-import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
+import type { Plan, PlanInput, PlanResult } from '../paseo/shared/plan'
+import { emptyPlan, nextStep, setPlan, updateNodes } from '../paseo/shared/plan'
 import { idleActivity } from './activity'
 import { lineText } from './tree'
 import { cells } from './width'
-import { setLanguage } from './i18n'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')

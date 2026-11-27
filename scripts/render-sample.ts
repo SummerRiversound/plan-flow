@@ -3,8 +3,8 @@
 // The mod's type-check has no Node or DOM types; this script only needs console.log.
 declare const console: { log: (text: string) => void }
 import { drawFlow } from '../hooks/drawer'
-import type { Plan, PlanInput, PlanResult } from '../hooks/plan'
-import { emptyPlan, nextStep, setPlan } from '../hooks/plan'
+import type { Plan, PlanInput, PlanResult } from '../paseo/shared/plan'
+import { emptyPlan, nextStep, setPlan } from '../paseo/shared/plan'
 import { drawTree, lineText } from '../hooks/tree'
 
 const ok = (r: PlanResult): Plan => {

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { pickLanguage, setLanguage } from './i18n'
+import { pickLanguage, setLanguage } from '../paseo/shared/i18n'
 import { shots, shotText } from './snapshot'
 import { demoList, scenarios } from './scenarios'
 import { cells } from './width'

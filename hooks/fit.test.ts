@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import { idleActivity } from './activity'
-import type { Plan, PlanResult } from './plan'
-import { emptyPlan, nextStep, setPlan } from './plan'
+import type { Plan, PlanResult } from '../paseo/shared/plan'
+import { emptyPlan, nextStep, setPlan } from '../paseo/shared/plan'
 import { drawTree, lineText } from './tree'
-import { setLanguage } from './i18n'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')

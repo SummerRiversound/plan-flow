@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { emptyPlan } from './plan'
-import { describeBoard, EXPECTED_RULE, runOp } from './plan-tool'
-import { DESIGN_BAR, designPrompt, MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from './planner'
-import type { Happened } from './planner'
+import { emptyPlan } from '../paseo/shared/plan'
+import { describeBoard, EXPECTED_RULE, runOp } from '../paseo/shared/plan-tool'
+import { DESIGN_BAR, designPrompt, MAX_LOG, PLANNER_SYSTEM, parseOps, plannerPrompt, remember, runDesign, toolLine } from '../paseo/shared/planner'
+import type { Happened } from '../paseo/shared/planner'
 
 test('a tool call is one line: what it says it is for, else the file it touches, never a whole command or file', () => {
   expect(toolLine('Bash', { command: 'npm test -- --watch=false', description: 'Run the tests' })).toBe('Run the tests')
@@ -87,6 +87,34 @@ test('Claude, designing, says where each step stands: its statuses land, and a s
   expect(board).toContain('2.1 Its test - completed')
   expect(board).toContain('2.2 Rounding - skipped')
   expect(board).toContain('2.3 Stacking - pending')
+})
+
+test('a design that adds its stages before removing the old ones keeps their statuses; a status the board refuses is left out alone', () => {
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Coupon work' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  // The old step is running while the new stages land, and two stages cannot run at once.
+  const answer = JSON.stringify([
+    { op: 'add', nodes: [{ title: 'Fixed coupon', children: [{ title: 'Its test', status: 'completed' }, { title: 'Its form', status: 'in_progress' }] }, { title: 'Percent coupon', children: [{ title: 'Rounding', status: 'in_progress' }] }] },
+    { op: 'remove', id: '1' },
+  ])
+  const board = describeBoard(runDesign(start.board, answer, 2).board)
+  expect(board).not.toContain('Coupon work')
+  expect(board).toContain('2.1 Its test - completed')
+  expect(board).toContain('2.2 Its form - in_progress')
+  expect(board).toContain('3.1 Rounding - pending')
+})
+
+test('a design that finishes a stage and then removes its steps keeps the stage finished', () => {
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon', children: [{ title: 'Its test' }, { title: 'Its form' }] }, { title: 'Percent coupon' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  const answer = JSON.stringify([
+    { op: 'update', updates: [{ id: '1', status: 'completed' }] },
+    { op: 'remove', id: '1.1' },
+    { op: 'remove', id: '1.2' },
+  ])
+  const board = describeBoard(runDesign(start.board, answer, 2).board)
+  expect(board).not.toContain('Its test')
+  expect(board).toContain('1 Fixed coupon - completed')
 })
 
 test('Claude, designing, may redraw the plan in hand whole: it takes its place with its statuses, nothing goes to the shelf', () => {

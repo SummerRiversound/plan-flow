@@ -5,8 +5,8 @@
 // which outranks a running tool, which outranks plain work. When the higher phase
 // ends the line falls back to the newest running tool, else to work.
 import type { Activity, ActivityPhase } from '../types'
-import { clean } from './sanitize'
-import { t } from './i18n'
+import { clean } from '../paseo/shared/sanitize'
+import { t } from '../paseo/shared/i18n'
 
 export type { Activity, ActivityPhase }
 

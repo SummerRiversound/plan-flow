@@ -3,9 +3,9 @@ import type { DrawerState } from '../types'
 import type { CardItem, CardStep } from './cards'
 import { cardsOf, headOf } from './cards'
 import { ASK, CONFIRM } from './drawer'
-import type { Plan, PlanInput, PlanResult } from './plan'
-import { emptyPlan, nextStep, setPlan, updateNodes } from './plan'
-import { setLanguage } from './i18n'
+import type { Plan, PlanInput, PlanResult } from '../paseo/shared/plan'
+import { emptyPlan, nextStep, setPlan, updateNodes } from '../paseo/shared/plan'
+import { setLanguage } from '../paseo/shared/i18n'
 
 // The expectations below are written in Korean.
 setLanguage('ko')

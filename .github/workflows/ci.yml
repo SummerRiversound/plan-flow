@@ -23,3 +23,10 @@ jobs:
       - run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
       - run: claude plugin validate . --strict
       - run: claude plugin test .
+      # The Paseo plugin shares paseo/shared with the mod, so a change on either side is checked on both.
+      - run: npm ci
+        working-directory: paseo
+      - run: npm run typecheck
+        working-directory: paseo
+      - run: npm test
+        working-directory: paseo

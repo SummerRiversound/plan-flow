@@ -10,6 +10,8 @@
 //       the real design step on the board the person last saw: the session itself resumed as a throwaway
 //       fork, so Claude reads the whole conversation as the mod's fork does; --candidate asks with the
 //       design wording under trial. Writes <dir>/<session>.json for --compare.
+//   bun scripts/review.ts <session> --plugin-replay   the session planned again as the Paseo plugin plans it
+//       --plugin: the design the Paseo plugin asks, Sonnet reading the session's log with what each call gave back.
 //       --log <model>: the design asked of that model with the session's record in the prompt and no
 //       fork (DESIGN_EFFORT sets its effort, DESIGN_RECORD the record's size in characters).
 //   ANSWER_MODEL hands the replayed look at an answer after work to that model (ANSWER_EFFORT its effort).
@@ -20,17 +22,18 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Board } from '../hooks/board'
-import { emptyBoard } from '../hooks/board'
+import type { Board } from '../paseo/shared/board'
+import { emptyBoard } from '../paseo/shared/board'
 import { drawerView } from '../hooks/drawer'
-import { setLanguage, t } from '../hooks/i18n'
-import type { Plan, PlanInput, PlanStatus } from '../hooks/plan'
-import { closing, currentLeaf, emptyPlan, hasOpenWork, setPlan, STATUSES, updateNodes, withExpected, withGoal } from '../hooks/plan'
-import { describeBoard, EXPECTED_RULE, PLAN_RULES, runOp } from '../hooks/plan-tool'
-import type { Happened } from '../hooks/planner'
-import { LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, designPrompt, parseOps, plannerPrompt, remember, runDesign } from '../hooks/planner'
+import { setLanguage, t } from '../paseo/shared/i18n'
+import type { Plan, PlanInput, PlanStatus } from '../paseo/shared/plan'
+import { closing, currentLeaf, emptyPlan, hasOpenWork, setPlan, STATUSES, updateNodes, withExpected, withGoal } from '../paseo/shared/plan'
+import { describeBoard, EXPECTED_RULE, PLAN_RULES, runOp } from '../paseo/shared/plan-tool'
+import type { Happened } from '../paseo/shared/planner'
+import { LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, REPLAY_SYSTEM, designPrompt, noticeLine, parseOps, plannerPrompt, remember, replayDesignPrompt, runDesign } from '../paseo/shared/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
+import { afterTurn, type DesignCall, designNow, freshDesign, SETTLE_MS } from '../paseo/server/turn'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
 import type { Heard } from './session'
 import { costScore, costShare, heard, itemMean, ON_TIME_BARS, onTimeShare, shareScore, USEFUL_BARS, usefulShare } from './session'
@@ -96,7 +99,8 @@ const ask = (model: string, system: string, prompt: string, effort: string | und
     maxBuffer: 1 << 26,
     stdio: ['pipe', 'pipe', 'ignore'],
   })
-  const r = JSON.parse(out) as { result?: string; usage?: Record<string, number> }
+  const r = JSON.parse(out) as { is_error?: boolean; result?: string; usage?: Record<string, number> }
+  if (r.is_error === true) say(`  ${model} call failed: ${(r.result ?? '').slice(0, 160)}`)
   const u = r.usage ?? {}
   const sum = (asked[model] ??= { calls: 0, input: 0, output: 0 })
   sum.calls++
@@ -319,12 +323,12 @@ const pick = (events: readonly Heard[], one: Replayed, two: Replayed): Pick | un
   }
 }
 
-const eventsOf = (sid: string): Heard[] | undefined => {
+const eventsOf = (sid: string, results = false): Heard[] | undefined => {
   const path = transcriptOf(sid)
   if (path === undefined) return undefined
   const dir = join(path.slice(0, -'.jsonl'.length), 'subagents')
   const subagents = existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.jsonl')).map(f => readFileSync(join(dir, f), 'utf8')) : []
-  return heard(readFileSync(path, 'utf8'), subagents)
+  return heard(readFileSync(path, 'utf8'), subagents, results)
 }
 
 // Each session replayed in both folders: A's wins, B's wins and ties per item, over both orders.
@@ -420,6 +424,102 @@ const logAsk = (model: string, events: readonly Heard[], board: Board): string =
   forkCost = Math.round((PRICE[model] ?? 1) * (forkUsage.input + forkUsage.cacheRead + forkUsage.cacheWrite + 5 * forkUsage.output))
   return r.result ?? ''
 }
+// The Paseo plugin's design: Sonnet at low effort reads the session's log (each call with the start of
+// what it gave back, the older part as requests and answers) with no prompt cache, as paseo/server/ask.ts calls it.
+const pluginAsk = (events: readonly Heard[], board: Board): string => pluginPrint(REPLAY_SYSTEM, replayDesignPrompt(board, events)).text
+const pluginPrint = (system: string, prompt: string): { text: string; cost: number; input: number; output: number } => {
+  const out = execFileSync('claude', ['--print', '--safe-mode', '--strict-mcp-config', '--no-session-persistence', '--tools', '', '--model', 'claude-sonnet-5-5', '--effort', 'low', '--output-format', 'json', '--system-prompt', system], {
+    input: prompt,
+    env: { ...process.env, CMUX_CLAUDE_HOOKS_DISABLED: '1', DISABLE_PROMPT_CACHING: '1' },
+    encoding: 'utf8',
+    maxBuffer: 1 << 26,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  const r = JSON.parse(out) as { result?: string; total_cost_usd?: number; usage?: Record<string, number> }
+  const u = r.usage ?? {}
+  forkUsage = { input: u.input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, output: u.output_tokens ?? 0 }
+  forkCost = Math.round((PRICE.sonnet ?? 1) * (forkUsage.input + forkUsage.cacheRead + forkUsage.cacheWrite + 5 * forkUsage.output))
+  forkUsd = r.total_cost_usd
+  const input = forkUsage.input + forkUsage.cacheWrite + forkUsage.cacheRead
+  say(`  plugin design $${(r.total_cost_usd ?? 0).toFixed(3)}, ${input} in`)
+  return { text: r.result ?? '', cost: r.total_cost_usd ?? 0, input, output: forkUsage.output }
+}
+
+// The transcript as the Paseo timeline would hold it, one list of items per turn (a person's prompt or
+// a notice opens one): a command with its output, a subagent with its report, a file by its path.
+// shortcut: a subagent's own calls are left out, as the parent's Paseo timeline holds only its report.
+type Item = Parameters<typeof afterTurn>[2][number]
+const timelineOf = (jsonl: string): Array<{ start: number; end: number; items: Item[] }> => {
+  type E = { type?: string; isMeta?: boolean; isSidechain?: boolean; timestamp?: string; message?: { content?: unknown } }
+  const entries = jsonl.split('\n').flatMap((l): E[] => {
+    try {
+      return l.trim() === '' ? [] : [JSON.parse(l) as E]
+    } catch {
+      return []
+    }
+  }).filter(e => e.isSidechain !== true && e.isMeta !== true)
+  const results = new Map<string, { failed: boolean; text: string }>()
+  for (const e of entries) {
+    const c = e.message?.content
+    if (e.type === 'user' && Array.isArray(c))
+      for (const b of c as Array<{ type?: string; tool_use_id?: string; is_error?: boolean; content?: unknown }>)
+        if (b.type === 'tool_result' && b.tool_use_id !== undefined)
+          results.set(b.tool_use_id, { failed: b.is_error === true, text: typeof b.content === 'string' ? b.content : Array.isArray(b.content) ? (b.content as Array<{ type?: string; text?: string }>).filter(x => x.type === 'text').map(x => x.text ?? '').join(' ') : '' })
+  }
+  const detailOf = (name: string, input: Record<string, unknown>, out: string): Item extends infer T ? (T extends { type: 'tool_call'; detail: infer D } ? D : never) : never =>
+    (name === 'Bash' ? { type: 'shell', command: String(input.command ?? ''), output: out }
+    : name === 'Agent' || name === 'Task' ? { type: 'sub_agent', description: typeof input.description === 'string' ? input.description : undefined, log: out }
+    : ['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(name) ? { type: 'read', filePath: String(input.file_path ?? input.notebook_path ?? '') }
+    : ['Grep', 'Glob'].includes(name) ? { type: 'search', query: String(input.pattern ?? '') }
+    : { type: 'unknown', input, output: out }) as never
+  const turns: Array<{ start: number; end: number; items: Item[] }> = []
+  for (const e of entries) {
+    const at = Date.parse(e.timestamp ?? '') || 0
+    const c = e.message?.content
+    if (e.type === 'user') {
+      const text = typeof c === 'string' ? c : Array.isArray(c) ? (c as Array<{ type?: string; text?: string }>).filter(b => b.type === 'text').map(b => b.text ?? '').join('\n') : ''
+      if (text.trim() === '' || text.startsWith('<command-') || text.startsWith('<local-command') || text.startsWith('[Request interrupted')) continue
+      const item = text.includes('<task-notification>')
+        ? ({ type: 'tool_call', callId: `n${at}`, name: 'notice', status: 'completed', error: null, agentMessage: { text: noticeLine(text) }, detail: { type: 'plain_text', text } } as unknown as Item)
+        : ({ type: 'user_message', text } as unknown as Item)
+      turns.push({ start: at, end: at, items: [item] })
+    } else if (e.type === 'assistant' && Array.isArray(c) && turns.length > 0) {
+      const turn = turns[turns.length - 1] as { start: number; end: number; items: Item[] }
+      turn.end = at
+      for (const b of c as Array<{ type?: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }>) {
+        if (b.type === 'text' && (b.text ?? '').trim() !== '') turn.items.push({ type: 'assistant_message', text: b.text ?? '' } as unknown as Item)
+        if (b.type === 'tool_use' && b.name !== undefined) {
+          const r = results.get(b.id ?? '')
+          turn.items.push({ type: 'tool_call', callId: b.id ?? '', name: b.name, status: r?.failed ? 'failed' : 'completed', error: r?.failed ? 'failed' : null, detail: detailOf(b.name, b.input ?? {}, r?.text ?? '') } as unknown as Item)
+        }
+      }
+    }
+  }
+  return turns
+}
+
+// The session as the Paseo plugin plans it: a look at the end of each turn, and the design where its rules ask.
+const pluginReplay = async (jsonl: string): Promise<{ board: Board; at: number; calls: DesignCall[]; looks: number }> => {
+  const turns = timelineOf(jsonl)
+  let board = emptyBoard()
+  let design = freshDesign()
+  let at = 0
+  const deps = (i: number): Parameters<typeof afterTurn>[3] => ({
+    look: async (system, prompt) => ask('haiku', system, prompt, 'low'),
+    design: async (system, prompt) => pluginPrint(system, prompt),
+    session: async () => turns.slice(0, i + 1).map(x => x.items),
+    now: () => turns[i]?.end ?? 0,
+  })
+  for (const [i, t] of turns.entries()) {
+    say(`  turn ${i + 1}/${turns.length}`)
+    const out = await afterTurn(board, design, t.items, deps(i))
+    ;[board, design, at] = [out.board, out.design, t.end]
+    // The design due once the agent rests, when it rests long enough before the next turn.
+    if (out.settles && (turns[i + 1]?.start ?? Number.POSITIVE_INFINITY) - t.end >= SETTLE_MS) ({ board, design } = await designNow(board, design, deps(i)))
+  }
+  return { board, at, calls: design.calls, looks: turns.length }
+}
+let forkUsd: number | undefined
 let forkCost: number | undefined
 let forkUsage: { input: number; cacheRead: number; cacheWrite: number; output: number } | undefined
 
@@ -475,11 +575,12 @@ const wholeBoard = (text: string, before: Board, at: number): Board | undefined 
   return { plan, shelf }
 }
 
-const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string, whole = false, log?: string): void => {
+const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string, whole = false, log?: string, plugin = false): void => {
   const last = savedBoards()[sid]
   const path = transcriptOf(sid)
   const events = eventsOf(sid)
-  if (last === undefined || path === undefined || events === undefined) {
+  const withResults = plugin ? eventsOf(sid, true) : events
+  if (last === undefined || path === undefined || events === undefined || withResults === undefined) {
     say(`session ${sid} has no saved board or transcript`)
     process.exit(1)
   }
@@ -491,7 +592,9 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string,
   let board: Board = { plan: last.plan, shelf: last.shelf }
   const answer =
     from === undefined
-      ? log !== undefined
+      ? plugin
+        ? pluginAsk(withResults, board)
+        : log !== undefined
         ? logAsk(log, events, board)
         : forkAsk(sid, cwd, whole ? wholePrompt(board) : candidate ? candidatePrompt(board) : designPrompt(board))
       : (JSON.parse(readFileSync(join(from, `${sid}.json`), 'utf8')) as { replay: { ops: string } }).replay.ops
@@ -500,13 +603,13 @@ const forkDesign = (sid: string, dir: string, candidate: boolean, from?: string,
   const claudeMd = readFileSync(join(process.cwd(), '.claude/CLAUDE.md'), 'utf8')
   const verdict = judge(claudeMd.slice(claudeMd.indexOf('## Decisions')), events, board, last.savedAt, 'Claude가 대화 전체를 읽고 다시 짠 판')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer, cost: forkCost, usage: forkUsage } }, null, 2))
+  writeFileSync(join(dir, `${sid}.json`), JSON.stringify({ session: sid, replay: { board, at: last.savedAt, verdict, ops: answer, cost: forkCost, usd: forkUsd, usage: forkUsage } }, null, 2))
   console.log(`${sid.slice(0, 8)} ${verdict?.overall ?? '?'}${forkCost === undefined ? '' : ` · design call cost ${forkCost}`}`)
 }
 
 const time = (ms: number): string => new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-const main = (): void => {
+const main = async (): Promise<void> => {
   const [sid, ...flags] = process.argv.slice(2)
   if (sid === '--compare') {
     const [a, b] = flags
@@ -523,7 +626,7 @@ const main = (): void => {
       process.exit(1)
     }
     const from = flags.indexOf('--from')
-    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1], flags.includes('--whole'), flags.includes('--log') ? flags[flags.indexOf('--log') + 1] : undefined)
+    return forkDesign(id, dir, flags.includes('--candidate'), from === -1 ? undefined : flags[from + 1], flags.includes('--whole'), flags.includes('--log') ? flags[flags.indexOf('--log') + 1] : undefined, flags.includes('--plugin'))
   }
   const saved = savedBoards()
   if (sid === undefined) {
@@ -563,6 +666,14 @@ const main = (): void => {
     }
     report.saved = { savedAt: last.savedAt, verdict: v }
     sections.push(verdictHtml(`사람이 마지막으로 본 판 · ${time(last.savedAt)}`, v), boardHtml(real, last.savedAt))
+  }
+  if (flags.includes('--plugin-replay')) {
+    say('replaying the session through the Paseo plugin…')
+    const r = await pluginReplay(readFileSync(path, 'utf8'))
+    const v = judge(decisions, events, r.board, r.at, 'Paseo 플러그인으로 다시 돌린 판')
+    const spent = r.calls.reduce((n, c) => n + (c.cost ?? 0), 0)
+    report.plugin = { looks: r.looks, designs: r.calls, spent, verdict: v, board: r.board, at: r.at }
+    sections.push(verdictHtml(`Paseo 플러그인으로 다시 돌린 판 · 턴 ${r.looks}개 · 설계 ${r.calls.filter(c => c.result === 'answered').length}번 $${spent.toFixed(2)}`, v), boardHtml(r.board, r.at))
   }
   if (flags.includes('--replay')) {
     say(`replaying ${events.length} events through the side planner…`)
@@ -620,4 +731,7 @@ ${sections.join('\n')}</body></html>`,
   console.log(join(dir, `${sid}.html`))
 }
 
-main()
+main().catch(err => {
+  say(String(err))
+  process.exit(1)
+})

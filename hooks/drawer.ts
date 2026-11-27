@@ -3,14 +3,15 @@
 // An open box lists its tasks, a `╭ 동시에` block for tasks that run together, and the
 // checkpoints of every open task. Pure: register.tsx turns the lines into elements and
 // each piece marked `button` into a Button that folds or unfolds that node.
-import type { DrawerState, Shelved } from '../types'
-import type { Plan, PlanNode } from './plan'
-import { checksOf, childrenOf, currentLeaf, hasChildren, hasOpenWork, isFinished, progress } from './plan'
+import type { DrawerState } from '../types'
+import type { Shelved } from '../paseo/shared/types'
+import type { Plan, PlanNode } from '../paseo/shared/plan'
+import { childrenOf, currentLeaf, defaultOpen, hasChildren, hasOpenWork, isFinished, progress, unitCount } from '../paseo/shared/plan'
 import type { Line, Seg } from './tree'
 import type { Activity } from '../types'
 import { OPEN_BUTTON, bandRows, fitLine, isLive, isWaiting, liveSegs, glyphColor, glyphSeg, lineText, markSeg, noteText, planHead } from './tree'
 import { cells, padRight, wrap } from './width'
-import { t } from './i18n'
+import { t } from '../paseo/shared/i18n'
 
 export type { DrawerState }
 
@@ -23,28 +24,6 @@ export type Flow = { lines: Line[]; buttons: string[]; cut: boolean }
 const GAP = 5
 const MIN_BOX = 21
 const MIN_INNER = 6
-
-// A node's units: its children, with a parallel group standing for its own children.
-const units = (plan: Plan, id: string | null): PlanNode[] =>
-  childrenOf(plan.nodes, id).flatMap(n => (n.parallel === true ? units(plan, n.id) : [n]))
-
-const count = (plan: Plan, id: string | null): string => {
-  const u = units(plan, id)
-
-  return `${u.filter(n => isFinished(n.status)).length}/${u.length}`
-}
-
-// Open unless the person folded it: the nodes above the leaf Claude is on and above the
-// steps waiting for the person to check; finished stages stay folded.
-const defaultOpen = (plan: Plan): Set<string> => {
-  const leaf = currentLeaf(plan)
-  const ids = [...(leaf === null ? [] : [leaf.id]), ...checksOf(plan).map(n => n.id)]
-
-  return new Set(ids.flatMap(id => {
-    const parts = id.split('.')
-    return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('.'))
-  }))
-}
 
 export const isOpen = (plan: Plan, drawer: DrawerState, id: string): boolean => drawer.open[id] ?? defaultOpen(plan).has(id)
 
@@ -100,7 +79,7 @@ type Ctx = { plan: Plan; drawer: DrawerState; buttons: string[]; cut: boolean; l
 
 // What a step shows flush right: a box's done/total and its fold arrow, or a running leaf's "진행 중".
 export const stepRight = (plan: Plan, drawer: DrawerState, n: PlanNode, waiting = false): Seg | null => {
-  if (hasChildren(plan.nodes, n.id)) return { text: `${count(plan, n.id)} ${isOpen(plan, drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
+  if (hasChildren(plan.nodes, n.id)) return { text: `${unitCount(plan, n.id)} ${isOpen(plan, drawer, n.id) ? '▾' : '▸'}`, color: 'inactive' }
   if (n.status === 'in_progress') return { text: waiting ? t().waiting : t().running, color: glyphColor(n, waiting) }
 
   return null

@@ -1,12 +1,12 @@
 // Board states for trying the views by eye (`/flow demo`) and for snapshots. Each is
 // built with the real operations, so a scenario cannot show a state the tool never makes.
 import type { Activity } from '../types'
-import type { Board, BoardResult } from './board'
-import { emptyBoard, setBoard, settle } from './board'
-import type { Plan, PlanInput, PlanResult } from './plan'
-import { addNodes, nextStep, updateNodes } from './plan'
-import type { Language } from './i18n'
-import { language, t } from './i18n'
+import type { Board, BoardResult } from '../paseo/shared/board'
+import { emptyBoard, setBoard, settle } from '../paseo/shared/board'
+import type { Plan, PlanInput, PlanResult } from '../paseo/shared/plan'
+import { addNodes, nextStep, updateNodes } from '../paseo/shared/plan'
+import type { Language } from '../paseo/shared/i18n'
+import { language, t } from '../paseo/shared/i18n'
 import { EN } from './scenarios.en'
 
 // A demo's words in the session's language: Korean as written here, else from the English table.

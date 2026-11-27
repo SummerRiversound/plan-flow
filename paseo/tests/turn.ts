@@ -64,6 +64,14 @@ test('no design after a question answered with no work, or after a look that mov
   const out = await afterTurn(start(), freshDesign(), worked, moved.d)
   assert.equal(moved.asked.length, 0)
   assert.deepEqual(out.design.calls, [])
+  // A prompt from another agent comes as a call, but it is news, not work.
+  const told: AgentTimelineItem[] = [
+    { type: 'tool_call', callId: 'm1', name: 'agent_message', detail: { type: 'plain_text', text: 'Add a dark theme', icon: 'bot' }, agentMessage: { text: 'Add a dark theme' }, status: 'completed', error: null } as AgentTimelineItem,
+    { type: 'assistant_message', text: '[System Error] Your access token could not be refreshed.' },
+  ]
+  const news = deps()
+  await afterTurn(start(), freshDesign(), told, news.d)
+  assert.equal(news.asked.length, 0)
 })
 
 test('a design that gives no answer is owed: the next turn with work asks again though the planner moved the board', async () => {

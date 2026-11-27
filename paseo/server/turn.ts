@@ -33,7 +33,8 @@ export type TurnDeps = {
 export const afterTurn = async (board: Board, state: DesignState, turn: readonly AgentTimelineItem[], deps: TurnDeps): Promise<{ board: Board; design: DesignState; looked: number | null }> => {
   const r = await look(board, turn, deps.look, deps.now())
   let next = r?.board ?? board
-  const worked = turn.some(i => i.type === 'tool_call')
+  // Work is a call Claude ran; a prompt from another agent or a task's notice comes as a call but is news.
+  const worked = happenedFrom(turn).some(h => h.kind === 'tool')
   const offBoard = leftOff(next.plan, state.hand, r !== null && r.applied === 0, state.owed)
   let design: DesignState = { ...state, hand: { key: planKey(next.plan), startedAt: next.plan.startedAt ?? 0 } }
   const looked = r?.applied ?? null

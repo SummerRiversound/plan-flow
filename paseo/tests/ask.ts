@@ -18,7 +18,7 @@ test('an error, a cut-off print or output that is not JSON gives no answer', () 
 })
 
 test('the planner runs with none of the person\'s setup, no tools, the small model at low effort, and saves no session', () => {
-  const args = plannerArgs('SYSTEM', 'PROMPT')
+  const args = plannerArgs('SYSTEM')
 
   for (const flag of ['--print', '--safe-mode', '--strict-mcp-config', '--no-session-persistence']) assert.ok(args.includes(flag), flag)
   const value = (flag: string) => args[args.indexOf(flag) + 1]
@@ -27,5 +27,6 @@ test('the planner runs with none of the person\'s setup, no tools, the small mod
   assert.equal(value('--effort'), 'low')
   assert.equal(value('--output-format'), 'json')
   assert.equal(value('--system-prompt'), 'SYSTEM')
-  assert.equal(args.at(-1), 'PROMPT')
+  // The prompt goes on stdin: as an argument, the CLI waits 3 s for stdin that never comes.
+  assert.equal(args.at(-1), 'SYSTEM')
 })

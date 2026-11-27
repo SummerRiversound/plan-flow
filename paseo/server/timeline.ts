@@ -28,26 +28,48 @@ const inputOf = (d: ToolCallDetail): Record<string, unknown> => {
   }
 }
 
-const callLine = (c: ToolCall): Happened | null => {
+// What a call gave back, where it says how the work went: a command's last words (a test count, a
+// pull request's address), a connected tool's or a subagent's first. File contents say nothing of it.
+const resultOf = (d: ToolCallDetail): string => {
+  const text = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v)).replace(/\s+/g, ' ').trim()
+  switch (d.type) {
+    case 'shell':
+      return text(d.output).slice(-MAX_RESULT)
+    case 'sub_agent':
+      return text(d.log).slice(0, MAX_RESULT)
+    case 'fetch':
+      return text(d.result).slice(0, MAX_RESULT)
+    case 'unknown':
+      return text(d.output).slice(0, MAX_RESULT)
+    default:
+      return ''
+  }
+}
+const MAX_RESULT = 160
+
+const callLine = (c: ToolCall, results: boolean): Happened | null => {
   if (c.status === 'running' || c.status === 'canceled' || SKIPPED.has(c.name)) return null
   // A prompt from another agent or a task's notice is news, not a request: no person typed it.
   if (c.agentMessage !== undefined) return { kind: 'notice', text: c.agentMessage.text ?? '' }
   if (c.detail.type === 'plain_text' && c.metadata?.synthetic === true) return { kind: 'notice', text: c.detail.label ?? c.detail.text ?? '' }
   const line = toolLine(c.detail.type === 'shell' ? 'Bash' : c.name, inputOf(c.detail))
+  const marked = c.status === 'failed' ? `${line} (failed)` : line
+  const got = results ? resultOf(c.detail) : ''
 
-  return { kind: 'tool', text: c.status === 'failed' ? `${line} (failed)` : line }
+  return { kind: 'tool', text: got === '' ? marked : `${marked} → ${got}` }
 }
 
 // One turn of a Paseo agent's timeline as what the planner hears: the person's request, each finished
 // call, what Claude said between calls, and its answer (the words after the last call).
-export const happenedFrom = (items: readonly AgentTimelineItem[]): Happened[] => {
+// `results`: each call also carries the start of what it gave back, for a design that reads no conversation.
+export const happenedFrom = (items: readonly AgentTimelineItem[], results = false): Happened[] => {
   const lastCall = items.findLastIndex(i => i.type === 'tool_call')
   const out: Happened[] = []
   items.forEach((item, i) => {
     if (item.type === 'user_message') out.push({ kind: 'request', text: item.text })
     else if (item.type === 'assistant_message' && item.text.trim() !== '') out.push({ kind: i > lastCall ? 'answer' : 'said', text: item.text })
     else if (item.type === 'tool_call') {
-      const h = callLine(item)
+      const h = callLine(item, results)
       if (h !== null) out.push(h)
     }
   })

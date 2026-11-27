@@ -74,3 +74,20 @@ test('a subagent call, a search and a connected tool each read as one line', () 
     { kind: 'tool', text: 'create_issue: title Dark theme follow-up' },
   ])
 })
+
+test('for a design that reads no conversation, a call carries the start of what it gave back; a file it read or changed carries nothing', () => {
+  const turn: AgentTimelineItem[] = [
+    { type: 'user_message', text: 'Open the pull request' },
+    { type: 'tool_call', callId: 'p1', name: 'Bash', detail: { type: 'shell', command: 'gh pr create', output: `${'x'.repeat(300)} https://github.com/acme/app/pull/12` }, status: 'completed', error: null },
+    { type: 'tool_call', callId: 'a1', name: 'Agent', detail: { type: 'sub_agent', description: 'Review the diff', log: 'No blocking findings. Two nits.' }, status: 'completed', error: null },
+    { type: 'tool_call', callId: 'r1', name: 'Read', detail: { type: 'read', filePath: '/repo/src/app.ts', content: 'secret file text' }, status: 'completed', error: null },
+  ]
+
+  const lines = happenedFrom(turn, true).map(h => h.text)
+  assert.ok(lines[1]?.startsWith('gh pr create → '))
+  assert.ok(lines[1]?.endsWith('https://github.com/acme/app/pull/12'))
+  assert.equal(lines[2], 'Agent: Review the diff → No blocking findings. Two nits.')
+  assert.equal(lines[3], 'Read app.ts')
+  // The planner keeps reading calls without what they gave back.
+  assert.equal(happenedFrom(turn)[1]?.text, 'gh pr create')
+})

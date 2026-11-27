@@ -23,6 +23,10 @@ export const LOOK_GAP_MS = 20_000
 
 export const MAX_LOG = 80
 const MAX_PROMPT_LOG = 6000
+// A replayed design reads the whole session up to this many characters, newest first: about 35K tokens of Korean.
+const MAX_REPLAY_LOG = 50_000
+// A call in a replayed log carries the start of what it returned.
+const MAX_REPLAY_LINE = 320
 const MAX_LINE = 160
 // A command with no description says nothing of its purpose, and its words (a prompt sent to another
 // session, a message's text) read like a request; a short cut keeps what it runs, not what it carries.
@@ -76,9 +80,30 @@ export const PERSON: ReadonlySet<string> = new Set(['composer', 'bridge', 'sdk',
 export const noticeLine = (text: string): string => /<summary>([\s\S]*?)<\/summary>/.exec(text)?.[1] ?? text
 
 export const remember = (log: readonly Happened[], h: Happened): Happened[] => {
-  const text = cut(h.text, h.kind === 'request' || h.kind === 'answer' ? MAX_ANSWER : MAX_LINE)
-  if (text === '') return [...log]
-  return [...log, { kind: h.kind, text }].slice(-MAX_LOG)
+  const short = shorten(h)
+  if (short.text === '') return [...log]
+  return [...log, short].slice(-MAX_LOG)
+}
+
+// A line of the log cut to its kind's length: a request or an answer longer than a call.
+const shorten = (h: Happened, line = MAX_LINE): Happened => ({ kind: h.kind, text: cut(h.text, h.kind === 'request' || h.kind === 'answer' ? MAX_ANSWER : line) })
+
+const LABEL = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
+
+// The newest lines of the log that fit in `max` characters, oldest first; empty lines left out.
+const logLines = (log: readonly Happened[], max: number): string[] => {
+  const lines: string[] = []
+  let size = 0
+  for (let i = log.length - 1; i >= 0; i--) {
+    const h = log[i] as Happened
+    if (h.text === '') continue
+    const row = `- ${LABEL[h.kind]}: ${h.text}`
+    if (size + row.length > max) break
+    lines.unshift(row)
+    size += row.length + 1
+  }
+
+  return lines
 }
 
 // The field names the board reads, spelled out: without them a model writes "steps" for "nodes".
@@ -109,16 +134,7 @@ export const PLANNER_SYSTEM = [
 // What the planner reads: the board as it stands, then the newest of what happened.
 // `again`: the person pressed ↻, so the log is what happened lately, seen before, to check the board against.
 export const plannerPrompt = (board: Board, log: readonly Happened[], again = false): string => {
-  const label = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
-  const lines: string[] = []
-  let size = 0
-  for (let i = log.length - 1; i >= 0; i--) {
-    const h = log[i] as Happened
-    const row = `- ${label[h.kind]}: ${h.text}`
-    if (size + row.length > MAX_PROMPT_LOG) break
-    lines.unshift(row)
-    size += row.length + 1
-  }
+  const lines = logLines(log, MAX_PROMPT_LOG)
   const now = board.plan.nodes.length === 0 && board.shelf.length === 0 ? 'The board is empty.' : describeBoard(board)
 
   const heading = again
@@ -141,6 +157,11 @@ export const DESIGN_BAR =
 export const designPrompt = (board: Board, mend = true): string =>
   [
     'This message comes from plan-flow, the plan board drawn beside this session, not from the person. Nothing you write here reaches the person or the session and no tool runs: answer from what this conversation already holds, at once.',
+    ...designBody(board, mend),
+  ].join('\n\n')
+
+// What a design reads after it is told where the work stands: the board, then how to reshape it.
+const designBody = (board: Board, mend: boolean): string[] => [
     `A smaller model drew this board from the calls it saw:\n${describeBoard(board)}`,
     'Design the plan of this work as you, who are doing it, see it. The goal is the end the person is after: what will be true or exist for them once the work is done, never the steps or what was done so far. The stages run the whole way to that end, the ones not started yet included, so the person sees what is left; the work after them that waits on the person or someone else goes in "expected" with op "update".',
     OP_SHAPES,
@@ -150,7 +171,21 @@ export const designPrompt = (board: Board, mend = true): string =>
     'Name each stage for what it delivers to the person (the change a pull request makes, the screen that now works), never for the pull request routine; the routine (a draft, reviewers, ready for review, review fixes, the merge) is at most one checkpoint per stage, such as "merged" with its link. Write in the language the person writes in.',
     ...(mend ? [DESIGN_BAR] : []),
     'Answer with only a JSON array of op objects, and [] when the board already fits. No prose, no code fence.',
+  ]
+
+// A design asked of a model outside the session: it reads the session's log, each call with the start
+// of what it returned, in place of the conversation a fork holds.
+export const replayDesignPrompt = (board: Board, log: readonly Happened[]): string =>
+  [
+    'This message comes from plan-flow, the plan board drawn beside a coding session between a person and Claude. You are not in that session: below is its log, oldest first (what the person asked, what Claude was told, ran and got back, said and answered). Read it as the record of the work and design the plan the way Claude, who did the work, would. Nothing you write reaches the person or the session.',
+    `The session so far:\n${logLines(log.map(h => shorten(h, MAX_REPLAY_LINE)), MAX_REPLAY_LOG).join('\n') || '- nothing'}`,
+    REPLAY_RULES,
+    ...designBody(board, true),
   ].join('\n\n')
+
+// What the log shows less plainly than a conversation does, said outright.
+const REPLAY_RULES =
+  'Work that runs at the same time (several sessions or agents each on their own part) goes under one stage with "parallel": true, since only the steps of one parallel group run at once. A step whose work is done and handed to someone else to review or approve (a pull request ready for review) is "completed"; the review and the merge are expected. A choice the log leaves with the person is a step to check ("needs_check") with a note naming the choice.'
 
 // Step ids in reading order: "2.10" after "2.9", a step before the steps under it.
 const byPath = (a: string, b: string): number => {

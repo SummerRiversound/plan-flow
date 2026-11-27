@@ -10,6 +10,7 @@ colors:
   foreground: "#e6e8ee"
   foregroundMuted: "#8f96a3"
   accent: "#4c8dff"
+  statusWarning: "#d29922"
   statusSuccess: "#3fb950"
   statusDanger: "#f0726a"
 typography:
@@ -73,7 +74,7 @@ components:
     textColor: "{colors.statusDanger}"
     typography: "{typography.small}"
   your-turn:
-    textColor: "{colors.accent}"
+    textColor: "{colors.statusWarning}"
     typography: "{typography.small}"
 ---
 
@@ -89,7 +90,8 @@ Paseo theme keys only; the hex values above are Paseo's dark theme, shown for re
 
 - **statusSuccess:** done marks and the filled part of the progress bar.
 - **statusDanger:** a blocked step's mark and note, and a turn that stopped on an error.
-- **accent:** Claude waits on the person (the running step's still dot, "답변 기다림", a step to check), and links.
+- **statusWarning:** Claude waits on the person: the running step's still dot, "답변 기다림", a permission it waits for, a step to check. Not the accent, which is green in some themes and would read as done.
+- **accent:** links.
 - **foreground:** step names and the running step; **foregroundMuted:** finished steps, details, counts, labels, the running card's border.
 - **surface0** the panel, **surface1** cards, **surface2** the progress track and the line beside tasks that run together; **border** card edges, stems and brackets.
 
@@ -107,11 +109,11 @@ None. Hierarchy comes from cards, nesting and weight, not shadows.
 
 ## Components
 
-- **Head:** title, goal in muted text, a progress bar with `3/13 · 23%`, and one line on what is happening now taken from the agent's own state: running (turning mark and the step), your turn, waiting for a permission, stopped on an error, or done. A muted-accent line counts the steps waiting for the person's check.
+- **Head:** title, goal in muted text, a progress bar with `3/13 · 23%`, and one line on what is happening now taken from the agent's own state: running (turning mark and the step), your turn, waiting for a permission, stopped on an error, or done. A warning-coloured line counts the steps waiting for the person's check.
 - **Stage card:** a rounded card; mark, name, and on the right the count `1/4` with a chevron. Pressing it folds or unfolds; the panel tab remembers the choice. The stage Claude is on opens on its own, finished stages stay folded, as in the mod.
 - **Tasks:** inside an open card under a hairline, indented by their level. Tasks that run together sit behind a line in surface2 with a `동시에` label.
-- **Status marks:** done check (success), turning ring while Claude works, still dot (accent) while it waits on the person, cross (danger) for blocked, minus for skipped, eye (accent) for a step to check, empty circle for one still to come.
-- **Links:** under a step whose row shows, `↗ PR #42` and short URLs in accent; a file path shows its name.
+- **Status marks:** done check (success), turning ring while Claude works, still dot (warning) while it waits on the person, cross (danger) for blocked, minus for skipped, eye (warning) for a step to check, empty circle for one still to come.
+- **Links:** under a step whose row shows, `PR #42` and short URLs in accent with Paseo's own link arrow; a file path shows its name.
 - **Closing card:** once every step is done and Claude summed it up, a card with a success border ends the axis.
 - **Expected work:** dashed cards with an `예상` tag after the last stage, never counted.
 - **Pill above the composer:** `step · 3/13` beside Tasks and Subagents while the agent's plan has open work; pressing it opens the panel.

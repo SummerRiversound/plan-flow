@@ -67,7 +67,7 @@ function Links({ links, ctx }: { links: readonly string[]; ctx: Ctx }) {
       {links.map(l =>
         isUrl(l) ? (
           <ExternalLink key={l} href={l}>
-            <Text style={ctx.s.link} numberOfLines={1}>↗ {linkLabel(l)}</Text>
+            <Text style={ctx.s.link} numberOfLines={1}>{linkLabel(l)}</Text>
           </ExternalLink>
         ) : (
           // shortcut: a file path shows its name only; open it in a file panel once the plugin needs to.
@@ -89,7 +89,7 @@ function StepRow({ step, ctx }: { step: ViewStep; ctx: Ctx }) {
       <Icon name={step.open ? 'ChevronDown' : 'ChevronRight'} size={14} color={theme.colors.foregroundMuted} />
     </View>
   ) : running ? (
-    <Text style={[s.small, { color: ctx.live ? theme.colors.foreground : theme.colors.accent }]}>{ctx.live ? t('running') : t('waiting')}</Text>
+    <Text style={[s.small, { color: ctx.live ? theme.colors.foreground : theme.colors.statusWarning }]}>{ctx.live ? t('running') : t('waiting')}</Text>
   ) : null
   const body = (
     <View style={s.row}>
@@ -237,8 +237,8 @@ function NowLine({ now, ctx }: { now: Now; ctx: Ctx }) {
     now.kind === 'running' ? <StatusMark status="in_progress" live theme={ctx.theme} />
     : now.kind === 'done' ? <StatusMark status="completed" live={false} theme={ctx.theme} />
     : now.kind === 'error' ? <StatusMark status="blocked" live={false} theme={ctx.theme} />
-    : <Icon name={now.kind === 'permission' ? 'ShieldAlert' : 'CircleDot'} size={MARK_SIZE} color={c.accent} />
-  const color = now.kind === 'turn' || now.kind === 'permission' ? c.accent : now.kind === 'error' ? c.statusDanger : c.foreground
+    : <Icon name={now.kind === 'permission' ? 'ShieldAlert' : 'CircleDot'} size={MARK_SIZE} color={c.statusWarning} />
+  const color = now.kind === 'turn' || now.kind === 'permission' ? c.statusWarning : now.kind === 'error' ? c.statusDanger : c.foreground
 
   return (
     <View style={ctx.s.line} accessibilityLiveRegion="polite">
@@ -262,7 +262,7 @@ function Head({ plan, now, ctx }: { plan: Plan; now: Now; ctx: Ctx }) {
         <Text style={s.small}>{t('progress', { done: h.done, total: h.total, pct: h.pct })}</Text>
       </View>
       <NowLine now={now} ctx={ctx} />
-      {h.checks > 0 ? <Text style={[s.small, { color: ctx.theme.colors.accent, marginTop: 4 }]}>{t('checks', { count: h.checks })}</Text> : null}
+      {h.checks > 0 ? <Text style={[s.small, { color: ctx.theme.colors.statusWarning, marginTop: 4 }]}>{t('checks', { count: h.checks })}</Text> : null}
     </View>
   )
 }

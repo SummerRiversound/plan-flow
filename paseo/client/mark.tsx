@@ -23,15 +23,16 @@ function Spinner({ color }: { color: string }) {
   )
 }
 
-// `live`: Claude is at work. A running step while Claude waits on the person shows a still dot in the accent.
+// `live`: Claude is at work. A running step while Claude waits on the person shows a still dot in the
+// warning colour; the accent is green in some themes and would read as done.
 export function StatusMark({ status, live, theme }: { status: PlanStatus; live: boolean; theme: PluginTheme }) {
   const c = theme.colors
   const icon =
-    status === 'in_progress' ? (live ? null : { name: 'CircleDot', color: c.accent })
+    status === 'in_progress' ? (live ? null : { name: 'CircleDot', color: c.statusWarning })
     : status === 'completed' ? { name: 'CircleCheck', color: c.statusSuccess }
     : status === 'blocked' ? { name: 'CircleX', color: c.statusDanger }
     : status === 'skipped' ? { name: 'CircleMinus', color: c.foregroundMuted }
-    : status === 'needs_check' ? { name: 'Eye', color: c.accent }
+    : status === 'needs_check' ? { name: 'Eye', color: c.statusWarning }
     : { name: 'Circle', color: c.foregroundMuted }
 
   return (

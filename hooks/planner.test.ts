@@ -89,6 +89,21 @@ test('Claude, designing, says where each step stands: its statuses land, and a s
   expect(board).toContain('2.3 Stacking - pending')
 })
 
+test('a design that adds its stages before removing the old ones keeps their statuses; a status the board refuses is left out alone', () => {
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Coupon work' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  // The old step is running while the new stages land, and two stages cannot run at once.
+  const answer = JSON.stringify([
+    { op: 'add', nodes: [{ title: 'Fixed coupon', children: [{ title: 'Its test', status: 'completed' }, { title: 'Its form', status: 'in_progress' }] }, { title: 'Percent coupon', children: [{ title: 'Rounding', status: 'in_progress' }] }] },
+    { op: 'remove', id: '1' },
+  ])
+  const board = describeBoard(runDesign(start.board, answer, 2).board)
+  expect(board).not.toContain('Coupon work')
+  expect(board).toContain('2.1 Its test - completed')
+  expect(board).toContain('2.2 Its form - in_progress')
+  expect(board).toContain('3.1 Rounding - pending')
+})
+
 test('Claude, designing, may redraw the plan in hand whole: it takes its place with its statuses, nothing goes to the shelf', () => {
   expect(designPrompt({ plan: emptyPlan(), shelf: [] })).toContain(DESIGN_BAR)
 

@@ -5,7 +5,7 @@
 import type { Board } from './board'
 import type { PlanOp } from './plan-tool'
 import { emptyPlan, STATUSES } from './plan'
-import type { PlanStatus } from './plan'
+import type { NodeUpdate, PlanStatus } from './plan'
 import { DESIGN_TITLE_RULE, PLAN_RULES, TITLE_RULE, TOOL_DESCRIPTION, describeBoard, parseOp, runOp } from './plan-tool'
 
 // One line of what happened, oldest first.
@@ -193,6 +193,16 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
   const text = folded(answer)
   const statuses = addedStatuses(text)
   let applied = 0
+  // Each status lands on its own, so one the board refuses (two stages running at once) costs only itself.
+  const mark = (updates: readonly NodeUpdate[]): NodeUpdate[] =>
+    updates.filter(u => {
+      const r = runOp(board, { op: 'update', updates: [u] }, now)
+      if ('error' in r) return true
+      board = r.board
+      return false
+    })
+  // Refused while the old plan still ran: tried again once every op has run, on the steps still there.
+  const refused: NodeUpdate[] = []
   parseOps(text).forEach((op, i) => {
     // A "set" from the design redraws the plan in hand in place: the same work, so nothing goes to
     // the shelf and the plan keeps the time it started.
@@ -207,8 +217,7 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
     const given = statuses[i] ?? []
     const added = op.op === 'add' || op.op === 'set' ? board.plan.nodes.map(n => n.id).filter(id => !before.has(id)).sort(byPath) : []
     const updates = added.flatMap((id, k) => (given[k] === undefined ? [] : [{ id, ...given[k] }]))
-    const marked = updates.length === 0 ? undefined : runOp(board, { op: 'update', updates }, now)
-    if (marked !== undefined && !('error' in marked)) board = marked.board
+    refused.push(...mark(updates))
     if (!redraw) return
     // A step drawn again under the same title keeps what the old one carried: its links, and a check
     // already confirmed (a step the redraw leaves waiting for a check that the board had as done).
@@ -222,6 +231,7 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
     const carried = kept.length === 0 ? undefined : runOp(board, { op: 'update', updates: kept }, now)
     if (carried !== undefined && !('error' in carried)) board = carried.board
   })
+  mark(refused.filter(u => board.plan.nodes.some(n => n.id === u.id)))
 
   return { board, applied }
 }

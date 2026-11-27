@@ -7,8 +7,12 @@ import type { Printed } from './ask'
 import { type Ask, look } from './look'
 import { happenedFrom } from './timeline'
 
-// What the designs of one agent may cost; past it the planner alone keeps the board. About eight designs.
-export const DESIGN_BUDGET_USD = 1
+// What the designs of one agent may cost; past it the planner alone keeps the board. Replayed over
+// five sessions, a design cost about $0.05; the longest of them reached $1.
+export const DESIGN_BUDGET_USD = 2
+// How long an agent rests after a turn that did work before the plan is designed: the person looks at
+// the board when the agent stops, and a turn's one look misses what the mod's looks during the work see.
+export const SETTLE_MS = 180_000
 const KEPT_CALLS = 50
 
 // One design call: when, how long, how it ended, and what it read, wrote and cost.
@@ -28,28 +32,38 @@ export type TurnDeps = {
 
 // After an agent's turn: the planner looks at it, and when the turn did work and the board was left
 // off (the look changed nothing, an older plan came back from the shelf, or a design is owed), a
-// model that reads the session's log designs the plan, within the agent's budget. The mod's rules.
+// model that reads the session's log designs the plan, within the agent's budget: the mod's rules. A
+// turn that did work and was not designed is designed once the agent rests (SETTLE_MS).
 // The design runs before the next turn's look, so no look lands between the board it read and its ops.
-export const afterTurn = async (board: Board, state: DesignState, turn: readonly AgentTimelineItem[], deps: TurnDeps): Promise<{ board: Board; design: DesignState; looked: number | null }> => {
+// `settles`: the turn did work on a plan and no design followed it, so one is due once the agent rests.
+export const afterTurn = async (board: Board, state: DesignState, turn: readonly AgentTimelineItem[], deps: TurnDeps): Promise<{ board: Board; design: DesignState; looked: number | null; settles: boolean }> => {
   const r = await look(board, turn, deps.look, deps.now())
   let next = r?.board ?? board
   // Work is a call Claude ran; a prompt from another agent or a task's notice comes as a call but is news.
   const worked = happenedFrom(turn).some(h => h.kind === 'tool')
   const offBoard = leftOff(next.plan, state.hand, r !== null && r.applied === 0, state.owed)
-  let design: DesignState = { ...state, hand: { key: planKey(next.plan), startedAt: next.plan.startedAt ?? 0 } }
+  const design: DesignState = { ...state, hand: { key: planKey(next.plan), startedAt: next.plan.startedAt ?? 0 } }
   const looked = r?.applied ?? null
-  if (!worked || !offBoard || next.plan.nodes.length === 0) return { board: next, design, looked }
+  if (!worked || next.plan.nodes.length === 0) return { board: next, design, looked, settles: false }
+  if (!offBoard) return { board: next, design, looked, settles: true }
 
+  return { ...(await designNow(next, design, deps)), looked, settles: false }
+}
+
+// The design asked now, within the agent's budget: it reads the session's log and reshapes the plan.
+export const designNow = async (board: Board, state: DesignState, deps: TurnDeps): Promise<{ board: Board; design: DesignState }> => {
+  let next = board
+  let design = state
   const at = deps.now()
   const record = (call: DesignCall): DesignState => ({ ...design, calls: [...design.calls, call].slice(-KEPT_CALLS) })
-  if (design.spent >= DESIGN_BUDGET_USD) return { board: next, design: record({ at, ms: 0, result: 'over budget' }), looked }
+  if (design.spent >= DESIGN_BUDGET_USD) return { board: next, design: record({ at, ms: 0, result: 'over budget' }) }
 
   const log = (await deps.session()).flatMap(t => happenedFrom(t, true))
   const p = await deps.design(REPLAY_SYSTEM, replayDesignPrompt(next, log))
   const ms = deps.now() - at
   if (p === null) {
     design = { ...design, owed: true }
-    return { board: next, design: record({ at, ms, result: 'no answer' }), looked }
+    return { board: next, design: record({ at, ms, result: 'no answer' }) }
   }
   const ran = runDesign(next, p.text, deps.now())
   next = ran.board
@@ -59,5 +73,5 @@ export const afterTurn = async (board: Board, state: DesignState, turn: readonly
   }
   design = { ...design, owed: false, spent: design.spent + p.cost }
 
-  return { board: next, design: record({ at, ms, result: 'answered', ops: ran.applied, input: p.input, output: p.output, cost: p.cost }), looked }
+  return { board: next, design: record({ at, ms, result: 'answered', ops: ran.applied, input: p.input, output: p.output, cost: p.cost }) }
 }

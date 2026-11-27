@@ -33,7 +33,7 @@ import type { Happened } from '../paseo/shared/planner'
 import { LOOK_EVERY_MS, LOOK_GAP_MS, PLAN_EVERY, PLANNER_SYSTEM, REPLAY_SYSTEM, designPrompt, noticeLine, parseOps, plannerPrompt, remember, replayDesignPrompt, runDesign } from '../paseo/shared/planner'
 import { BAND_ROWS, drawTree, lineText } from '../hooks/tree'
 import type { Activity } from '../types'
-import { afterTurn, type DesignCall, freshDesign } from '../paseo/server/turn'
+import { afterTurn, type DesignCall, designNow, freshDesign, SETTLE_MS } from '../paseo/server/turn'
 import { esc, FONT_LINK, PAGE_STYLE, preBox } from './html'
 import type { Heard } from './session'
 import { costScore, costShare, heard, itemMean, ON_TIME_BARS, onTimeShare, shareScore, USEFUL_BARS, usefulShare } from './session'
@@ -99,7 +99,8 @@ const ask = (model: string, system: string, prompt: string, effort: string | und
     maxBuffer: 1 << 26,
     stdio: ['pipe', 'pipe', 'ignore'],
   })
-  const r = JSON.parse(out) as { result?: string; usage?: Record<string, number> }
+  const r = JSON.parse(out) as { is_error?: boolean; result?: string; usage?: Record<string, number> }
+  if (r.is_error === true) say(`  ${model} call failed: ${(r.result ?? '').slice(0, 160)}`)
   const u = r.usage ?? {}
   const sum = (asked[model] ??= { calls: 0, input: 0, output: 0 })
   sum.calls++
@@ -448,7 +449,7 @@ const pluginPrint = (system: string, prompt: string): { text: string; cost: numb
 // a notice opens one): a command with its output, a subagent with its report, a file by its path.
 // shortcut: a subagent's own calls are left out, as the parent's Paseo timeline holds only its report.
 type Item = Parameters<typeof afterTurn>[2][number]
-const timelineOf = (jsonl: string): Array<{ end: number; items: Item[] }> => {
+const timelineOf = (jsonl: string): Array<{ start: number; end: number; items: Item[] }> => {
   type E = { type?: string; isMeta?: boolean; isSidechain?: boolean; timestamp?: string; message?: { content?: unknown } }
   const entries = jsonl.split('\n').flatMap((l): E[] => {
     try {
@@ -471,7 +472,7 @@ const timelineOf = (jsonl: string): Array<{ end: number; items: Item[] }> => {
     : ['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(name) ? { type: 'read', filePath: String(input.file_path ?? input.notebook_path ?? '') }
     : ['Grep', 'Glob'].includes(name) ? { type: 'search', query: String(input.pattern ?? '') }
     : { type: 'unknown', input, output: out }) as never
-  const turns: Array<{ end: number; items: Item[] }> = []
+  const turns: Array<{ start: number; end: number; items: Item[] }> = []
   for (const e of entries) {
     const at = Date.parse(e.timestamp ?? '') || 0
     const c = e.message?.content
@@ -481,9 +482,9 @@ const timelineOf = (jsonl: string): Array<{ end: number; items: Item[] }> => {
       const item = text.includes('<task-notification>')
         ? ({ type: 'tool_call', callId: `n${at}`, name: 'notice', status: 'completed', error: null, agentMessage: { text: noticeLine(text) }, detail: { type: 'plain_text', text } } as unknown as Item)
         : ({ type: 'user_message', text } as unknown as Item)
-      turns.push({ end: at, items: [item] })
+      turns.push({ start: at, end: at, items: [item] })
     } else if (e.type === 'assistant' && Array.isArray(c) && turns.length > 0) {
-      const turn = turns[turns.length - 1] as { end: number; items: Item[] }
+      const turn = turns[turns.length - 1] as { start: number; end: number; items: Item[] }
       turn.end = at
       for (const b of c as Array<{ type?: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }>) {
         if (b.type === 'text' && (b.text ?? '').trim() !== '') turn.items.push({ type: 'assistant_message', text: b.text ?? '' } as unknown as Item)
@@ -503,15 +504,18 @@ const pluginReplay = async (jsonl: string): Promise<{ board: Board; at: number; 
   let board = emptyBoard()
   let design = freshDesign()
   let at = 0
+  const deps = (i: number): Parameters<typeof afterTurn>[3] => ({
+    look: async (system, prompt) => ask('haiku', system, prompt, 'low'),
+    design: async (system, prompt) => pluginPrint(system, prompt),
+    session: async () => turns.slice(0, i + 1).map(x => x.items),
+    now: () => turns[i]?.end ?? 0,
+  })
   for (const [i, t] of turns.entries()) {
     say(`  turn ${i + 1}/${turns.length}`)
-    const out = await afterTurn(board, design, t.items, {
-      look: async (system, prompt) => ask('haiku', system, prompt, 'low'),
-      design: async (system, prompt) => pluginPrint(system, prompt),
-      session: async () => turns.slice(0, i + 1).map(x => x.items),
-      now: () => t.end,
-    })
+    const out = await afterTurn(board, design, t.items, deps(i))
     ;[board, design, at] = [out.board, out.design, t.end]
+    // The design due once the agent rests, when it rests long enough before the next turn.
+    if (out.settles && (turns[i + 1]?.start ?? Number.POSITIVE_INFINITY) - t.end >= SETTLE_MS) ({ board, design } = await designNow(board, design, deps(i)))
   }
   return { board, at, calls: design.calls, looks: turns.length }
 }

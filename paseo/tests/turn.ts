@@ -6,7 +6,7 @@ import { runOp } from '../shared/plan-tool'
 import { REPLAY_SYSTEM } from '../shared/planner'
 import type { Board } from '../shared/types'
 import type { Printed } from '../server/ask'
-import { afterTurn, DESIGN_BUDGET_USD, type DesignState, freshDesign, type TurnDeps } from '../server/turn'
+import { afterTurn, DESIGN_BUDGET_USD, type DesignState, designNow, freshDesign, type TurnDeps } from '../server/turn'
 
 const start = (): Board => {
   const r = runOp(emptyBoard(), { op: 'set', title: 'Dark theme', nodes: [{ title: 'Read the theme' }, { title: 'Add the palette' }] }, 1)
@@ -99,4 +99,19 @@ test("once an agent's designs reach the budget, no design is asked and the board
   const under = deps()
   await afterTurn(start(), { ...freshDesign(), spent: DESIGN_BUDGET_USD - 0.01 }, worked, under.d)
   assert.equal(under.asked.length, 1)
+})
+
+test('a turn that did work and moved the board settles: the design is due once the agent rests, and then it lands', async () => {
+  const moved = deps({ look: async () => JSON.stringify([{ op: 'update', updates: [{ id: '1', status: 'completed' }] }]) })
+  const out = await afterTurn(start(), freshDesign(), worked, moved.d)
+  assert.equal(out.settles, true)
+  assert.equal(moved.asked.length, 0)
+
+  const rested = await designNow(out.board, out.design, moved.d)
+  assert.equal(moved.asked.length, 1)
+  assert.deepEqual(rested.board.plan.nodes.map(n => n.status), ['completed', 'completed'])
+
+  // No work, or a design right after the turn, leaves nothing to settle.
+  assert.equal((await afterTurn(start(), freshDesign(), talked, deps().d)).settles, false)
+  assert.equal((await afterTurn(start(), freshDesign(), worked, deps().d)).settles, false)
 })

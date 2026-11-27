@@ -87,3 +87,17 @@ test("the cost item is the mod's model calls against the session's own, on the s
   expect(costShare([{ at, call: 'look' }], jsonl)).toBeUndefined()
   expect([0.5, 1, 1.5, 3, 4.1, 8, 20].map(costScore)).toEqual([5, 5, 4, 3, 2, 2, 1])
 })
+
+test("read for the plugin's replayed design, a call carries the start of what it gave back; a file it read carries nothing", () => {
+  const jsonl = [
+    line({ type: 'user', message: { content: 'Open the PR' } }),
+    line({ type: 'assistant', message: { id: 'm1', content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'gh pr create', description: 'Open the pull request' } }, { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: '/repo/app.ts' } }] } }),
+    line({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'b1', content: `${'x'.repeat(300)} https://github.com/acme/app/pull/12` }, { type: 'tool_result', tool_use_id: 'r1', content: 'file text' }] } }),
+  ].join('\n')
+
+  const calls = heard(jsonl, [], true).filter(h => h.kind === 'tool').map(h => h.text)
+  expect(calls[0]?.startsWith('Open the pull request → ')).toBe(true)
+  expect(calls[0]?.endsWith('https://github.com/acme/app/pull/12')).toBe(true)
+  expect(calls[1]).toBe('Read app.ts')
+  expect(heard(jsonl).filter(h => h.kind === 'tool')[0]?.text).toBe('Open the pull request')
+})

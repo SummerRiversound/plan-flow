@@ -23,8 +23,11 @@ export const LOOK_GAP_MS = 20_000
 
 export const MAX_LOG = 80
 const MAX_PROMPT_LOG = 6000
-// A replayed design reads the whole session up to this many characters, newest first: about 35K tokens of Korean.
+// A replayed design reads the session up to this many characters, about 35K tokens of Korean: the
+// newest part in full, the older part as requests and answers cut to a few lines.
 const MAX_REPLAY_LOG = 50_000
+const MAX_REPLAY_RECENT = 30_000
+const MAX_REPLAY_OLDER = 300
 // A call in a replayed log carries the start of what it returned.
 const MAX_REPLAY_LINE = 320
 const MAX_LINE = 160
@@ -90,21 +93,27 @@ const shorten = (h: Happened, line = MAX_LINE): Happened => ({ kind: h.kind, tex
 
 const LABEL = { request: 'The person asked', notice: 'Claude was told', tool: 'Claude ran', subagent: 'A subagent ran', said: 'Claude said', answer: 'Claude answered' } as const
 
-// The newest lines of the log that fit in `max` characters, oldest first; empty lines left out.
-const logLines = (log: readonly Happened[], max: number): string[] => {
-  const lines: string[] = []
+const row = (h: Happened): string => `- ${LABEL[h.kind]}: ${h.text}`
+
+// Where the newest lines that fit in `max` characters begin; empty lines take no room.
+const fitFrom = (log: readonly Happened[], max: number): number => {
   let size = 0
   for (let i = log.length - 1; i >= 0; i--) {
     const h = log[i] as Happened
     if (h.text === '') continue
-    const row = `- ${LABEL[h.kind]}: ${h.text}`
-    if (size + row.length > max) break
-    lines.unshift(row)
-    size += row.length + 1
+    if (size + row(h).length > max) return i + 1
+    size += row(h).length + 1
   }
 
-  return lines
+  return 0
 }
+
+// The newest lines of the log that fit in `max` characters, oldest first; empty lines left out.
+const logLines = (log: readonly Happened[], max: number): string[] =>
+  log
+    .slice(fitFrom(log, max))
+    .filter(h => h.text !== '')
+    .map(row)
 
 // The field names the board reads, spelled out: without them a model writes "steps" for "nodes".
 const OP_SHAPES = [
@@ -178,14 +187,25 @@ const designBody = (board: Board, mend: boolean): string[] => [
 export const replayDesignPrompt = (board: Board, log: readonly Happened[]): string =>
   [
     'This message comes from plan-flow, the plan board drawn beside a coding session between a person and Claude. You are not in that session: below is its log, oldest first (what the person asked, what Claude was told, ran and got back, said and answered). Read it as the record of the work and design the plan the way Claude, who did the work, would. Nothing you write reaches the person or the session.',
-    `The session so far:\n${logLines(log.map(h => shorten(h, MAX_REPLAY_LINE)), MAX_REPLAY_LOG).join('\n') || '- nothing'}`,
+    `The session so far:\n${replayLines(log).join('\n') || '- nothing'}`,
     REPLAY_RULES,
     ...designBody(board, true),
   ].join('\n\n')
 
+// The newest of the log in full, and before it, while room is left, only what the person asked and
+// Claude answered: an answer says where the work stood, so a step finished days ago stays known.
+const replayLines = (log: readonly Happened[]): string[] => {
+  const short = log.map(h => shorten(h, MAX_REPLAY_LINE))
+  const from = fitFrom(short, MAX_REPLAY_RECENT)
+  const older = log.slice(0, from).filter(h => h.kind === 'request' || h.kind === 'answer')
+  const before = logLines(older.map(h => ({ kind: h.kind, text: cut(h.text, MAX_REPLAY_OLDER) })), MAX_REPLAY_LOG - MAX_REPLAY_RECENT)
+
+  return [...before, ...logLines(short.slice(from), MAX_REPLAY_RECENT)]
+}
+
 // What the log shows less plainly than a conversation does, said outright.
 const REPLAY_RULES =
-  'Work that runs at the same time (several sessions or agents each on their own part) goes under one stage with "parallel": true, since only the steps of one parallel group run at once. A step whose work is done and handed to someone else to review or approve (a pull request ready for review) is "completed"; the review and the merge are expected. A choice the log leaves with the person is a step to check ("needs_check") with a note naming the choice.'
+  'Work that runs at the same time (several sessions or agents each on their own part) goes under one stage with "parallel": true, since only the steps of one parallel group run at once. A step whose work is done and handed to someone else to review or approve (a pull request ready for review) is "completed"; the review and the merge are expected. A choice the log leaves with the person is a step to check ("needs_check") with a note naming the choice. The log starts partway through a long session, so a step the board shows finished ("completed" or "skipped") stays finished unless the log shows its work opened again.'
 
 // Step ids in reading order: "2.10" after "2.9", a step before the steps under it.
 const byPath = (a: string, b: string): number => {
@@ -238,6 +258,9 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
     })
   // Refused while the old plan still ran: tried again once every op has run, on the steps still there.
   const refused: NodeUpdate[] = []
+  // The status the design gave each step by op "update", the last one when it gave several: a later op
+  // (removing a stage's steps, so the stage stands alone) can undo it, so it is set again at the end.
+  const told = new Map<string, NodeUpdate>()
   parseOps(text).forEach((op, i) => {
     // A "set" from the design redraws the plan in hand in place: the same work, so nothing goes to
     // the shelf and the plan keeps the time it started.
@@ -247,6 +270,7 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
     const old = board.plan.nodes
     const ran = runOp(redraw ? { plan: emptyPlan(), shelf: board.shelf } : board, op, now)
     if ('error' in ran) return
+    if (op.op === 'update') for (const u of op.updates) if (u.status !== undefined) told.set(u.id, { id: u.id, status: u.status, ...(u.note === undefined ? {} : { note: u.note }) })
     board = redraw && board.plan.nodes.length > 0 ? { ...ran.board, plan: { ...ran.board.plan, startedAt: board.plan.startedAt } } : ran.board
     applied++
     const given = statuses[i] ?? []
@@ -266,7 +290,7 @@ export const runDesign = (board: Board, answer: string, now: number, mend = true
     const carried = kept.length === 0 ? undefined : runOp(board, { op: 'update', updates: kept }, now)
     if (carried !== undefined && !('error' in carried)) board = carried.board
   })
-  mark(refused.filter(u => board.plan.nodes.some(n => n.id === u.id)))
+  mark([...refused, ...told.values()].filter(u => board.plan.nodes.some(n => n.id === u.id && n.status !== u.status)))
 
   return { board, applied }
 }

@@ -104,6 +104,19 @@ test('a design that adds its stages before removing the old ones keeps their sta
   expect(board).toContain('3.1 Rounding - pending')
 })
 
+test('a design that finishes a stage and then removes its steps keeps the stage finished', () => {
+  const start = runOp({ plan: emptyPlan(), shelf: [] }, { op: 'set', title: 'Coupons', nodes: [{ title: 'Fixed coupon', children: [{ title: 'Its test' }, { title: 'Its form' }] }, { title: 'Percent coupon' }] }, 1)
+  if ('error' in start) throw new Error(start.error)
+  const answer = JSON.stringify([
+    { op: 'update', updates: [{ id: '1', status: 'completed' }] },
+    { op: 'remove', id: '1.1' },
+    { op: 'remove', id: '1.2' },
+  ])
+  const board = describeBoard(runDesign(start.board, answer, 2).board)
+  expect(board).not.toContain('Its test')
+  expect(board).toContain('1 Fixed coupon - completed')
+})
+
 test('Claude, designing, may redraw the plan in hand whole: it takes its place with its statuses, nothing goes to the shelf', () => {
   expect(designPrompt({ plan: emptyPlan(), shelf: [] })).toContain(DESIGN_BAR)
 
